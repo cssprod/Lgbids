@@ -56,6 +56,10 @@ const PROCUREMENT_WORDS =
 const PROCUREMENT_HREF = /(?:rfp|rfq|itt|tender|bid|quotation|proposal|opportunit|procurement|solicitation)/i;
 const GENERIC_LINK_TEXT = /^(?:view|view details|details|more|read more|learn more|more info(?:rmation)?|download|click here|here|open|see details|full details|link|pdf|document)$/i;
 const NOT_A_NOTICE = /^(?:home|contact(?: us)?|login|log in|sign in|register|subscribe|search|next|previous|prev|first|last|back|print|share|\d+|»|«|›|‹)$/i;
+// Links found on bid pages that lead to archives, results and how-to pages rather than to a notice.
+const SIDE_LINK =
+  /\b(?:archive[sd]?|previous|past|closed|awarded|award results?|bid results|results|expired|how to|guide(?:lines)?|polic(?:y|ies)|faqs?|frequently asked|terms (?:and|&) conditions|register|registration|subscribe|sign up|notifications?|(?:vendor|supplier) (?:list|registration|portal)|purchasing (?:policy|department|division|services)|doing business|selling to|contact)\b/i;
+const NUMBERED_NOTICE = /\b(?:RFP|RFQ|ITT|ITQ|RFSO|RFSQ|RFPQ|RFEOI|REOI|EOI|RFI|NOI|NRFP)\b.*\d/i;
 const CHROME_SELECTOR = 'nav, header, footer, aside, .breadcrumb, .breadcrumbs, .pagination, .pager, .menu, .navbar, .sidebar, [role=navigation], [role=banner], [role=contentinfo]';
 const MAIN_SELECTORS = ['main', '[role=main]', 'article', '#main-content', '#main', '#content', '.main-content', '.region-content', '.content'];
 
@@ -71,6 +75,22 @@ function resolve(href: string | undefined, base: string): URL | null {
   } catch {
     return null;
   }
+}
+
+// Query-string parameters that page, sort or filter a listing rather than name a notice.
+const PAGING_PARAMS = new Set([
+  'page', 'pn', 'p', 'pg', 'start', 'offset', 'sort', 'order', 'dir', 'per_page', 'perpage', 'limit', 'view', 'tab', 'lang',
+  'q', 'search', 'keyword', 'keywords', 'filter', 'category', 'type', 'status',
+]);
+
+/** Is this link just the listing page again (itself, another page of it, or a re-sort)? */
+function isSamePage(url: URL, page: URL): boolean {
+  if (url.origin !== page.origin) return false;
+  if (url.pathname.replace(/\/$/, '') !== page.pathname.replace(/\/$/, '')) return false;
+  for (const [key, value] of url.searchParams) {
+    if (!PAGING_PARAMS.has(key.toLowerCase()) && value && page.searchParams.get(key) !== value) return false;
+  }
+  return true;
 }
 
 function mainScope($: $Root): cheerio.Cheerio<Element> {
@@ -253,6 +273,43 @@ export function extractListing(html: string, pageUrl: string, opts: ListingOptio
 
   // --- Automatic row detection ---------------------------------------------------
   const scope = pattern ? ($('body').first() as cheerio.Cheerio<Element>) : mainScope($);
+  const items: RawOpportunity[] = [];
+  const seen = new Set<string>();
+
+  // A table with a "Closing" column is a bid listing whatever its links look
+  // like: take every row.
+  const handledTables: Element[] = [];
+  if (!pattern) {
+    scope.find('table').each((_, table) => {
+      const first = $(table).find('tr').first();
+      const headers = tableHeaders($, first as cheerio.Cheerio<Element>);
+      if (!headers.some((h) => /clos|deadline|due date|end date/i.test(h))) return;
+      handledTables.push(table as Element);
+      $(table)
+        .find('tr')
+        .each((__, tr) => {
+          const row = $(tr) as cheerio.Cheerio<Element>;
+          if (row.children('td').length < 2) return;
+          let chosen: Candidate | null = null;
+          row.find('a[href]').each((___, a) => {
+            const url = resolve($(a).attr('href'), pageUrl);
+            if (!url) return;
+            const text = collapse($(a).text());
+            const better =
+              !chosen ||
+              (GENERIC_LINK_TEXT.test(chosen.text) && !GENERIC_LINK_TEXT.test(text)) ||
+              (!GENERIC_LINK_TEXT.test(text) && text.length > chosen.text.length);
+            if (better) chosen = { url, anchor: a as Element, text };
+          });
+          const item = buildItem($, row, chosen, page, opts);
+          if (item && !seen.has(item.externalId)) {
+            seen.add(item.externalId);
+            items.push(item);
+          }
+        });
+    });
+  }
+
   const byUrl = new Map<string, Candidate>();
   scope.find('a[href]').each((_, a) => {
     const url = resolve($(a).attr('href'), pageUrl);
@@ -263,8 +320,10 @@ export function extractListing(html: string, pageUrl: string, opts: ListingOptio
       if (!pattern.test(pathAndQuery)) return;
     } else {
       if ($(a).closest(CHROME_SELECTOR).length) return;
-      if (url.origin === page.origin && url.pathname.replace(/\/$/, '') === page.pathname.replace(/\/$/, '')) return;
+      if (handledTables.some((table) => $(a).closest(table).length > 0)) return;
+      if (isSamePage(url, page)) return;
       if (NOT_A_NOTICE.test(text)) return;
+      if (SIDE_LINK.test(text) && !NUMBERED_NOTICE.test(text)) return;
       const looksLikeNotice = PROCUREMENT_WORDS.test(text) || (PROCUREMENT_HREF.test(url.pathname) && text.length >= 12);
       if (!looksLikeNotice) return;
     }
@@ -278,7 +337,7 @@ export function extractListing(html: string, pageUrl: string, opts: ListingOptio
   });
 
   const candidates = [...byUrl.values()];
-  if (candidates.length === 0) return [];
+  if (candidates.length === 0) return items;
 
   // How many different candidate links sit under each ancestor? The row for a
   // link is the largest ancestor that contains no other candidate.
@@ -295,8 +354,6 @@ export function extractListing(html: string, pageUrl: string, opts: ListingOptio
     }
   }
 
-  const items: RawOpportunity[] = [];
-  const seen = new Set<string>();
   for (const c of candidates) {
     let container: Element = c.anchor;
     for (;;) {

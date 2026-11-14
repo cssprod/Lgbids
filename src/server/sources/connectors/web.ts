@@ -67,7 +67,6 @@ export const rss: Connector = {
         closing: closing ? { iso: closing.iso, precision: closing.precision } : null,
         closingRaw: closing?.text ?? '',
         categories: entry.categories,
-        bcSource: source.config.localBuyer,
       });
     }
     ctx.note(`${items.length} ${items.length === 1 ? 'entry' : 'entries'} in the feed.`);
@@ -107,7 +106,6 @@ export const htmlList: Connector = {
       let added = 0;
       for (const item of items) {
         if (found.has(item.externalId)) continue;
-        item.bcSource = config.localBuyer || undefined;
         found.set(item.externalId, item);
         added += 1;
       }

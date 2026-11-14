@@ -33,6 +33,7 @@
     "luxon": "^3.7.2",
     "nodemailer": "^10.5.0",
     "pdfkit": "^0.20.2",
+    "unpdf": "^1.9.1",
     "zod": "^4.6.7"
   },
   "devDependencies": {

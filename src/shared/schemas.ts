@@ -274,6 +274,8 @@ export const sourceConfigSchema = z.object({
   fetchDetails: z.boolean().default(true),
   /** Everything this source lists is inside the service area (a local buyer's own site). */
   localBuyer: z.boolean().default(false),
+  /** Everything this source lists is in British Columbia (a province-wide listing). */
+  bcOnly: z.boolean().default(false),
   /** Buyer name applied when the listing does not state one. */
   organization: z.string().trim().max(200).default(''),
   /** How bids for this source's notices are normally submitted, when known. */

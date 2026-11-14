@@ -120,9 +120,14 @@ export function projectToOpportunity(project: Json, base: string, organization: 
   };
 }
 
+/**
+ * The portal's root address. Accepts whatever the user pasted
+ * ("uvic.bonfirehub.ca/portal", ".../opportunities/1234").
+ */
 export function portalBase(url: string): string {
   const u = new URL(/^https?:\/\//i.test(url) ? url : `https://${url}`);
-  return u.origin;
+  const path = u.pathname.replace(/\/(?:portal|opportunities|PublicPortal|login)(?:\/.*)?$/i, '').replace(/\/+$/, '');
+  return `${u.origin}${path}`;
 }
 
 export const bonfire: Connector = {
