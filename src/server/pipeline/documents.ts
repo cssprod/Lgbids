@@ -54,7 +54,7 @@ export async function pdfText(data: Uint8Array, opts: { maxPages?: number; maxCh
     }
     return text.length > maxChars ? text.slice(0, maxChars) : text;
   } finally {
-    await pdf.destroy().catch(() => undefined);
+    await pdf.loadingTask.destroy().catch(() => undefined);
   }
 }
 

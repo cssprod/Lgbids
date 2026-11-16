@@ -74,6 +74,11 @@ export function noticeLine(opp: Pick<OpportunityRecord, 'title' | 'referenceNumb
   return ref ? `${ref} – ${title}` : title;
 }
 
+/** Add a full stop unless the text already ends a sentence (e.g. "Ltd."). */
+function endSentence(text: string): string {
+  return /[.!?]$/.test(text) ? text : `${text}.`;
+}
+
 function lowerFirst(s: string): string {
   return s ? s.charAt(0).toLowerCase() + s.slice(1) : s;
 }
@@ -94,6 +99,8 @@ function signer(profile: Profile): { name: string; title: string } {
 }
 
 function mailingAddress(profile: Profile): string[] {
+  // The province defaults to BC, which on its own is not an address.
+  if (!profile.addressLine && !profile.city) return [];
   const cityLine = [profile.city, [profile.province, profile.postalCode].filter(Boolean).join(' ')].filter(Boolean).join(', ');
   return [profile.addressLine, cityLine].filter(Boolean);
 }
@@ -104,7 +111,7 @@ function contactSentence(profile: Profile): string {
   if (!profile.contactName && ways.length === 0) return '';
   const who = profile.contactName ? `${profile.contactName}${profile.contactTitle ? `, ${profile.contactTitle},` : ''}` : 'us';
   const how = ways.length ? ` at ${ways.join(' or ')}` : '';
-  return `Please direct any questions about this submission to ${who}${how}.`;
+  return endSentence(`Please direct any questions about this submission to ${who}${how}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -122,7 +129,9 @@ export function transmittalText(
 
   lines.push(`Dear ${opp.contactName ? collapse(opp.contactName) : 'Purchasing'}:`, '');
   lines.push(
-    `${company ? `${company} is pleased to submit its` : 'Please find attached our'} ${word} for ${noticeLine(opp)}${opp.organization ? `, issued by ${collapse(opp.organization)}` : ''}.`,
+    endSentence(
+      `${company ? `${company} is pleased to submit its` : 'Please find attached our'} ${word} for ${noticeLine(opp)}${opp.organization ? `, issued by ${collapse(opp.organization)}` : ''}`,
+    ),
   );
   if (hasPrice(opts.priceTotal)) lines.push('', `Our total price is ${formatMoney(opts.priceTotal)} plus GST.`);
   else if (opts.includeRates) lines.push('', 'Our unit rates are set out in the attached submission package.');
@@ -181,6 +190,22 @@ const SERVICE_TEXT: Record<ServiceKey, string> = {
     'Design work will respond to the buyer’s program, site conditions and maintenance capacity, with drawings and specifications prepared to the level of detail the bid documents ask for and reviewed with the buyer at each stage.',
 };
 
+/** Short names for running prose, where "turf & sports fields" style labels read badly in a list. */
+const SERVICE_PROSE: Record<ServiceKey, string> = {
+  grounds: 'grounds maintenance',
+  lawn: 'turf care',
+  garden: 'garden bed care and planting',
+  tree: 'tree care',
+  vegetation: 'vegetation control',
+  install: 'landscape installation',
+  hardscape: 'hardscape construction',
+  irrigation: 'irrigation work',
+  restoration: 'ecological restoration',
+  snow: 'snow and ice control',
+  supply: 'supply of landscape materials',
+  design: 'landscape design',
+};
+
 const NEUTRAL_APPROACH =
   'We will carry out the work as described in the bid documents and specifications, coordinate schedules and site access with the buyer’s representative, and report any issues or deficiencies promptly.';
 
@@ -204,11 +229,13 @@ export function letterSections(
     const operating = profile.legalName && profile.tradeName && profile.tradeName !== profile.legalName ? ` (operating as ${profile.tradeName})` : '';
     const closing = opp.closesAt ? `, closing ${formatLocal(opp.closesAt, opp.closesAtPrecision, opts.zone)}` : '';
     p.push(
-      `${legal ? `${legal}${operating} is pleased to submit this` : 'Please accept this'} ${lword} for ${noticeLine(opp)}${opp.organization ? `, issued by ${collapse(opp.organization)}` : ''}${closing}.`,
+      endSentence(
+        `${legal ? `${legal}${operating} is pleased to submit this` : 'Please accept this'} ${lword} for ${noticeLine(opp)}${opp.organization ? `, issued by ${collapse(opp.organization)}` : ''}${closing}`,
+      ),
     );
     if (profile.about) p.push(profile.about);
     if (services.length) {
-      const labels = services.map((s) => lowerFirst(SERVICE_LABELS[s]));
+      const labels = services.map((s) => SERVICE_PROSE[s]);
       p.push(
         `We understand the work to include ${joinList(labels)}. The pages that follow set out our understanding of the work, how we would carry it out, and the company information the buyer needs to evaluate this ${lword}.`,
       );
@@ -249,7 +276,7 @@ export function letterSections(
     const p: string[] = [];
     if (services.length) {
       p.push(
-        `${opp.organization ? collapse(opp.organization) : 'The buyer'} is seeking ${joinList(services.map((s) => lowerFirst(SERVICE_LABELS[s])))}. Our understanding of each part of the work is set out below; the bid documents and any addenda govern where they differ.`,
+        `${opp.organization ? collapse(opp.organization) : 'The buyer'} is seeking ${joinList(services.map((s) => SERVICE_PROSE[s]))}. Our understanding of each part of the work is set out below; the bid documents and any addenda govern where they differ.`,
       );
       for (const s of services) p.push(`${SERVICE_LABELS[s]}. ${SERVICE_TEXT[s]}`);
     } else {
@@ -342,7 +369,9 @@ export function letterSections(
     sections.push({
       heading: 'Declaration',
       paragraphs: [
-        `The undersigned confirms having read the bid documents and any addenda for ${noticeLine(opp)}, that the information in this ${lword} is accurate, and that they are authorized to sign on behalf of ${legal || 'the company'}.`,
+        endSentence(
+          `The undersigned confirms having read the bid documents and any addenda for ${noticeLine(opp)}, that the information in this ${lword} is accurate, and that they are authorized to sign on behalf of ${legal || 'the company'}`,
+        ),
         [
           'Signature: ______________________________',
           `Name: ${sig.name || '______________________________'}`,
@@ -372,7 +401,7 @@ const LEGAL_SUFFIX = /\b(?:ltd|limited|inc|incorporated|corp|corporation|co|llp|
 function asciiWords(input: string): string[] {
   return input
     .normalize('NFKD')
-    .replace(/[̀-ͯ]/g, '')
+    .replace(/[\u0300-\u036f]/g, '')
     .replace(/&/g, ' and ')
     .split(/[^A-Za-z0-9]+/)
     .filter(Boolean);

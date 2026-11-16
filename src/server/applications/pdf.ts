@@ -30,30 +30,17 @@ const RULE_COLOR = '#999999';
 
 // Characters WinAnsi has beyond ASCII and Latin-1.
 const WINANSI_EXTRA = new Set('€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ');
-const REPLACEMENTS: Record<string, string> = {
-  ' ': ' ',
-  ' ': ' ',
-  ' ': ' ',
-  ' ': ' ',
-  ' ': ' ',
-  '‐': '-',
-  '‑': '-',
-  '‒': '-',
-  '―': '—',
-  '−': '-',
-  '′': "'",
-  '″': '"',
-  '←': '<-',
-  '→': '->',
-  '≤': '<=',
-  '≥': '>=',
-  '≠': '!=',
-  '™': '™',
-  '✓': '*',
-  '✔': '*',
-  '●': '•',
-  '▪': '•',
-};
+// Keyed by code point so invisible characters (odd spaces) stay readable here.
+const REPLACEMENT_LIST: [number, string][] = [
+  [0x00a0, ' '], [0x2002, ' '], [0x2003, ' '], [0x2009, ' '], [0x202f, ' '],
+  [0x2010, '-'], [0x2011, '-'], [0x2012, '-'], [0x2212, '-'], [0x2015, '—'],
+  [0x2032, "'"], [0x2033, '"'],
+  [0x2190, '<-'], [0x2192, '->'], [0x2264, '<='], [0x2265, '>='], [0x2260, '!='],
+  [0x2713, '*'], [0x2714, '*'], [0x25cf, '•'], [0x25aa, '•'],
+  // Letters with no decomposed form to fall back on: Ł ł Đ đ ı.
+  [0x0141, 'L'], [0x0142, 'l'], [0x0110, 'D'], [0x0111, 'd'], [0x0131, 'i'],
+];
+const REPLACEMENTS = new Map(REPLACEMENT_LIST.map(([cp, to]) => [String.fromCodePoint(cp), to]));
 
 function encodable(ch: string): boolean {
   const c = ch.codePointAt(0) ?? 0;
@@ -68,7 +55,7 @@ export function pdfSafe(input: string): string {
       out += ch;
       continue;
     }
-    const mapped = REPLACEMENTS[ch];
+    const mapped = REPLACEMENTS.get(ch);
     if (mapped !== undefined) {
       out += mapped;
       continue;
@@ -78,7 +65,7 @@ export function pdfSafe(input: string): string {
       continue;
     }
     // Accented letters outside Latin-1 (e.g. "ł", "ő") lose their accent rather than disappear.
-    const base = ch.normalize('NFKD').replace(/[̀-ͯ]/g, '');
+    const base = ch.normalize('NFKD').replace(/[\u0300-\u036f]/g, '');
     if (base && [...base].every(encodable)) out += base;
   }
   return out;
@@ -140,15 +127,16 @@ function table(l: Layout, columns: string[], rows: string[][]): void {
   const cols = columns.map(pdfSafe);
   const body = rows.map((r) => cols.map((_, i) => pdfSafe(r[i] ?? '')));
 
-  // Columns get width in proportion to their longest content, within limits,
-  // so a "Year" column stays narrow and a description column gets the room.
+  // Short columns ("Year", "Value") get their natural width so they never
+  // wrap mid-number; the long columns share whatever room is left.
+  const measure = (i: number, f: (t: string) => number) => Math.max(f(cols[i] ?? ''), ...body.map((r) => f(r[i] ?? '')));
+  doc.font('Helvetica-Bold').fontSize(SMALL_SIZE);
+  const headW = cols.map((c) => doc.widthOfString(c));
   doc.font('Helvetica').fontSize(SMALL_SIZE);
-  const natural = cols.map((c, i) => {
-    const longest = Math.max(doc.widthOfString(c) + 6, ...body.map((r) => doc.widthOfString(r[i] ?? '')));
-    return Math.min(Math.max(longest + pad * 2, 45), 260);
-  });
-  const sum = natural.reduce((a, b) => a + b, 0);
-  const widths = natural.map((w) => (w / sum) * l.width);
+  const longestWord = (t: string) => Math.max(0, ...t.split(/\s+/).map((w) => doc.widthOfString(w)));
+  const natural = cols.map((_, i) => Math.max(headW[i] ?? 0, measure(i, (t) => doc.widthOfString(t))) + pad * 2 + 2);
+  const minimum = cols.map((_, i) => Math.min(Math.max(headW[i] ?? 0, measure(i, longestWord)) + pad * 2 + 2, l.width / 2));
+  const widths = fitColumns(natural, minimum, l.width);
 
   const rowHeight = (cells: string[], font: string) => {
     doc.font(font).fontSize(SMALL_SIZE);
@@ -184,8 +172,41 @@ function table(l: Layout, columns: string[], rows: string[][]): void {
   doc.moveDown(0.8);
 }
 
+/** Column widths that add up to `total`. */
+export function fitColumns(natural: number[], minimum: number[], total: number): number[] {
+  const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
+  const naturalSum = sum(natural);
+  if (naturalSum <= total) return natural.map((w) => w + ((total - naturalSum) * w) / naturalSum);
+  const widths: number[] = natural.map(() => 0);
+  let open = natural.map((_, i) => i);
+  let remaining = total;
+  for (;;) {
+    const share = remaining / open.length;
+    const fits = open.filter((i) => (natural[i] ?? 0) <= share);
+    if (fits.length === 0 || fits.length === open.length) break;
+    for (const i of fits) {
+      widths[i] = natural[i] ?? 0;
+      remaining -= widths[i];
+    }
+    open = open.filter((i) => !fits.includes(i));
+  }
+  const openNatural = sum(open.map((i) => natural[i] ?? 0));
+  for (const i of open) widths[i] = Math.max(minimum[i] ?? 0, (remaining * (natural[i] ?? 0)) / openNatural);
+  // Minimum widths can push the total over; shrink everything evenly if so.
+  const used = sum(widths);
+  return used > total ? widths.map((w) => (w * total) / used) : widths;
+}
+
 function section(l: Layout, s: LetterSection, withHeading: boolean): void {
-  if (withHeading) heading(l, s.heading);
+  if (withHeading) {
+    // Keep a short text-only section (the declaration and its signature lines) on one page.
+    if (!s.table && !s.bullets?.length) {
+      l.doc.font('Helvetica').fontSize(BODY_SIZE);
+      const h = s.paragraphs.reduce((sum, p) => sum + l.doc.heightOfString(pdfSafe(p), { width: l.width, lineGap: 2 }) + 12, 30);
+      if (h < 300) ensureSpace(l, h);
+    }
+    heading(l, s.heading);
+  }
   for (const p of s.paragraphs) paragraph(l, p);
   if (s.bullets?.length) bullets(l, s.bullets);
   if (s.table && s.table.rows.length) table(l, s.table.columns, s.table.rows);

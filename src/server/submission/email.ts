@@ -99,6 +99,13 @@ export const createMailer: MailerFactory = (settings: EmailSettings): Mailer => 
           text: mail.text,
           attachments: mail.attachments.map((a) => ({ filename: a.filename, content: a.content, contentType: a.contentType })),
         });
+        // With several recipients the server may accept the copy to ourselves
+        // and refuse the buyer; that is not a submission, so treat it as failed.
+        const rejected = ((info.rejected ?? []) as unknown[]).map((r) =>
+          String(typeof r === 'object' && r !== null && 'address' in r ? r.address : r).toLowerCase(),
+        );
+        const missed = mail.to.filter((a) => rejected.includes(a.toLowerCase()));
+        if (missed.length) throw Object.assign(new Error('Recipient refused'), { code: 'EENVELOPE', rejected: missed });
         return { messageId: String(info.messageId ?? '') };
       } catch (err) {
         throw new Error(describeMailError(err, settings));

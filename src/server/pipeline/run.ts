@@ -275,6 +275,8 @@ export function createPipeline(deps: AppDeps): Pipeline {
       const a = snap.automation;
       if (a.mode !== 'auto') return refuse('Fully automatic mode is not switched on.');
       if (opp.userDecision === 'dismissed') return refuse('You dismissed this opportunity.');
+      // "Review" means something in the notice wants a person's eye first.
+      if (opp.decision !== 'suitable') return refuse('This opportunity was flagged for review, so it will not be sent automatically.');
       if ((opp.suitabilityScore ?? 0) < a.autoSendThreshold) {
         return refuse(`Its suitability score (${opp.suitabilityScore ?? 0}) is below your automatic-sending threshold (${a.autoSendThreshold}).`);
       }
@@ -395,7 +397,8 @@ export function createPipeline(deps: AppDeps): Pipeline {
   function closingChangedEvent(id: number, runId: number): void {
     const opp = store.getOpportunity(id);
     if (!opp) return;
-    const app = store.getApplicationByOpportunity(opp.canonicalId ?? opp.duplicateOf ?? opp.id) ?? store.getApplicationByOpportunity(opp.id);
+    // Applications hang off the canonical row; a duplicate's date change matters to it too.
+    const app = store.getApplicationByOpportunity(opp.duplicateOf ?? opp.id);
     if (!app) return;
     const when = opp.closesAt ? `it now closes ${formatLocal(opp.closesAt, opp.closesAtPrecision, zone)}` : 'the new closing date could not be read';
     event('warn', 'closing_changed', `The closing date changed for ${quoted(opp.title)}; ${when}. Check the submission before it goes out.`, {
@@ -408,10 +411,8 @@ export function createPipeline(deps: AppDeps): Pipeline {
   async function run(trigger: RunRecord['trigger']): Promise<RunRecord> {
     if (running) throw new Error('A run is already in progress.');
     running = true;
-    let runRecord: RunRecord | null = null;
     try {
-      runRecord = store.startRun(trigger, deps.now());
-      const runId = runRecord.id;
+      const runId = store.startRun(trigger, deps.now()).id;
       const stats: RunStats = { sources: [], found: 0, added: 0, analysed: 0, suitable: 0, drafted: 0, sent: 0, expired: 0 };
       try {
         await runSteps(runId, stats);

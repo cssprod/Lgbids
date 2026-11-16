@@ -438,7 +438,7 @@ describe('submission package PDF', () => {
   });
 
   it('replaces characters the built-in fonts cannot show', () => {
-    expect(pdfSafe('Price ≥ $5 → “OK” – Łódź ✓\tdone')).toBe('Price >= $5 -> “OK” – Lodz * done');
+    expect(pdfSafe('Price ≥ $5 → “OK” – Łódź ✓\tdone')).toBe('Price >= $5 -> “OK” – Lódz * done');
   });
 
   it('renders a multi-page package with the company, reference and references', async () => {
