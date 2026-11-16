@@ -7,7 +7,7 @@ import { emailFromEnvironment } from '../settings.js';
 import { emailConfigured } from '../submission/email.js';
 import { nowIso } from '../util/dates.js';
 import { isEmail } from '../util/text.js';
-import { parseBody, type RouteContext } from './util.js';
+import { ApiError, parseBody, type RouteContext } from './util.js';
 
 const testSchema = z.object({ to: z.string().trim().max(200).optional() });
 
@@ -53,10 +53,9 @@ export function registerSettings(app: FastifyInstance, ctx: RouteContext): void 
   app.get('/api/settings/email', async () => emailView(settings.getEmail()));
   app.put('/api/settings/email', async (req) => {
     const value = parseBody(emailSettingsSchema, req.body);
+    const labels = { fromEmail: 'the address to send from', replyTo: 'the reply-to address' } as const;
     for (const field of ['fromEmail', 'replyTo'] as const) {
-      if (value[field] && !isEmail(value[field])) {
-        return parseBody(z.never(), undefined); // unreachable shape; replaced below for a clear sentence
-      }
+      if (value[field] && !isEmail(value[field])) throw new ApiError(400, `“${value[field]}” is not a valid e-mail address for ${labels[field]}.`);
     }
     // The form never sends the verification stamp; the settings service keeps it while the connection is unchanged.
     const { verifiedAt: _ignored, ...withoutStamp } = value;
