@@ -173,7 +173,7 @@ Why: Phase 4 showed BC Bid, CanadaBuys, Bonfire and CivicInfo refuse automated r
 3. 2–3 example alert e-mails per site, saved as `.eml` (personal details can be blanked; they are anonymised before going into tests).
 
 ## UI pass 2 — usability (Phases 1–6)
-Progress: [x] 1 first-run · [x] 2 daily loop · [ ] 3 feedback & forms · [ ] 4 help · [ ] 5 polish · [ ] 6 a11y/perf
+Progress: [x] 1 first-run · [x] 2 daily loop · [x] 3 feedback & forms · [ ] 4 help · [ ] 5 polish · [ ] 6 a11y/perf
 
 ### Phase 1 — First-run and setup (highest value)
 1. **Setup checklist leads with alerts.** `src/server/dashboard.ts` builds `setup[]` (profile, services, email, documents, run). Add `alerts` ("Connect your bid alert inbox", done = `settings.getAlertInbox().verifiedAt` or any imported alert read) as step 2, linking to `/settings#alerts`. Update `tests/api.test.ts` dashboard expectation.
@@ -188,6 +188,7 @@ Progress: [x] 1 first-run · [x] 2 daily loop · [ ] 3 feedback & forms · [ ] 4
 4. **Per-bid calendar link** on opportunity and application detail (`/api/calendar.ics?id=` — check `routes/calendar.ts`; add the filter if missing).
 
 ### Phase 3 — Feedback and forms
+Done with two deliberate changes: autosave covers the application draft only (Profile saves re-score every bid and would show errors mid-typing, so it keeps Save + sticky bar); the application page got a step bar, letter preview and phone action bar instead of a file split (internal only).
 1. **Toast system** (`components/Toast.tsx` + provider in `App.tsx`): success auto-hides after 4 s, errors stay, optional Undo action; announced via one `aria-live` region. Use for save, send, import, decisions. Keep page-level `Live` only where the message must stay next to a field.
 2. **Application detail as three steps** (`ApplicationDetail.tsx`, 693 lines → split into `pages/application/{Overview,PriceLetter,Attachments,Submit}.tsx`): a step bar "1 Price & letter · 2 Attachments · 3 Submit" with completion ticks driven by `a.missing`/`a.checklist`; same data and endpoints. Sticky bottom action bar on phones with the one next action.
 3. **Autosave drafts** for the application letter/price and Profile (debounced PUT after 1.5 s idle, "Saved" indicator) instead of the explicit Save + unsaved warning; keep `useUnsavedWarning` while a save is pending.

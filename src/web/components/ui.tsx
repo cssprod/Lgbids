@@ -13,13 +13,17 @@ interface FieldProps {
   className?: string;
   /** Mark the label as optional for the reader. */
   optional?: boolean;
+  /** What is wrong with the value and how to fix it; marks the control invalid. */
+  error?: string;
 }
 
-export function Field({ label, hint, children, className, optional }: FieldProps) {
+export function Field({ label, hint, children, className, optional, error }: FieldProps) {
   const id = useId();
   const hintId = `${id}-hint`;
+  const errorId = `${id}-error`;
+  const describedBy = [error ? errorId : '', hint ? hintId : ''].filter(Boolean).join(' ') || undefined;
   const control = isValidElement(children)
-    ? cloneElement(children, { id, 'aria-describedby': hint ? hintId : undefined })
+    ? cloneElement(children as ReactElement<Record<string, unknown>>, { id, 'aria-describedby': describedBy, 'aria-invalid': error ? true : undefined })
     : children;
   return (
     <div className={`field ${className ?? ''}`}>
@@ -28,6 +32,12 @@ export function Field({ label, hint, children, className, optional }: FieldProps
         {optional ? <span className="optional"> (optional)</span> : null}
       </label>
       {control}
+      {error ? (
+        <p className="field-error" id={errorId}>
+          <span aria-hidden="true">✕ </span>
+          {error}
+        </p>
+      ) : null}
       {hint ? (
         <p className="hint" id={hintId}>
           {hint}

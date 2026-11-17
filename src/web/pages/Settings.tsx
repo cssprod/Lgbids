@@ -3,6 +3,7 @@ import { api } from '../api.js';
 import type { ActionResult, AlertInboxView, EmailSettingsView } from '../../shared/api.js';
 import type { AutomationMode, AutomationSettings, EmailSettings, NoticeType, RegionSettings } from '../../shared/schemas.js';
 import { AUTOMATION_MODES, AUTOMATION_MODE_LABELS, NOTICE_TYPES, NOTICE_TYPE_LABELS } from '../../shared/schemas.js';
+import { emailProblem } from '../format.js';
 import { useAction, useDocumentTitle, useFormat, useResource, useUnsavedWarning } from '../hooks.js';
 import { ConfirmDialog } from '../components/Dialog.js';
 import { TagEditor } from '../components/TagEditor.js';
@@ -167,7 +168,7 @@ function AutomationForm() {
       <fieldset className="sub-fieldset">
         <legend>Notifications</legend>
         <div className="grid-2">
-          <Field label="Send notifications to" hint="Leave empty for no e-mail notifications." optional>
+          <Field label="Send notifications to" hint="Leave empty for no e-mail notifications." optional error={emailProblem(v.notifyEmail)}>
             <input type="email" value={v.notifyEmail} onChange={(e) => set('notifyEmail', e.target.value)} />
           </Field>
           <Field label="Deadline reminder (days before closing)" hint="0 turns reminders off.">
@@ -284,7 +285,7 @@ function EmailForm() {
   }
 
   const text = (k: 'host' | 'user' | 'fromName' | 'fromEmail' | 'replyTo', label: string, hint?: string, type = 'text') => (
-    <Field label={label} hint={env.has(k) ? envHint : hint}>
+    <Field label={label} hint={env.has(k) ? envHint : hint} error={type === 'email' ? emailProblem(v[k]) : undefined}>
       <input type={type} value={v[k]} readOnly={env.has(k)} onChange={(e) => set(k, e.target.value)} />
     </Field>
   );
@@ -441,7 +442,7 @@ function AlertInboxForm() {
         </ol>
       </details>
       <div className="grid-2">
-        <Field label="Gmail address">
+        <Field label="Gmail address" error={emailProblem(v.user)}>
           <input type="email" autoComplete="off" value={v.user} onChange={(e) => set('user', e.target.value)} />
         </Field>
         <Field

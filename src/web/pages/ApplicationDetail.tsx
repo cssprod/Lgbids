@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../api.js';
 import type { Application, ApplicationChannel, ApplicationStatus, ApplicationUpdate, LibraryDocument } from '../../shared/schemas.js';
@@ -6,8 +6,8 @@ import { DOCUMENT_KIND_LABELS, SUBMISSION_METHOD_LABELS } from '../../shared/sch
 import { useAction, useDocumentTitle, useFormat, useResource, useUnsavedWarning } from '../hooks.js';
 import { ApplicationChip } from '../components/status.js';
 import { ConfirmDialog, Dialog } from '../components/Dialog.js';
-import { BackLink, Callout, Check, ErrorBox, ExternalLink, Field, Live, Loading, NumberInput, Section } from '../components/ui.js';
-import { formatBytes, formatMoney } from '../format.js';
+import { BackLink, Callout, Check, ErrorBox, ExternalLink, Field, Live, Loading, NumberInput, PlainText, Section } from '../components/ui.js';
+import { emailProblem, formatBytes, formatMoney } from '../format.js';
 import { Icon } from '../components/Icon.js';
 
 interface Draft {
@@ -59,6 +59,7 @@ export function ApplicationDetailPage() {
   const [confirmRegen, setConfirmRegen] = useState(false);
   const [confirmWithdraw, setConfirmWithdraw] = useState(false);
   const [markOpen, setMarkOpen] = useState(false);
+  const [preview, setPreview] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const fileId = useId();
 
@@ -66,12 +67,45 @@ export function ApplicationDetailPage() {
   const o = a?.opportunity;
   useDocumentTitle(o?.title ?? 'Application');
 
+  // The draft that an autosave sent, so edits typed while it was on its way are not lost.
+  const sentRef = useRef<string | null>(null);
   useEffect(() => {
-    if (a) setDraft(draftOf(a));
+    if (!a) return;
+    setDraft((prev) => {
+      const sent = sentRef.current;
+      sentRef.current = null;
+      // Typed more since the save left: keep that; otherwise take the server's copy.
+      if (prev && sent !== null && JSON.stringify(prev) !== sent) return prev;
+      return draftOf(a);
+    });
   }, [a]);
 
   const dirty = !!a && !!draft && JSON.stringify(draft) !== JSON.stringify(draftOf(a));
   useUnsavedWarning(dirty);
+
+  // Save the price, letter and notes on their own, 1.5 s after the last change.
+  const editable = !!a && !LOCKED.includes(a.status);
+  // A draft the server refused is not retried until it changes; its error stays on screen.
+  const [failedDraft, setFailedDraft] = useState<string | null>(null);
+  const saveFailed = !!draft && failedDraft === JSON.stringify(draft);
+  useEffect(() => {
+    if (!dirty || !editable || save.busy || !a || !draft || saveFailed) return;
+    const t = window.setTimeout(() => {
+      const json = JSON.stringify(draft);
+      sentRef.current = json;
+      void save.run(() => api.patch<Application>(`/api/applications/${a.id}`, draft)).then((updated) => {
+        if (updated) {
+          setFailedDraft(null);
+          res.setData(updated);
+        } else {
+          sentRef.current = null;
+          setFailedDraft(json);
+        }
+      });
+    }, 1500);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft, dirty, editable, save.busy, saveFailed]);
   useSendErrorSync(send.message, setSendError);
 
   if (res.loading && !a) return <Loading />;
@@ -228,6 +262,24 @@ export function ApplicationDetailPage() {
         </section>
       ) : null}
 
+      {!locked ? (
+        <nav className="step-bar" aria-label="Steps to submit">
+          {[
+            { href: '#price-letter', label: 'Price and letter', done: !a.missing.some((m) => /total price/i.test(m)) },
+            { href: '#checklist', label: 'Checklist and files', done: a.checklist.every((c) => c.done || !c.required) },
+            { href: '#submit', label: a.channel === 'email' ? 'Send' : 'Submit', done: false },
+          ].map((step, i) => (
+            <a key={step.href} href={step.href} className={`step-link ${step.done ? 'done' : ''}`}>
+              <span className="step-num" aria-hidden="true">
+                {step.done ? <Icon name="check" size={14} /> : i + 1}
+              </span>
+              {step.label}
+              {step.done ? <span className="visually-hidden"> (done)</span> : null}
+            </a>
+          ))}
+        </nav>
+      ) : null}
+
       {a.submittedAt || OUTCOME.includes(a.status) ? (
         <Section title="Submission">
           <p>
@@ -261,7 +313,7 @@ export function ApplicationDetailPage() {
       ) : null}
 
       {!locked ? (
-        <Section title="Submit">
+        <Section title="Submit" id="submit">
           {a.channel === 'email' ? (
             <>
               <p>
@@ -279,7 +331,7 @@ export function ApplicationDetailPage() {
                   I sent it myself
                 </button>
               </div>
-              {dirty ? <p className="small text-warn">Save your changes before sending.</p> : null}
+              {dirty ? <p className="small muted">Saving your changes first…</p> : null}
               {!dirty && !canSendEmail && a.missing.length > 0 ? <p className="small muted">Sending is possible once nothing is missing.</p> : null}
             </>
           ) : (
@@ -335,6 +387,7 @@ export function ApplicationDetailPage() {
         <div className="detail-main">
           <form
             className="card form-card"
+            id="price-letter"
             aria-labelledby="letter-title"
             onSubmit={(e) => {
               e.preventDefault();
@@ -374,7 +427,7 @@ export function ApplicationDetailPage() {
             {draft.channel === 'email' ? (
               <>
                 <div className="grid-2">
-                  <Field label="Send to">
+                  <Field label="Send to" error={emailProblem(draft.toEmail)}>
                     <input type="email" value={draft.toEmail} disabled={locked} onChange={(e) => set('toEmail', e.target.value)} />
                   </Field>
                   <Field label="Copy to" hint="Separate several addresses with commas." optional>
@@ -385,29 +438,54 @@ export function ApplicationDetailPage() {
                   <input type="text" value={draft.subject} disabled={locked} onChange={(e) => set('subject', e.target.value)} />
                 </Field>
                 <Field label="Letter" hint="This is the e-mail the buyer receives. The package PDF is attached.">
+                  {preview ? (
+                  <div className="letter-preview" tabIndex={0} aria-label="Letter preview">
+                    <PlainText text={draft.body} />
+                  </div>
+                ) : (
                   <textarea rows={16} className="letter" value={draft.body} disabled={locked} onChange={(e) => set('body', e.target.value)} />
+                )}
                 </Field>
               </>
             ) : (
               <Field label="Cover letter" hint="Printed as the first page of the package.">
-                <textarea rows={14} className="letter" value={draft.body} disabled={locked} onChange={(e) => set('body', e.target.value)} />
+                {preview ? (
+                  <div className="letter-preview" tabIndex={0} aria-label="Letter preview">
+                    <PlainText text={draft.body} />
+                  </div>
+                ) : (
+                  <textarea rows={14} className="letter" value={draft.body} disabled={locked} onChange={(e) => set('body', e.target.value)} />
+                )}
               </Field>
             )}
 
+            <p className="small">
+              <button type="button" className="btn btn-ghost btn-small" aria-pressed={preview} onClick={() => setPreview((p) => !p)}>
+                {preview ? 'Back to editing' : 'Preview the letter as the buyer reads it'}
+              </button>
+            </p>
             <Field label="Your notes" hint="Private. Never sent to the buyer." optional>
               <textarea rows={3} value={draft.notes} disabled={locked} onChange={(e) => set('notes', e.target.value)} />
             </Field>
 
             {!locked ? (
-              <div className={`form-footer ${dirty ? 'is-dirty' : ''}`}>
-                <button type="submit" className="btn btn-primary" disabled={save.busy || !dirty}>
-                  {save.busy ? 'Saving…' : 'Save changes'}
-                </button>
+              <div className="form-footer">
+                <p className={`save-status small ${saveFailed ? 'text-bad' : 'muted'}`} role="status">
+                  {saveFailed ? (
+                    `Not saved: ${save.message?.text ?? 'the server refused the change.'} Correct it and it saves again.`
+                  ) : save.busy || dirty ? (
+                    <>
+                      <span className="spinner" aria-hidden="true" /> Saving…
+                    </>
+                  ) : (
+                    <>
+                      <Icon name="check" size={14} /> All changes saved
+                    </>
+                  )}
+                </p>
                 <button type="button" className="btn btn-ghost" onClick={() => setConfirmRegen(true)}>
                   Rebuild letter from profile
                 </button>
-                <Live message={save.message} />
-                {dirty && !save.busy ? <p className="small text-warn">You have unsaved changes.</p> : null}
               </div>
             ) : null}
           </form>
@@ -531,6 +609,24 @@ export function ApplicationDetailPage() {
           ) : null}
         </div>
       </div>
+
+      {!locked ? (
+        <div className="mobile-action-bar">
+          {a.missing.length > 0 ? (
+            <a href={a.missing.some((m) => /total price/i.test(m)) ? '#price-letter' : '#checklist'} className="btn btn-primary btn-block">
+              {a.missing.length === 1 ? 'Finish the last item' : `Finish ${a.missing.length} items`}
+            </a>
+          ) : a.channel === 'email' ? (
+            <button type="button" className="btn btn-primary btn-block" disabled={!canSendEmail || dirty || send.busy} onClick={() => setConfirmSend(true)}>
+              <Icon name="send" size={16} /> Send submission
+            </button>
+          ) : (
+            <a className="btn btn-primary btn-block" href={packageUrl} download>
+              <Icon name="download" size={16} /> Download package
+            </a>
+          )}
+        </div>
+      ) : null}
 
       <ConfirmDialog
         open={confirmSend}

@@ -2324,3 +2324,98 @@ details.group[open] > summary::before {
   align-items: center;
   gap: 0.3rem;
 }
+.field-error {
+  margin: 0;
+  color: var(--bad);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+.save-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+}
+.save-status .spinner {
+  width: 0.9em;
+  height: 0.9em;
+}
+/* Application steps */
+.step-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+.step-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0.35rem 0.9rem 0.35rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  text-decoration: none;
+}
+.step-link:hover {
+  border-color: var(--brand);
+  color: var(--brand);
+}
+.step-num {
+  display: inline-grid;
+  place-items: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 50%;
+  background: var(--brand-soft);
+  color: var(--brand);
+  font-variant-numeric: tabular-nums;
+}
+.step-link.done .step-num {
+  background: var(--good);
+  color: var(--surface);
+}
+#price-letter,
+#submit {
+  scroll-margin-top: var(--space-4);
+}
+.letter-preview {
+  min-height: 16rem;
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  font-family: Georgia, 'Times New Roman', serif;
+  line-height: 1.6;
+}
+.mobile-action-bar {
+  display: none;
+}
+@media (max-width: 760px) {
+  .mobile-action-bar {
+    display: block;
+    position: fixed;
+    z-index: 15;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding: var(--space-3) var(--space-4) calc(var(--space-3) + env(safe-area-inset-bottom));
+    background: color-mix(in srgb, var(--surface) 94%, transparent);
+    backdrop-filter: blur(6px);
+    border-top: 1px solid var(--border);
+  }
+  main:has(.mobile-action-bar) {
+    padding-bottom: 6rem;
+  }
+  .toasts {
+    bottom: 5.5rem;
+  }
+  #price-letter,
+  #submit,
+  #checklist {
+    scroll-margin-top: 72px;
+  }
+}

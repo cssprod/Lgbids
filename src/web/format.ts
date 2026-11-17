@@ -161,3 +161,12 @@ export function daysUntilPlainDate(ymd: string, timeZone: string, now = new Date
 export function plural(n: number, one: string, many = `${one}s`): string {
   return `${n} ${n === 1 ? one : many}`;
 }
+
+/** A sentence saying what is wrong with an e-mail address, or undefined when it looks fine (or is empty). */
+export function emailProblem(value: string): string | undefined {
+  const v = value.trim();
+  if (!v) return undefined;
+  if (/\s/.test(v)) return 'An e-mail address cannot contain spaces.';
+  if (!/^[^@]+@[^@]+\.[^@.]{2,}$/.test(v)) return 'Enter a full e-mail address, for example name@example.com.';
+  return undefined;
+}
