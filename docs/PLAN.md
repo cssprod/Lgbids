@@ -73,3 +73,51 @@ Exit: every built-in source reads correctly or is disabled with a note.
 ## Decisions needed from the user
 - Where the beta runs (own computer vs. hosted) — affects Phase 3.4 / 5.2.
 - How to do Phase 4: run `check-sources` themselves, or approve a cloud environment with the bid-site hosts allowed.
+
+## UI design & usability pass (Phases A–F)
+Progress: [ ] A audit · [ ] B foundation · [ ] C shell · [ ] D pages · [ ] E a11y/usability · [ ] F verification
+
+### Phase A — Baseline audit (no code changes)
+1. `npm run build && npm run demo` (background, read port from output).
+2. Playwright script in scratchpad (per `ui-quality-pass`): every route × 1280/390 × light/dark; log console errors, overflow, h1 count, unlabeled controls, focus visibility.
+3. Read the screenshots; write a findings list in the scratchpad grouped by page (visual, usability, accessibility). This list drives Phases C–D.
+
+### Phase B — Design foundation (`styles.css`, `components/`)
+1. Add tokens: `--space-1..8` (4–64 px), `--text-xs..2xl`, `--shadow-lg`, `--radius-lg`; dark values where needed. Replace hard-coded px across the stylesheet with tokens.
+2. Normalize primitives in CSS: buttons (primary/secondary/quiet/danger, sizes, busy spinner keeps width, 40 px touch on phones), inputs/selects/textarea, cards, chips, tables (sticky header, tabular numbers, row hover), focus ring.
+3. Add `components/Icon.tsx`: a small set of inline SVG icons (dashboard, search, file, send, upload, settings, source, activity, calendar, check, alert, external, menu, close), `currentColor`, `aria-hidden`.
+4. Add to `ui.tsx`: `ScoreMeter` (number + bar + decision word), `StatCard`, `Toolbar` (search + filters row), `ResponsiveTable` (table on desktop, cards on phones from the same column definition), `Toast` provider/hook (success auto-dismiss, errors stay; built on `Live`).
+5. Typecheck + build; screenshot one page to confirm nothing broke.
+
+### Phase C — App shell & navigation (`Layout.tsx`, `App.tsx`)
+1. Sidebar with icons, active state, grouped (Work: Dashboard, Opportunities, Applications · Company: Profile, Documents · System: Sources, Settings, Activity).
+2. Count badges on Opportunities (new suitable) and Applications (needs input / ready) from the dashboard data already fetched (reuse existing `Dashboard` DTO; no new endpoint unless missing).
+3. Phone: top bar with title + menu button, slide-out nav with overlay, Esc/overlay closes, focus returns.
+4. Polished DEMO banner and signed-in/sign-out area; `theme-color` meta for both themes.
+
+### Phase D — Page-by-page redesign (one page per commit)
+Pattern for every page: PageHeader with one primary action → summary row → Sections; four states (loading skeleton, `Empty` with next action, `ErrorBox` with retry, data); dates via `useFormat()`.
+1. **Dashboard** — "Needs you" panel first (needs input, ready to send, closing < 72 h), stat cards, new suitable opportunities list, setup checklist card with progress bar, last check time + source health callout.
+2. **Opportunities** — Toolbar (search, decision, source, closing window) in URL params (extend existing `useSearchParams`), default sort soonest-closing suitable, ResponsiveTable with ScoreMeter and closing chips, "Show more".
+3. **Opportunity detail** — two-column with sticky side panel (score, decision, key dates, Pursue / Not for us / open notice); reasons as a readable list first, notice text below.
+4. **Applications** — grouped queue (Needs input · Ready · Submitted · Closed), filters in URL, needs-action first.
+5. **Application detail** (largest, 652 lines) — checklist progress at top; each missing item links to its fix; price input with `inputmode=decimal`; e-mail preview; Send confirm dialog listing recipient/subject/attachments/price; portal flow as numbered steps with Download package + Mark as submitted; sticky bottom action bar on phones. Split into subcomponents in the same folder if it helps readability.
+6. **Profile & Settings** — sectioned forms with in-page section nav on desktop, validate on blur, focus first error, "Saved" toast, unsaved-changes warning; automation modes as a radio card group with one-sentence explanations; auto mode keeps its acknowledgement dialog.
+7. **Documents** — drag-and-drop upload zone + button, file type/size shown, delete confirmation with the file name.
+8. **Sources** — health cards (status chip, last checked, count, message in plain words), Test button with inline result, Add source form in a dialog.
+9. **Activity** — timeline grouped by day with icons per event type, filter by type.
+10. **Login & 404** — centered card, brand mark, clear error text.
+
+### Phase E — Usability & accessibility hardening
+1. Keyboard run on every page (Tab order, visible focus, dialogs trap/restore focus).
+2. Check text pairs in both themes for contrast (≥ 4.5:1 body, ≥ 3:1 UI); fix tokens.
+3. Copy pass: sentence case, same status words everywhere (Suitable, Needs input, Ready to send, Submitted), disabled buttons explain why.
+4. Bundle check from `vite build`; lazy-load ApplicationDetail/Settings if initial JS > ~150 KB gzip (currently 136 KB).
+
+### Phase F — Verification & wrap-up
+1. Full `ui-quality-pass`: all routes × 2 widths × 2 themes, zero console errors, no overflow; review screenshots and fix.
+2. Golden paths in demo mode via Playwright: profile → upload → pursue → price → Send (demo SMTP sink receives mail with package PDF); portal package → Mark as submitted → Won; guardrails (second Send refused, closed opportunity not sendable, auto mode acknowledgement).
+3. Lighthouse on the built app (Chromium `/opt/pw-browsers/chromium --headless --no-sandbox`): Accessibility & Best practices ≥ 90.
+4. `npm test`, `npm run typecheck`, `npm run build` green; update `src/web/mock.ts` for any new fields.
+5. Update docs/PLAN.md (new "UI pass" section ticked), CLAUDE.md "Done", README screenshots section optional. Commit + push to `ccr-d5d1aeaf-xi4ohg` after each phase/page.
+
