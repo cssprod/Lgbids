@@ -136,3 +136,34 @@ Pattern for every page: PageHeader with one primary action → summary row → S
 4. `npm test`, `npm run typecheck`, `npm run build` green; update `src/web/mock.ts` for any new fields.
 5. Update docs/PLAN.md (new "UI pass" section ticked), CLAUDE.md "Done", README screenshots section optional. Commit + push to `ccr-d5d1aeaf-xi4ohg` after each phase/page.
 
+
+## Phase 6 — Read bid alert e-mails (proposal, not started)
+Why: Phase 4 showed BC Bid, CanadaBuys, Bonfire and CivicInfo refuse automated reading, and they carry most Greater Victoria landscaping bids. Each of them e-mails registered vendors about new opportunities. Reading those e-mails is permitted (they are sent to the user), so Lgbids can find those bids again without touching the sites.
+
+### How it works
+1. The user turns on the sites' own alerts (BC Bid notifications for landscaping/grounds categories, "follow" on each Bonfire buyer, a saved CanadaBuys search) and has them delivered to — or forwarded by a filter into — one mailbox or folder.
+2. A new source kind `email_alerts` reads that folder over IMAP, **read-only** (`EXAMINE`, never marks, moves or deletes mail), only messages newer than the last one it read (UID kept in source `state`), and only from known alert senders.
+3. A small parser per sender turns each e-mail into notices (`RawOpportunity`): title, buyer, reference, closing date, link. Unknown senders are skipped and counted in the source's health line.
+4. The rest of the pipeline is unchanged: dedupe (by reference/title + buyer), scoring, drafting for approval. The notice link opens the site in the user's browser; Lgbids does not fetch it (those sites refuse robots).
+
+### Pieces
+- `src/server/sources/connectors/emailAlerts.ts` — IMAP read via `imapflow`, MIME via `mailparser` (both new runtime deps; no AI). Per-run cap (e.g. 200 messages), size cap, timeouts; never throws out of `listSource`.
+- `src/server/sources/alerts/{bcbid,bonfire,canadabuys}.ts` — pure parsers (HTML + text part), each with tests on real alert e-mails trimmed and anonymised to `.example`.
+- Settings → "Bid alert inbox": host, port, TLS, user, app password (stored like the SMTP password, never returned by the API), folder, "Test connection" (lists how many alert e-mails it can see). Built-in source "Bid alert e-mails", off until the inbox is set.
+- Fallback without IMAP: "Import alert e-mails" on the Sources page — drop `.eml` files (same parsers). Useful for testing and for Outlook.com users.
+- Dashboard/Sources: health shows "12 alert e-mails read, 9 notices, 3 skipped (unknown sender)".
+
+### Constraints and risks
+- **Mail provider sign-in.** Gmail allows IMAP with an app password (needs 2-step verification; some Workspace admins block it). Outlook.com/Microsoft 365 no longer allow password sign-in for IMAP (OAuth only) — out of scope for the beta; use forwarding to a mailbox that supports app passwords, or the `.eml` import. Recommended: a dedicated mailbox (e.g. bids@yourcompany) that only receives the alerts.
+- **Alert formats are unknown until we see real samples.** Each parser needs 2–3 real alert e-mails per site. Alerts may hold only a title and link (no closing date); then the notice is stored with "closing date not stated — check the notice" and scored on title/buyer alone (likely "Needs review" rather than "Suitable").
+- **Privacy.** Only alert senders are read; message bodies of other mail are never opened (filter on `FROM` server-side before fetching). Credentials stay on the user's server.
+
+### Effort (estimate)
+- IMAP source + settings + test connection + `.eml` import: ~1 day.
+- Each sender parser with tests: ~2–3 hours once samples exist (3 senders ≈ 1 day).
+- Browser pass + docs: ~half a day.
+
+### Needed from the user before starting
+1. Which mail provider the alerts go to (Gmail, Microsoft, other).
+2. Which alerts they receive or will set up (BC Bid, Bonfire buyers, CanadaBuys, CivicInfo).
+3. 2–3 example alert e-mails per site, saved as `.eml` (personal details can be blanked; they are anonymised before going into tests).
