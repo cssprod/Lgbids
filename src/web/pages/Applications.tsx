@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom';
 import type { Application, ApplicationChannel, ApplicationStatus } from '../../shared/schemas.js';
 import { useDocumentTitle, useFormat, useResource } from '../hooks.js';
 import { ApplicationChip } from '../components/status.js';
-import { Empty, ErrorBox, Loading, PageHeader } from '../components/ui.js';
+import { Empty, ErrorBox, PageHeader, SkeletonList } from '../components/ui.js';
 import { plural } from '../format.js';
 
 export const CHANNEL_TEXT: Record<ApplicationChannel, string> = {
@@ -30,7 +30,7 @@ export function ApplicationsPage() {
   return (
     <>
       <PageHeader title="Applications" intro={<p>Your drafted and submitted bids.</p>} />
-      {res.loading && !res.data ? <Loading /> : null}
+      {res.loading && !res.data ? <SkeletonList rows={5} label="Loading applications…" /> : null}
       {res.error ? <ErrorBox message={res.error} onRetry={res.reload} /> : null}
       {res.data && res.data.length === 0 ? (
         <Empty title="No applications yet." action={<Link to="/opportunities" className="btn btn-primary">See suitable opportunities</Link>}>

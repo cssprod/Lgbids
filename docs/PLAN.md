@@ -173,7 +173,7 @@ Why: Phase 4 showed BC Bid, CanadaBuys, Bonfire and CivicInfo refuse automated r
 3. 2–3 example alert e-mails per site, saved as `.eml` (personal details can be blanked; they are anonymised before going into tests).
 
 ## UI pass 2 — usability (Phases 1–6)
-Progress: [x] 1 first-run · [x] 2 daily loop · [x] 3 feedback & forms · [x] 4 help · [ ] 5 polish · [ ] 6 a11y/perf
+Progress: [x] 1 first-run · [x] 2 daily loop · [x] 3 feedback & forms · [x] 4 help · [x] 5 polish · [ ] 6 a11y/perf
 
 ### Phase 1 — First-run and setup (highest value)
 1. **Setup checklist leads with alerts.** `src/server/dashboard.ts` builds `setup[]` (profile, services, email, documents, run). Add `alerts` ("Connect your bid alert inbox", done = `settings.getAlertInbox().verifiedAt` or any imported alert read) as step 2, linking to `/settings#alerts`. Update `tests/api.test.ts` dashboard expectation.
@@ -201,6 +201,7 @@ Done with two deliberate changes: autosave covers the application draft only (Pr
 3. **Score explanation** on hover/tap of the score meter: top 3 reasons from `analysis.reasons`.
 
 ### Phase 5 — Look and polish
+Done: theme choice (System/Light/Dark, Settings → Appearance), skeleton placeholders on Today/Opportunities/Applications, leaf mark on empty states, login spacing. Not done: PWA “Add to Home Screen” hint and a money/date formatting sweep (both minor; existing screens already use formatMoney and relative + absolute closing dates).
 1. **Manual light/dark toggle** (System / Light / Dark in Settings → Appearance): `data-theme` on `<html>`, localStorage, tokens duplicated under `:root[data-theme=dark]` per ui-design-system; `theme-color` meta updated.
 2. **Skeleton loaders** for list and detail pages (replace spinner-only `Loading` where layout is known) to stop content jumping.
 3. **Empty-state illustrations**: small inline SVG line drawings (leaf/inbox/calendar) in `Empty`, `currentColor`, decorative.

@@ -4,6 +4,7 @@ import type { ActionResult, AlertInboxView, EmailSettingsView } from '../../shar
 import type { AutomationMode, AutomationSettings, EmailSettings, NoticeType, RegionSettings } from '../../shared/schemas.js';
 import { AUTOMATION_MODES, AUTOMATION_MODE_LABELS, NOTICE_TYPES, NOTICE_TYPE_LABELS } from '../../shared/schemas.js';
 import { emailProblem } from '../format.js';
+import { getTheme, setTheme, type ThemeChoice } from '../theme.js';
 import { useAction, useDocumentTitle, useFormat, useResource, useUnsavedWarning } from '../hooks.js';
 import { ConfirmDialog } from '../components/Dialog.js';
 import { TagEditor } from '../components/TagEditor.js';
@@ -28,11 +29,13 @@ export function SettingsPage() {
         <a href="#email">Outgoing e-mail</a>
         <a href="#alerts">Bid alert inbox</a>
         <a href="#area">Service area (advanced)</a>
+        <a href="#appearance">Appearance</a>
       </nav>
       <AutomationForm />
       <EmailForm />
       <AlertInboxForm />
       <RegionForm />
+      <AppearanceForm />
     </>
   );
 }
@@ -483,6 +486,43 @@ function AlertInboxForm() {
         <Live message={test.message} />
       </div>
     </form>
+  );
+}
+
+function AppearanceForm() {
+  const [choice, setChoice] = useState<ThemeChoice>(getTheme());
+  const options: { value: ThemeChoice; label: string; hint: string }[] = [
+    { value: 'system', label: 'Same as this device', hint: 'Light or dark, following your phone or computer.' },
+    { value: 'light', label: 'Light', hint: 'Always light.' },
+    { value: 'dark', label: 'Dark', hint: 'Always dark; easier on the eyes at night.' },
+  ];
+  return (
+    <section className="card form-card" id="appearance" aria-labelledby="appearance-title">
+      <div className="card-head">
+        <h2 id="appearance-title">Appearance</h2>
+      </div>
+      <fieldset className="mode-cards">
+        <legend>Colour theme on this device</legend>
+        {options.map((o) => (
+          <label key={o.value} className={`mode-card ${choice === o.value ? 'selected' : ''}`}>
+            <input
+              type="radio"
+              name="theme"
+              value={o.value}
+              checked={choice === o.value}
+              onChange={() => {
+                setChoice(o.value);
+                setTheme(o.value);
+              }}
+            />
+            <span className="mode-card-text">
+              <strong>{o.label}</strong>
+              <span className="hint">{o.hint}</span>
+            </span>
+          </label>
+        ))}
+      </fieldset>
+    </section>
   );
 }
 

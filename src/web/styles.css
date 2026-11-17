@@ -49,7 +49,7 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme='light']) {
     color-scheme: dark;
     --bg: #141613;
     --surface: #1c1f1b;
@@ -74,6 +74,32 @@
     --shadow: 0 1px 2px rgb(0 0 0 / 40%);
     --shadow-lg: 0 12px 32px rgb(0 0 0 / 50%);
   }
+}
+/* A dark theme chosen in Settings → Appearance, whatever the system prefers. */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #141613;
+  --surface: #1c1f1b;
+  --surface-2: #242823;
+  --border: #343a33;
+  --border-strong: #6b7468;
+  --text: #e7e9e3;
+  --text-muted: #a3a99f;
+  --brand: #5fae86;
+  --brand-hover: #74c299;
+  --brand-soft: #1f3a2c;
+  --brand-contrast: #0f1a14;
+  --good: #6cc792;
+  --good-soft: #1b3326;
+  --warn: #e6b450;
+  --warn-soft: #3a2f17;
+  --bad: #f08a7e;
+  --bad-soft: #3d1f1b;
+  --info: #8ab8e8;
+  --info-soft: #1b2c3d;
+  --focus: #7db4f5;
+  --shadow: 0 1px 2px rgb(0 0 0 / 40%);
+  --shadow-lg: 0 12px 32px rgb(0 0 0 / 50%);
 }
 
 *,
@@ -2520,4 +2546,61 @@ details.group[open] > summary::before {
   margin: 0.15rem 0 0;
   color: var(--text-muted);
   max-width: 75ch;
+}
+/* Loading placeholders */
+.skeleton-list {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-5);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+.skeleton-row {
+  display: grid;
+  gap: var(--space-2);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--border);
+}
+.skeleton-row:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+.skeleton-bar {
+  display: block;
+  height: 0.9rem;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--surface-2) 25%, color-mix(in srgb, var(--surface-2) 50%, var(--border)) 50%, var(--surface-2) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+.skeleton-bar-short {
+  width: 35%;
+  height: 0.7rem;
+}
+@keyframes shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-bar {
+    animation: none;
+  }
+}
+.empty-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 3rem;
+  height: 3rem;
+  margin-bottom: var(--space-2);
+  border-radius: 50%;
+  background: var(--brand-soft);
+  color: var(--brand);
+}
+form.login-card .btn-block {
+  margin-top: var(--space-3);
 }

@@ -1,6 +1,7 @@
 import { cloneElement, isValidElement, useId, type ReactElement, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import type { ActionMessage } from '../hooks.js';
+import { Icon } from './Icon.js';
 
 // ---------------------------------------------------------------------------
 // Form fields: every input gets a visible label and, if given, a hint tied to it.
@@ -188,9 +189,27 @@ export function ErrorBox({ message, onRetry }: { message: string; onRetry?: () =
   );
 }
 
+/** Grey placeholder rows while a list loads, so the page does not jump when it arrives. */
+export function SkeletonList({ rows = 4, label = 'Loading…' }: { rows?: number; label?: string }) {
+  return (
+    <div className="skeleton-list" role="status">
+      <span className="visually-hidden">{label}</span>
+      {Array.from({ length: rows }, (_, i) => (
+        <div key={i} className="skeleton-row" aria-hidden="true">
+          <span className="skeleton-bar" style={{ width: `${60 + ((i * 17) % 30)}%` }} />
+          <span className="skeleton-bar skeleton-bar-short" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function Empty({ title, children, action }: { title: string; children?: ReactNode; action?: ReactNode }) {
   return (
     <div className="empty">
+      <span className="empty-icon" aria-hidden="true">
+        <Icon name="leaf" size={28} />
+      </span>
       <p className="empty-title">{title}</p>
       {children ? <div className="empty-body">{children}</div> : null}
       {action ? <div className="empty-action">{action}</div> : null}

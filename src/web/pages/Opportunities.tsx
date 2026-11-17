@@ -7,7 +7,7 @@ import { NOTICE_TYPE_LABELS, SUBMISSION_METHOD_LABELS } from '../../shared/schem
 import { isNewSince, lastVisit, useDocumentTitle, useFormat, useResource } from '../hooks.js';
 import { ApplicationChip, DecisionChip, ScoreWithReasons } from '../components/status.js';
 import { Term } from '../components/Popover.js';
-import { Chip, Empty, ErrorBox, Loading, PageHeader } from '../components/ui.js';
+import { Chip, Empty, ErrorBox, PageHeader, SkeletonList } from '../components/ui.js';
 import { Icon } from '../components/Icon.js';
 import { useToast } from '../components/Toast.js';
 
@@ -187,7 +187,7 @@ export function OpportunitiesPage() {
       </div>
 
       {error ? <ErrorBox message={error} onRetry={() => setNonce((n) => n + 1)} /> : null}
-      {loading && !list ? <Loading /> : null}
+      {loading && !list ? <SkeletonList rows={5} label="Loading opportunities…" /> : null}
       {list && !error ? (
         <div aria-busy={loading}>
           <p className="muted small" aria-live="polite">
