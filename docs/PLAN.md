@@ -173,7 +173,7 @@ Why: Phase 4 showed BC Bid, CanadaBuys, Bonfire and CivicInfo refuse automated r
 3. 2–3 example alert e-mails per site, saved as `.eml` (personal details can be blanked; they are anonymised before going into tests).
 
 ## UI pass 2 — usability (Phases 1–6)
-Progress: [x] 1 first-run · [x] 2 daily loop · [x] 3 feedback & forms · [x] 4 help · [x] 5 polish · [ ] 6 a11y/perf
+Progress: [x] 1 first-run · [x] 2 daily loop · [x] 3 feedback & forms · [x] 4 help · [x] 5 polish · [x] 6 a11y/perf
 
 ### Phase 1 — First-run and setup (highest value)
 1. **Setup checklist leads with alerts.** `src/server/dashboard.ts` builds `setup[]` (profile, services, email, documents, run). Add `alerts` ("Connect your bid alert inbox", done = `settings.getAlertInbox().verifiedAt` or any imported alert read) as step 2, linking to `/settings#alerts`. Update `tests/api.test.ts` dashboard expectation.
@@ -209,6 +209,7 @@ Done: theme choice (System/Light/Dark, Settings → Appearance), skeleton placeh
 5. **Typography/number details**: consistent money formatting (`formatMoney`) everywhere prices show; relative + absolute dates everywhere closing shows.
 
 ### Phase 6 — Accessibility, performance, verification
+Done 2026-11-17. axe-core 4.10: 0 violations on 11 routes × 1280/390 × light/dark (fixed Profile heading order and hidden rate labels). Lighthouse 12 (mobile, throttled): Performance 94–96, Accessibility 100, Best practices 100 on Today, Opportunities and Help. Fixes: lazy-loaded heavier pages (initial JS ≈ 128 KB gzip), build writes .br/.gz served via preCompressed (main script 68 KB on the wire, was 257 KB), hashed assets cached a year; phone layout shift 0.174 → 0 (`.app` grid rows `auto 1fr`); zod's eval probe moved to `src/shared/zodConfig.ts` so the CSP console error does not return when chunks reorder. Keyboard: toast Undo reachable and works, step links, theme radios with arrow keys, dialogs and phone menu.
 1. **axe-core pass** (load from cdnjs in the Playwright script when reachable; otherwise the existing DOM checks) on every route, light/dark, 390/1280; fix serious/critical.
 2. **Lighthouse** with the pre-installed Chromium (`/opt/pw-browsers/chromium --headless --no-sandbox`) via `npx lighthouse` if installable; targets ≥ 90 Accessibility/Best practices.
 3. **Lazy-load** heavier pages (`ApplicationDetail`, `Settings`, `Profile`, `Help`) with `React.lazy` + `Suspense` (skeleton fallback); keep initial JS < 150 KB gzip.

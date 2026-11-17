@@ -21,9 +21,11 @@ Node >= 22.13, TypeScript (ESM, `.js` import suffixes), Fastify 5, built-in `nod
 - Add a PWA manifest (`display: standalone`), no service worker.
 - Beta scope (2026-11-17, user decision): the UI hides fully automatic mode (shown only if the saved mode is already `auto`, so the user can switch away), offers no "Add a source"/"Edit" on Sources (on/off, Test, health only; user-added sources can still be deleted), and folds bid types, keywords, site-reading options and the service-area lists into collapsed "Advanced" sections. Server/API support for all of these stays, with its tests.
 
-## Done (240 tests passing; demo verified in a browser)
+## Done (254 tests passing; demo verified in a browser)
 - Everything in docs/PLAN.md phases 1–3. App builds, runs, and works end to end in demo mode.
 - UI design & usability pass (docs/PLAN.md, phases A–F): tokens, icons, nav badges, redesigned pages; verified in the browser (light/dark, 1280/390, keyboard, golden paths).
+- UI pass 2 (docs/PLAN.md, phases 1–6): first-run steps leading to the alert inbox, new-since-last-visit, filters, quick decisions with Undo toasts, per-bid calendar, application autosave/step bar/preview, Help + glossary + score reasons, theme choice, skeletons, lazy loading, compressed/cached assets. axe 0 violations; Lighthouse mobile 94–96 / 100 / 100.
+- zod runs jitless in the browser (`src/shared/zodConfig.ts`, imported first by schemas.ts) because the CSP forbids eval.
 - `src/shared/schemas.ts` — all zod schemas + DTO types (Profile, AutomationSettings, EmailSettings, RegionSettings, SourceConfig/Record, Opportunity, Application, Analysis, Requirement, RunRecord, Dashboard...).
 - `src/server/util/text.ts`, `util/dates.ts` (parseDate, findDates, findClosingDate, closingDeadline, formatLocal, nowIso).
 - `src/server/matching/` — relevance.ts (lexicon, masks, services, mightBeRelevant, DEFAULT_SEARCH_QUERIES), geo.ts (defaultRegion, assessArea, mightBeLocal, organizationKey), notice.ts (detectNoticeType, extractReference, referenceKey, titleKey), requirements.ts (extractFacts, detectSubmission, buildRequirements), analyse.ts (analyse -> score, decision, Analysis, facts).

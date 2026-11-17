@@ -1698,6 +1698,10 @@ form.card[id] {
 @media (max-width: 760px) {
   .app {
     grid-template-columns: minmax(0, 1fr);
+    /* The header keeps its own height; only the page area grows. Without this a
+       short page (a loading placeholder) stretched the header, and it jumped back
+       when the content arrived. */
+    grid-template-rows: auto 1fr;
   }
   .sidebar {
     position: sticky;
