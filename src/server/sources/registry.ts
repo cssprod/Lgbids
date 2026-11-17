@@ -3,6 +3,7 @@ import { HttpError } from '../http/client.js';
 import { bonfire } from './connectors/bonfire.js';
 import { CANADABUYS_OPEN_CSV, canadabuysCsv } from './connectors/canadabuysCsv.js';
 import { CANADABUYS_SEARCH_URL, canadabuysSearch } from './connectors/canadabuysSearch.js';
+import { emailAlerts } from './connectors/emailAlerts.js';
 import { htmlList, rss } from './connectors/web.js';
 import type { Connector, ConnectorContext, SourceOutcome } from './types.js';
 
@@ -12,6 +13,7 @@ const CONNECTORS: Record<SourceKind, Connector> = {
   bonfire,
   rss,
   html_list: htmlList,
+  email_alerts: emailAlerts,
 };
 
 export function connectorFor(kind: SourceKind): Connector {
@@ -55,6 +57,14 @@ const CANADABUYS_OFF =
  * picked up through the "BC Bid notices" source.
  */
 export const DEFAULT_SOURCES: DefaultSource[] = [
+  source(
+    'email-alerts',
+    'Bid alert e-mails (BC Bid and Bonfire)',
+    'email_alerts',
+    'BC Bid and Bonfire e-mail you about new opportunities; Lgbids reads those alert e-mails from your inbox (read-only) or from .eml files you import here, and never opens the sites themselves. Set up the inbox under Settings → Bid alert inbox.',
+    { fetchDetails: false, bcOnly: true },
+    false,
+  ),
   source(
     'canadabuys-bcbid',
     'BC Bid notices (via CanadaBuys)',

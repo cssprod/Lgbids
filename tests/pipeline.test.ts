@@ -1,9 +1,10 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { sourceConfigSchema, type Profile, type SourceConfig, type SourceKind } from '../src/shared/schemas.js';
 import type { AppDeps, MailerFactory, OutgoingMail, Store } from '../src/server/contracts.js';
+import type { AlertMailbox, MailboxPosition } from '../src/server/sources/alerts/mailbox.js';
 import { openDatabase } from '../src/server/db/database.js';
 import { createStore } from '../src/server/db/store.js';
 import { startFixtureServer, type FixtureServer } from '../src/server/demo/server.js';
@@ -92,7 +93,7 @@ interface Env {
   mailFails: { value: boolean };
 }
 
-function makeEnv(opts: { profile?: boolean; smtp?: boolean; automation?: Record<string, unknown>; extraSources?: ReturnType<typeof sources> } = {}): Env {
+function makeEnv(opts: { profile?: boolean; smtp?: boolean; automation?: Record<string, unknown>; extraSources?: ReturnType<typeof sources>; noSamples?: boolean; mailbox?: AlertMailbox } = {}): Env {
   const dir = mkdtempSync(join(tmpdir(), 'lgbids-pipeline-'));
   dirs.push(dir);
   const store = createStore(openDatabase(':memory:'));
@@ -110,7 +111,7 @@ function makeEnv(opts: { profile?: boolean; smtp?: boolean; automation?: Record<
       return { messageId: `<${n}@test.example>` };
     },
   });
-  for (const s of [...sources(), ...(opts.extraSources ?? [])]) {
+  for (const s of [...(opts.noSamples ? [] : sources()), ...(opts.extraSources ?? [])]) {
     store.insertSource({ id: s.id, name: s.name, kind: s.kind, enabled: true, builtin: false, notes: '', config: sourceConfigSchema.parse(s.config) }, clock.now);
   }
   if (opts.profile !== false) settings.setProfile(PROFILE);
@@ -123,6 +124,11 @@ function makeEnv(opts: { profile?: boolean; smtp?: boolean; automation?: Record<
     files: createFileStore(dir),
     mailerFactory,
     httpFactory: () => new HttpClient({ userAgent: 'LgbidsTest/1.0', respectRobots: true, delayMs: 0, retries: 0 }),
+    alertMailboxFactory: () => {
+      if (!opts.mailbox) throw new Error('No test mailbox.');
+      return opts.mailbox;
+    },
+    alertImportDir: join(dir, 'alert-inbox'),
     now: () => clock.now,
   };
   return { deps, store, sent, clock, mailFails };
@@ -536,5 +542,87 @@ describe('scheduler', () => {
     expect(scheduler.nextRunAt()).toBe('2026-06-16T07:00:00Z');
     scheduler.stop();
     expect(scheduler.nextRunAt()).toBeNull();
+  });
+});
+
+describe('bid alert e-mails', () => {
+  // Invented alert e-mails (see tests/alerts.test.ts); the mailbox is a fake that records what it was asked.
+  const eml = (from: string, subject: string, html: string) =>
+    Buffer.from(
+      [`From: ${from}`, 'To: bids@garryoak.example', `Subject: ${subject}`, 'Date: Mon, 15 Jun 2026 08:00:00 -0700', 'MIME-Version: 1.0', 'Content-Type: text/html; charset=utf-8', '', html].join('\r\n'),
+    );
+  const bcbid = eml(
+    'BC Bid <noreply@bcbid.gov.bc.ca>',
+    'BC Bid: new opportunity',
+    '<table><tr><th>Opportunity ID</th><th>Description</th><th>Organization</th><th>Closing Date</th></tr><tr><td>CS-2026-114</td><td><a href="https://bcbid.gov.bc.ca/page.aspx/en/bpm/process_manage_extranet/91234">Boulevard Mowing and Trimming Services</a></td><td>City of Langford</td><td>2026-07-09 2:00 PM</td></tr></table>',
+  );
+  const bonfire = eml(
+    'Bonfire <notifications@gobonfire.com>',
+    'New opportunity from City of Victoria',
+    '<p><a href="https://victoria.bonfirehub.ca/opportunities/555">Garden Bed and Hanging Basket Maintenance</a><br>Closing Date: July 20, 2026 3:00 PM</p>',
+  );
+  const newsletter = eml('News <news@shop.example>', 'Spring sale', '<p><a href="https://shop.example/sale">Big sale on mowers</a></p>');
+
+  function fakeMailbox(batches: Buffer[][]): AlertMailbox & { calls: (MailboxPosition | null)[] } {
+    const calls: (MailboxPosition | null)[] = [];
+    let i = 0;
+    return {
+      calls,
+      async fetchNew(since) {
+        calls.push(since);
+        const batch = batches[i++] ?? [];
+        return { messages: batch.map((raw, n) => ({ id: `imap:${n}`, raw })), position: { uidValidity: '7', lastUid: 10 * i } };
+      },
+      async test() {
+        return { count: 2 };
+      },
+    };
+  }
+
+  const alertSource = { id: 'email-alerts', name: 'Bid alert e-mails', kind: 'email_alerts' as SourceKind, config: { fetchDetails: false, bcOnly: true } };
+
+  it('reads alerts from the inbox and from imported files, and drafts suitable ones', async () => {
+    const mailbox = fakeMailbox([[bcbid, newsletter], []]);
+    const env = makeEnv({ noSamples: true, extraSources: [alertSource], mailbox });
+    env.deps.settings.setAlertInbox({ user: 'bids@garryoak.example', pass: 'app-password' });
+    mkdirSync(env.deps.alertImportDir, { recursive: true });
+    writeFileSync(join(env.deps.alertImportDir, 'victoria.eml'), bonfire);
+
+    const pipeline = createPipeline(env.deps);
+    const run = await pipeline.run('manual');
+    const stat = run.stats!.sources.find((s) => s.sourceId === 'email-alerts')!;
+    expect(stat).toMatchObject({ status: 'ok', found: 2, added: 2 });
+    expect(stat.message).toContain('1 e-mail skipped');
+
+    const langford = find(env, 'Boulevard Mowing');
+    expect(langford).toMatchObject({ organization: 'City of Langford', referenceNumber: 'CS-2026-114', closesAt: '2026-07-09T21:00:00Z', decision: 'suitable' });
+    expect(find(env, 'Hanging Basket')).toMatchObject({ organization: 'City of Victoria', closesAt: '2026-07-20T22:00:00Z' });
+    expect(env.store.getApplicationByOpportunity(langford.id)).toBeDefined();
+
+    // The imported file moved to "read"; the inbox resumes after the last message.
+    expect(readdirSync(env.deps.alertImportDir)).toEqual(['read']);
+    await pipeline.run('manual');
+    expect(mailbox.calls).toEqual([null, { uidValidity: '7', lastUid: 10 }]);
+  });
+
+  it('a Test reads without moving files or advancing the inbox', async () => {
+    const mailbox = fakeMailbox([[bcbid]]);
+    const env = makeEnv({ noSamples: true, extraSources: [alertSource], mailbox });
+    env.deps.settings.setAlertInbox({ user: 'bids@garryoak.example', pass: 'app-password' });
+    mkdirSync(env.deps.alertImportDir, { recursive: true });
+    writeFileSync(join(env.deps.alertImportDir, 'victoria.eml'), bonfire);
+    const result = await createPipeline(env.deps).testSource(env.store.getSource('email-alerts')!);
+    expect(result).toMatchObject({ status: 'ok', count: 2 });
+    expect(existsSync(join(env.deps.alertImportDir, 'victoria.eml'))).toBe(true);
+    expect(env.store.getSourceState('email-alerts')).toEqual({});
+  });
+
+  it('without an inbox still reads imported files', async () => {
+    const env = makeEnv({ noSamples: true, extraSources: [alertSource] });
+    mkdirSync(env.deps.alertImportDir, { recursive: true });
+    writeFileSync(join(env.deps.alertImportDir, 'b.eml'), bcbid);
+    const run = await createPipeline(env.deps).run('manual');
+    expect(run.stats!.sources[0]).toMatchObject({ status: 'ok', found: 1 });
+    expect(run.stats!.sources[0]!.message).toContain('No alert inbox is set up');
   });
 });

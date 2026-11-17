@@ -12,6 +12,7 @@ import { HttpClient } from './http/client.js';
 import { createPipeline } from './pipeline/run.js';
 import { createScheduler } from './pipeline/scheduler.js';
 import { createSettings } from './settings.js';
+import { createImapMailbox } from './sources/alerts/mailbox.js';
 import { DEFAULT_SOURCES } from './sources/registry.js';
 import { createMailer } from './submission/email.js';
 
@@ -32,11 +33,14 @@ export function createDeps(config: AppConfig, overrides: Partial<AppDeps> = {}):
   const httpFactory =
     overrides.httpFactory ?? ((a) => new HttpClient({ userAgent: a.userAgent, respectRobots: a.respectRobots, delayMs: a.requestDelayMs }));
 
+  const alertMailboxFactory = overrides.alertMailboxFactory ?? createImapMailbox;
+  const alertImportDir = overrides.alertImportDir ?? (inMemory ? mkdtempSync(join(tmpdir(), 'lgbids-alerts-')) : join(config.dataDir, 'alert-inbox'));
+
   // Demo mode brings its own sample sources; the real ones would only fail against the sample data.
   if (!config.demo) store.seedSources(DEFAULT_SOURCES, now());
   store.failStaleRuns(now());
 
-  return { config, store, settings, files, mailerFactory, httpFactory, now };
+  return { config, store, settings, files, mailerFactory, httpFactory, alertMailboxFactory, alertImportDir, now };
 }
 
 export function isLoopback(host: string): boolean {

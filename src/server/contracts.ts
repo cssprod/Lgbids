@@ -1,4 +1,6 @@
+import type { AlertMailbox } from './sources/alerts/mailbox.js';
 import type {
+  AlertInboxSettings,
   Analysis,
   Application,
   ApplicationChannel,
@@ -250,6 +252,11 @@ export interface SettingsService {
   setEmail(value: unknown): EmailSettings;
   getRegion(): RegionSettings;
   setRegion(value: unknown): RegionSettings;
+  getAlertInbox(): AlertInboxSettings;
+  /** An empty `pass` keeps the stored password; changing the connection clears `verifiedAt`. */
+  setAlertInbox(value: unknown): AlertInboxSettings;
+  /** Record a successful connection test. */
+  markAlertInboxVerified(at: Date): void;
   resetRegion(): RegionSettings;
 }
 
@@ -312,6 +319,10 @@ export interface AppDeps {
   mailerFactory: MailerFactory;
   /** Builds the HTTP client used for bid sites from the current settings. */
   httpFactory: (automation: AutomationSettings) => HttpClient;
+  /** Opens the bid alert mailbox (read-only IMAP); replaced by a fake in tests. */
+  alertMailboxFactory: (inbox: AlertInboxSettings) => AlertMailbox;
+  /** Folder for imported alert .eml files. */
+  alertImportDir: string;
   now: () => Date;
 }
 

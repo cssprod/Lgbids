@@ -1,4 +1,4 @@
-import type { Application, Dashboard, EmailSettings, Opportunity, Profile, RunRecord, SourceStatus } from './schemas.js';
+import type { AlertInboxSettings, Application, Dashboard, EmailSettings, Opportunity, Profile, RunRecord, SourceStatus } from './schemas.js';
 
 /**
  * The HTTP API between the web UI and the server. Types only.
@@ -40,6 +40,10 @@ import type { Application, Dashboard, EmailSettings, Opportunity, Profile, RunRe
  * GET    /api/settings/email                  -> EmailSettingsView
  * PUT    /api/settings/email    (EmailSettings; empty pass keeps the saved one) -> EmailSettingsView
  * POST   /api/settings/email/test {to?}       -> ActionResult
+ * GET    /api/settings/alert-inbox            -> AlertInboxView
+ * PUT    /api/settings/alert-inbox (AlertInboxSettings; empty pass keeps the saved one) -> AlertInboxView
+ * POST   /api/settings/alert-inbox/test       -> ActionResult
+ * POST   /api/alerts/import     multipart: one .eml file -> ActionResult
  *
  * GET    /api/sources                         -> SourceRecord[]
  * POST   /api/sources           SourceInput   -> SourceRecord
@@ -92,6 +96,8 @@ export type EmailSettingsView = Omit<EmailSettings, 'pass'> & {
   /** Fields supplied by SMTP_* environment variables (shown read-only). */
   fromEnvironment: string[];
 };
+
+export type AlertInboxView = Omit<AlertInboxSettings, 'pass'> & { hasPassword: boolean };
 
 export interface ActionResult {
   ok: boolean;

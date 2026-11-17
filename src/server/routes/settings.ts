@@ -1,9 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import type { ActionResult, EmailSettingsView, ProfileResponse } from '../../shared/api.js';
-import { automationSchema, emailSettingsSchema, profileSchema, regionSchema, type EmailSettings } from '../../shared/schemas.js';
+import type { ActionResult, AlertInboxView, EmailSettingsView, ProfileResponse } from '../../shared/api.js';
+import { alertInboxSchema, automationSchema, emailSettingsSchema, profileSchema, regionSchema, type AlertInboxSettings, type EmailSettings } from '../../shared/schemas.js';
 import { profileGaps } from '../applications/draft.js';
-import { emailFromEnvironment } from '../settings.js';
+import { ALERT_SOURCE_ID, emailFromEnvironment } from '../settings.js';
 import { emailConfigured } from '../submission/email.js';
 import { nowIso } from '../util/dates.js';
 import { isEmail } from '../util/text.js';
@@ -16,8 +16,13 @@ function emailView(email: EmailSettings): EmailSettingsView {
   return { ...rest, hasPassword: pass !== '', fromEnvironment: emailFromEnvironment(process.env) };
 }
 
+function inboxView(inbox: AlertInboxSettings): AlertInboxView {
+  const { pass, ...rest } = inbox;
+  return { ...rest, hasPassword: pass !== '' };
+}
+
 export function registerSettings(app: FastifyInstance, ctx: RouteContext): void {
-  const { settings, store, now, mailerFactory } = ctx.deps;
+  const { settings, store, now, mailerFactory, alertMailboxFactory } = ctx.deps;
   const { scheduler } = ctx;
 
   const profileResponse = (): ProfileResponse => {
@@ -48,6 +53,36 @@ export function registerSettings(app: FastifyInstance, ctx: RouteContext): void 
     const saved = settings.resetRegion();
     scheduler.reschedule();
     return saved;
+  });
+
+  app.get('/api/settings/alert-inbox', async () => inboxView(settings.getAlertInbox()));
+  app.put('/api/settings/alert-inbox', async (req) => {
+    const value = parseBody(alertInboxSchema, req.body);
+    const saved = settings.setAlertInbox({ ...value, verifiedAt: null });
+    // Setting up the inbox is the moment the user wants the alerts read.
+    if (saved.user && saved.pass) store.updateSource(ALERT_SOURCE_ID, { enabled: true }, now());
+    return inboxView(saved);
+  });
+  app.post('/api/settings/alert-inbox/test', async (req): Promise<ActionResult> => {
+    const inbox = settings.getAlertInbox();
+    if (!inbox.user || !inbox.pass) {
+      return { ok: false, message: 'The alert inbox is not set up yet. Enter the e-mail address and app password, then save.' };
+    }
+    try {
+      const { count } = await alertMailboxFactory(inbox).test({ now: now(), lookbackDays: inbox.lookbackDays });
+      settings.markAlertInboxVerified(now());
+      const what = count === 1 ? '1 alert e-mail' : `${count} alert e-mails`;
+      return {
+        ok: true,
+        message:
+          count > 0
+            ? `Connected. Found ${what} from BC Bid or Bonfire in “${inbox.folder}” from the last ${inbox.lookbackDays} days.`
+            : `Connected, but there are no BC Bid or Bonfire e-mails in “${inbox.folder}” from the last ${inbox.lookbackDays} days yet. Check the folder name, or wait for the next alert.`,
+      };
+    } catch (err) {
+      req.log.warn({ err }, 'alert inbox test failed');
+      return { ok: false, message: err instanceof Error && err.message ? err.message : 'The mailbox could not be opened.' };
+    }
   });
 
   app.get('/api/settings/email', async () => emailView(settings.getEmail()));

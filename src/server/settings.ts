@@ -1,9 +1,11 @@
 import type { z } from 'zod';
 import {
+  alertInboxSchema,
   automationSchema,
   emailSettingsSchema,
   profileSchema,
   regionSchema,
+  type AlertInboxSettings,
   type AutomationSettings,
   type EmailSettings,
   type Profile,
@@ -17,7 +19,10 @@ import { defaultRegion } from './matching/geo.js';
  * schemas on every read, so a field added in a later version gets its default.
  */
 
-const KEYS = { profile: 'profile', automation: 'automation', email: 'email', region: 'region' } as const;
+/** The built-in source that reads the alert inbox (see sources/registry.ts). */
+export const ALERT_SOURCE_ID = 'email-alerts';
+
+const KEYS = { profile: 'profile', automation: 'automation', email: 'email', region: 'region', alertInbox: 'alertInbox' } as const;
 
 /** SMTP settings that can come from the environment, so a server can be configured without the UI. */
 const EMAIL_ENV: { field: keyof EmailSettings; name: string }[] = [
@@ -154,6 +159,28 @@ export function createSettings(store: Store, env: NodeJS.ProcessEnv = process.en
       store.setSetting(KEYS.region, parsed, now());
       recompute(true);
       return region();
+    },
+
+    getAlertInbox() {
+      return read(KEYS.alertInbox, alertInboxSchema);
+    },
+
+    setAlertInbox(value) {
+      const incoming = alertInboxSchema.parse(value);
+      const existing = read(KEYS.alertInbox, alertInboxSchema);
+      const next: AlertInboxSettings = { ...incoming };
+      if (next.pass === '') next.pass = existing.pass;
+      const changed = (['host', 'port', 'secure', 'user', 'pass', 'folder'] as const).some((f) => next[f] !== existing[f]);
+      next.verifiedAt = changed ? null : existing.verifiedAt;
+      store.setSetting(KEYS.alertInbox, next, now());
+      // A new mailbox or folder starts again from its own messages.
+      if (changed) store.setSourceState(ALERT_SOURCE_ID, {});
+      return next;
+    },
+
+    markAlertInboxVerified(at) {
+      const existing = read(KEYS.alertInbox, alertInboxSchema);
+      store.setSetting(KEYS.alertInbox, { ...existing, verifiedAt: at.toISOString() }, now());
     },
 
     resetRegion() {

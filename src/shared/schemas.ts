@@ -70,7 +70,7 @@ export const SUBMISSION_METHOD_LABELS: Record<SubmissionMethod, string> = {
   unknown: 'Not stated — check documents',
 };
 
-export const SOURCE_KINDS = ['canadabuys_csv', 'canadabuys_search', 'bonfire', 'rss', 'html_list'] as const;
+export const SOURCE_KINDS = ['canadabuys_csv', 'canadabuys_search', 'bonfire', 'rss', 'html_list', 'email_alerts'] as const;
 export type SourceKind = (typeof SOURCE_KINDS)[number];
 
 export const SOURCE_KIND_LABELS: Record<SourceKind, string> = {
@@ -79,6 +79,7 @@ export const SOURCE_KIND_LABELS: Record<SourceKind, string> = {
   bonfire: 'Bonfire / Euna portal',
   rss: 'RSS or Atom feed',
   html_list: 'Web page listing',
+  email_alerts: 'Bid alert e-mails',
 };
 
 // ---------------------------------------------------------------------------
@@ -241,6 +242,23 @@ export const emailSettingsSchema = z.object({
   verifiedAt: z.string().nullable().default(null),
 });
 export type EmailSettings = z.infer<typeof emailSettingsSchema>;
+
+/** The mailbox that receives BC Bid and Bonfire alert e-mails. Read-only access over IMAP. */
+export const alertInboxSchema = z.object({
+  host: text(200).default('imap.gmail.com'),
+  port: z.number().int().min(1).max(65535).default(993),
+  /** Gmail and most providers use implicit TLS on 993. */
+  secure: z.boolean().default(true),
+  user: text(200),
+  /** An app password (Gmail: Google Account → Security → App passwords). Never returned by the API. */
+  pass: z.string().max(500).default(''),
+  /** The folder or Gmail label the alerts are filtered into. */
+  folder: z.string().trim().min(1).max(200).default('INBOX'),
+  /** Only alerts received in the last this-many days are read on the first check. */
+  lookbackDays: z.number().int().min(1).max(90).default(30),
+  verifiedAt: z.string().nullable().default(null),
+});
+export type AlertInboxSettings = z.infer<typeof alertInboxSchema>;
 
 export const regionSchema = z.object({
   /** Place names that count as inside the service area. */

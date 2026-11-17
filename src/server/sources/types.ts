@@ -1,3 +1,4 @@
+import type { AlertMailbox } from './alerts/mailbox.js';
 import type {
   DatePrecision,
   DocumentLink,
@@ -43,6 +44,18 @@ export interface ConnectorContext {
   state: Record<string, unknown>;
   /** Called with progress notes shown in the source's health line. */
   note(message: string): void;
+  /** Only for the bid alert e-mail source. */
+  alerts?: AlertContext;
+}
+
+export interface AlertContext {
+  /** Null when no inbox is set up; imported .eml files are still read. */
+  mailbox: AlertMailbox | null;
+  /** Folder holding .eml files the user imported; read ones move to its "read" subfolder. */
+  importDir: string;
+  lookbackDays: number;
+  /** False for a "Test": nothing is moved and the inbox position is not advanced. */
+  consume: boolean;
 }
 
 export interface ListResult {

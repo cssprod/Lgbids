@@ -22,7 +22,7 @@ import { HttpError, type HttpClient } from '../http/client.js';
 import { analyse, type AnalyseInput } from '../matching/analyse.js';
 import { mightBeRelevant } from '../matching/relevance.js';
 import { connectorFor, listSource } from '../sources/registry.js';
-import type { RawOpportunity } from '../sources/types.js';
+import type { AlertContext, RawOpportunity } from '../sources/types.js';
 import { buildSubmissionMail, emailConfigured } from '../submission/email.js';
 import { closingDeadline, formatLocal, nowIso } from '../util/dates.js';
 import { isEmail, parseEmailList } from '../util/text.js';
@@ -85,6 +85,17 @@ export function createPipeline(deps: AppDeps): Pipeline {
     profile: settings.getProfile(),
     email: settings.getEmail(),
   });
+
+  /** What the bid alert e-mail source needs; the inbox only when it has been set up. */
+  const alertContext = (consume: boolean): AlertContext => {
+    const inbox = settings.getAlertInbox();
+    return {
+      mailbox: inbox.user && inbox.pass ? deps.alertMailboxFactory(inbox) : null,
+      importDir: deps.alertImportDir,
+      lookbackDays: inbox.lookbackDays,
+      consume,
+    };
+  };
 
   const draftContext = (snap: Snapshot, now: Date): DraftContext => ({
     profile: snap.profile,
@@ -490,7 +501,7 @@ export function createPipeline(deps: AppDeps): Pipeline {
       const started = Date.now();
       try {
         const state = store.getSourceState(source.id);
-        const outcome = await listSource(source, { http, now, region: snap.region, state, note: () => undefined });
+        const outcome = await listSource(source, { http, now, region: snap.region, state, note: () => undefined, alerts: alertContext(true) });
         if (outcome.state) store.setSourceState(source.id, outcome.state);
         const listed: { id: number; raw: RawOpportunity }[] = [];
         for (const raw of outcome.items) {
@@ -661,7 +672,7 @@ export function createPipeline(deps: AppDeps): Pipeline {
   async function testSource(source: SourceRecord): Promise<SourceTestResult> {
     const snap = snapshot();
     const http = deps.httpFactory(snap.automation);
-    const outcome = await listSource(source, { http, now: deps.now(), region: snap.region, state: {}, note: () => undefined });
+    const outcome = await listSource(source, { http, now: deps.now(), region: snap.region, state: {}, note: () => undefined, alerts: alertContext(false) });
     return {
       status: outcome.status,
       message: outcome.message,

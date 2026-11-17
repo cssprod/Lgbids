@@ -1,10 +1,13 @@
 import { randomBytes } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import type { SourceTest } from '../../shared/api.js';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import type { ActionResult, SourceTest } from '../../shared/api.js';
 import { SOURCE_KINDS, sourceConfigSchema, sourceInputSchema, type SourceConfig, type SourceRecord } from '../../shared/schemas.js';
 import { slugify } from '../util/text.js';
-import { ApiError, notFound, parseBody, stringParam, zodSentence, type RouteContext } from './util.js';
+import { ALERT_SOURCE_ID } from '../settings.js';
+import { ApiError, notFound, parseBody, readUpload, stringParam, zodSentence, type RouteContext } from './util.js';
 
 const patchSchema = z.object({
   name: z.string().trim().min(2).max(120).optional(),
@@ -38,6 +41,22 @@ function sourceId(name: string): string {
 }
 
 export function registerSources(app: FastifyInstance, ctx: RouteContext): void {
+  // A saved BC Bid or Bonfire alert e-mail, read on the next check by the "Bid alert e-mails" source.
+  app.post('/api/alerts/import', async (req): Promise<ActionResult> => {
+    const upload = await readUpload(req);
+    const head = upload.content.subarray(0, 16_384).toString('utf8');
+    if (!/\.eml$/i.test(upload.filename) && !/rfc822/i.test(upload.mime)) {
+      throw new ApiError(400, 'Please choose a saved e-mail (.eml file). In Gmail: open the alert, ⋮ menu, “Download message”.');
+    }
+    if (!/^from:/im.test(head) || !/^(?:subject|date):/im.test(head)) throw new ApiError(400, 'This file does not look like a saved e-mail.');
+    const { alertImportDir, store, now } = ctx.deps;
+    await mkdir(alertImportDir, { recursive: true });
+    // Generated name: the uploaded file name is never used on disk.
+    await writeFile(join(alertImportDir, `${Date.now()}-${randomBytes(6).toString('hex')}.eml`), upload.content);
+    store.updateSource(ALERT_SOURCE_ID, { enabled: true }, now());
+    return { ok: true, message: `${upload.filename || 'The e-mail'} was imported. It is read on the next check.` };
+  });
+
   const { store, now } = ctx.deps;
   const { pipeline } = ctx;
 

@@ -1,3 +1,4 @@
+import { readdirSync } from 'node:fs';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -203,12 +204,13 @@ interface Harness {
 
 const open: Harness[] = [];
 
-async function harness(config: Partial<AppConfig> = {}, mailer?: Partial<Mailer>): Promise<Harness> {
+async function harness(config: Partial<AppConfig> = {}, mailer?: Partial<Mailer>, overrides: Partial<AppDeps> = {}): Promise<Harness> {
   const sent: OutgoingMail[] = [];
   const deps = createDeps(
     { ...baseConfig, ...config },
     {
       now: () => NOW,
+      ...overrides,
       mailerFactory: () => ({
         verify: mailer?.verify ?? (async () => {}),
         send:
@@ -356,6 +358,58 @@ describe('profile and settings', () => {
     const reset = await app.inject({ method: 'POST', url: '/api/settings/region/reset' });
     expect(reset.json().places.length).toBe(region.places.length);
     expect(scheduler.reschedules).toBe(3);
+  });
+
+  it('saves the bid alert inbox without ever returning its password, and tests the connection', async () => {
+    let opened: { user: string; pass: string; folder: string } | null = null;
+    let fail = false;
+    const { app } = await harness({}, undefined, {
+      alertMailboxFactory: (inbox) => {
+        opened = { user: inbox.user, pass: inbox.pass, folder: inbox.folder };
+        return {
+          fetchNew: async () => ({ messages: [], position: null }),
+          test: async () => {
+            if (fail) throw new Error('The mail server did not accept the user name and password. For Gmail, use an app password, not your normal password.');
+            return { count: 3 };
+          },
+        };
+      },
+    });
+    const notSet = await app.inject({ method: 'POST', url: '/api/settings/alert-inbox/test' });
+    expect(notSet.json()).toMatchObject({ ok: false });
+    expect((await app.inject({ method: 'GET', url: '/api/settings/alert-inbox' })).json()).toMatchObject({ host: 'imap.gmail.com', port: 993, secure: true, folder: 'INBOX', hasPassword: false });
+
+    const saved = await app.inject({ method: 'PUT', url: '/api/settings/alert-inbox', payload: { user: 'bids@garryoak.example', pass: 'abcd efgh ijkl mnop', folder: 'Bid alerts' } });
+    expect(saved.statusCode).toBe(200);
+    expect(saved.body).not.toContain('abcd');
+    expect(saved.json()).toMatchObject({ hasPassword: true, folder: 'Bid alerts' });
+    const sources = (await app.inject({ method: 'GET', url: '/api/sources' })).json() as { id: string; enabled: boolean }[];
+    expect(sources.find((s) => s.id === 'email-alerts')?.enabled).toBe(true);
+
+    // An empty password keeps the saved one.
+    await app.inject({ method: 'PUT', url: '/api/settings/alert-inbox', payload: { user: 'bids@garryoak.example', pass: '', folder: 'Bid alerts' } });
+    const ok = await app.inject({ method: 'POST', url: '/api/settings/alert-inbox/test' });
+    expect(ok.json()).toEqual({ ok: true, message: 'Connected. Found 3 alert e-mails from BC Bid or Bonfire in “Bid alerts” from the last 30 days.' });
+    expect(opened).toEqual({ user: 'bids@garryoak.example', pass: 'abcd efgh ijkl mnop', folder: 'Bid alerts' });
+    expect((await app.inject({ method: 'GET', url: '/api/settings/alert-inbox' })).json().verifiedAt).not.toBeNull();
+
+    fail = true;
+    const bad = await app.inject({ method: 'POST', url: '/api/settings/alert-inbox/test' });
+    expect(bad.json()).toMatchObject({ ok: false, message: expect.stringContaining('app password') });
+  });
+
+  it('imports a saved alert e-mail under a generated name and rejects other files', async () => {
+    const { app, deps } = await harness();
+    const eml = Buffer.from('From: BC Bid <noreply@bcbid.gov.bc.ca>\r\nSubject: New opportunity\r\nDate: Mon, 15 Jun 2026 08:00:00 -0700\r\n\r\nHello\r\n');
+    const ok = await app.inject({ method: 'POST', url: '/api/alerts/import', ...multipart({}, { name: '../../evil.eml', type: 'message/rfc822', content: eml }) });
+    expect(ok.statusCode).toBe(200);
+    const saved = readdirSync(deps.alertImportDir);
+    expect(saved).toHaveLength(1);
+    expect(saved[0]).toMatch(/^\d+-[0-9a-f]{12}\.eml$/);
+    const pdf = await app.inject({ method: 'POST', url: '/api/alerts/import', ...multipart({}, { name: 'notice.pdf', type: 'application/pdf', content: Buffer.from('%PDF-1.4') }) });
+    expect(pdf.statusCode).toBe(400);
+    const notMail = await app.inject({ method: 'POST', url: '/api/alerts/import', ...multipart({}, { name: 'x.eml', type: 'message/rfc822', content: Buffer.from('just text') }) });
+    expect(notMail.json().error).toBe('This file does not look like a saved e-mail.');
   });
 
   it('never returns the SMTP password and keeps it when the field is left empty', async () => {
