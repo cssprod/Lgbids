@@ -514,7 +514,10 @@ export function ApplicationDetailPage() {
           </div>
           <div>
             <dt>Price</dt>
-            <dd>{formatMoney(a.priceTotal)}</dd>
+            <dd>
+              {a.priceTotal ? formatMoney(a.priceTotal) : a.includeRates ? 'Your rates table (in the package)' : 'Not entered'}
+              {a.priceTotal && a.includeRates ? ', plus your rates table' : ''}
+            </dd>
           </div>
           <div>
             <dt>Attachments</dt>
