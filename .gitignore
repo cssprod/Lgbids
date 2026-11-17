@@ -7,3 +7,6 @@ data-demo/
 .env.local
 .DS_Store
 coverage/
+
+# Netlify drag-and-drop package (npm run build:prototype, then zip dist/prototype)
+lgbids-prototype-*.zip
