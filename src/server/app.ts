@@ -122,7 +122,19 @@ export async function buildApp(deps: AppDeps, pipeline: Pipeline, scheduler: Sch
   const webDir = deps.config.webDir ? resolve(deps.config.webDir) : '';
   const hasIndex = webDir !== '' && existsSync(resolve(webDir, 'index.html'));
   if (webDir) {
-    await app.register(fastifyStatic, { root: webDir, prefix: '/', index: 'index.html', cacheControl: true, maxAge: '1h' });
+    await app.register(fastifyStatic, {
+      root: webDir,
+      prefix: '/',
+      index: 'index.html',
+      // Sends the .br / .gz copies written by scripts/compress.mjs to browsers that accept them.
+      preCompressed: true,
+      cacheControl: false,
+      setHeaders(res, path) {
+        // Built files have a content hash in their name, so they never change: cache them for a year.
+        // Everything else (index.html, the manifest, icons) is checked again on each visit.
+        res.header('cache-control', /[\\/]assets[\\/]/.test(path) ? 'public, max-age=31536000, immutable' : 'no-cache');
+      },
+    });
   } else {
     app.get('/', async (_req, reply) =>
       reply

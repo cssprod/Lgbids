@@ -534,8 +534,14 @@ main {
   margin: 0;
   overflow-wrap: anywhere;
 }
+/* Column headers carry these on wide screens; screen readers still hear them. */
 .cell-label {
-  display: none;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
 .ext {
   font-size: 0.8em;
@@ -1793,6 +1799,12 @@ form.card[id] {
     padding: 0.25rem 0;
   }
   .cell-label {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip: auto;
+    white-space: normal;
     display: block;
     font-size: 0.8rem;
     color: var(--text-muted);
@@ -2603,4 +2615,9 @@ details.group[open] > summary::before {
 }
 form.login-card .btn-block {
   margin-top: var(--space-3);
+}
+
+/* Subheadings inside form sections: fieldset legends are not headings, so these are h2 in the outline but sized like h3. */
+.subheading {
+  font-size: var(--text-md);
 }

@@ -215,7 +215,7 @@ export function ProfilePage() {
           {p.references.map((r, i) => (
             <li key={i} className="sub-card">
               <div className="sub-card-head">
-                <h3>Reference {i + 1}</h3>
+                <h2 className="subheading">Reference {i + 1}</h2>
                 <button type="button" className="btn btn-ghost btn-small" onClick={() => set('references', p.references.filter((_, j) => j !== i))}>
                   Remove reference {i + 1}
                 </button>
@@ -330,7 +330,7 @@ export function ProfilePage() {
 function ListEditor({ title, hint, items, onChange, addLabel }: { title: string; hint: string; items: string[]; onChange: (v: string[]) => void; addLabel: string }) {
   return (
     <div className="list-editor">
-      <h3>{title}</h3>
+      <h2 className="subheading">{title}</h2>
       <p className="hint">{hint}</p>
       <ul className="stack-list">
         {items.map((c, i) => (

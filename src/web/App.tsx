@@ -1,23 +1,35 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { BrowserRouter, Link, Route, Routes } from 'react-router-dom';
 import { api, errorMessage, onUnauthorized } from './api.js';
 import type { DashboardResponse, SessionInfo } from '../shared/api.js';
 import { AppContext, type AppInfo } from './hooks.js';
 import { Layout } from './components/Layout.js';
 import { ToastProvider } from './components/Toast.js';
-import { Empty, ErrorBox, Loading } from './components/ui.js';
+import { Empty, ErrorBox, Loading, SkeletonList } from './components/ui.js';
 import { LoginPage } from './pages/Login.js';
 import { DashboardPage } from './pages/Dashboard.js';
 import { OpportunitiesPage } from './pages/Opportunities.js';
 import { OpportunityDetailPage } from './pages/OpportunityDetail.js';
 import { ApplicationsPage } from './pages/Applications.js';
-import { ApplicationDetailPage } from './pages/ApplicationDetail.js';
-import { ProfilePage } from './pages/Profile.js';
-import { DocumentsPage } from './pages/Documents.js';
-import { SourcesPage } from './pages/Sources.js';
-import { SettingsPage } from './pages/Settings.js';
-import { ActivityPage } from './pages/Activity.js';
-import { HelpPage } from './pages/Help.js';
+
+// Less-used and heavier screens load on first visit, keeping the first download small.
+const ApplicationDetailPage = lazy(() => import('./pages/ApplicationDetail.js').then((m) => ({ default: m.ApplicationDetailPage })));
+const ProfilePage = lazy(() => import('./pages/Profile.js').then((m) => ({ default: m.ProfilePage })));
+const DocumentsPage = lazy(() => import('./pages/Documents.js').then((m) => ({ default: m.DocumentsPage })));
+const SourcesPage = lazy(() => import('./pages/Sources.js').then((m) => ({ default: m.SourcesPage })));
+const SettingsPage = lazy(() => import('./pages/Settings.js').then((m) => ({ default: m.SettingsPage })));
+const ActivityPage = lazy(() => import('./pages/Activity.js').then((m) => ({ default: m.ActivityPage })));
+const HelpPage = lazy(() => import('./pages/Help.js').then((m) => ({ default: m.HelpPage })));
+
+/** Shows its content only if loading takes longer than a moment, so fast loads do not flash a spinner. */
+function Delayed({ children, ms = 400 }: { children: ReactNode; ms?: number }) {
+  const [show, setShow] = useState(false);
+  useEffect(() => {
+    const t = window.setTimeout(() => setShow(true), ms);
+    return () => window.clearTimeout(t);
+  }, [ms]);
+  return show ? <>{children}</> : null;
+}
 
 export function App() {
   const [session, setSession] = useState<SessionInfo | null>(null);
@@ -67,7 +79,9 @@ export function App() {
   if (!session) {
     return (
       <main className="center-screen">
-        <Loading label="Opening Lgbids…" />
+        <Delayed>
+          <Loading label="Opening Lgbids…" />
+        </Delayed>
       </main>
     );
   }
@@ -80,6 +94,7 @@ export function App() {
       <ToastProvider>
       <BrowserRouter>
         <Layout>
+          <Suspense fallback={<SkeletonList rows={6} />}>
           <Routes>
             <Route path="/" element={<DashboardPage onTimeZone={setTimeZone} />} />
             <Route path="/opportunities" element={<OpportunitiesPage />} />
@@ -104,6 +119,7 @@ export function App() {
               }
             />
           </Routes>
+          </Suspense>
         </Layout>
       </BrowserRouter>
       </ToastProvider>
