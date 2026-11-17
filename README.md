@@ -23,6 +23,7 @@ Checked against the live sites on 2026-11-17:
 
 | Source | Covers | Status |
 | --- | --- | --- |
+| **Bid alert e-mails** (BC Bid and Bonfire) | Everything BC Bid and the Bonfire portals e-mail you about | **New, off until set up.** Reads the alert e-mails in your Gmail (read-only) or `.eml` files you import. The reader is tested on invented sample alerts only; send real ones to confirm it (see below). |
 | District of Saanich feed | Saanich quotation requests and RFPs | **Works.** Titles, references, closing times and links checked against saanich.ca. |
 | Township of Esquimalt page | Esquimalt's own postings | **Works.** Titles, types, closing times, status (open/awarded/cancelled) and documents checked against esquimalt.ca. |
 | District of Oak Bay page | Oak Bay's own postings | On, **not yet checked**: the address moved to www.oakbay.ca and could not be reached from the development environment. |
@@ -32,7 +33,16 @@ Checked against the live sites on 2026-11-17:
 | Capital Regional District | CRD | **Off.** The old bid site (bid.crd.ca) no longer answers; its replacement has not been checked yet. |
 | CivicInfo BC | Smaller municipalities | **Off.** A Cloudflare browser check blocks automated reading. |
 
-Lgbids does not work around a site's robots.txt or browser checks. That means, for now, **most Greater Victoria landscaping bids (BC Bid and Bonfire) are not found automatically**: use those sites' own e-mail alerts alongside Lgbids, and use Lgbids to prepare, track and submit the bids.
+Lgbids does not work around a site's robots.txt or browser checks. Instead, BC Bid and Bonfire bids reach it through **their own alert e-mails**:
+
+1. Turn on the alerts: BC Bid e-mail notifications for your landscaping and grounds-maintenance commodities, and "follow" each buyer on its Bonfire portal (free vendor account).
+2. Optional: a Gmail filter that labels mail from `bcbid` or `bonfire`, for example "Bid alerts".
+3. Create a Gmail **app password** (Google Account → Security → 2-Step Verification → App passwords).
+4. In Lgbids: **Settings → Bid alert inbox** — Gmail address, app password, folder or label → Save → Test connection.
+
+Lgbids opens the folder read-only, fetches only messages from BC Bid and Bonfire, and never marks, moves or deletes mail. It never opens the links in the alerts. Without an inbox, you can drop saved alerts (`.eml`, Gmail ⋮ → "Download message") on the **Sources** page. Outlook.com / Microsoft 365 no longer allow app-password sign-in; forward the alerts to Gmail instead.
+
+**Not yet proven:** the alert reader was written without real BC Bid or Bonfire alert e-mails and is tested on invented ones. Import a few real alerts and check the titles and closing dates it shows; if something is wrong, the alert's layout needs a small fix.
 
 On the Sources page you can turn each source on or off and test it, and each turned-off source says why. Adding your own sources is not offered in this beta.
 

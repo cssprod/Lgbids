@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { api } from '../api.js';
-import type { SourceTest } from '../../shared/api.js';
+import type { ActionResult, RunState, SourceTest } from '../../shared/api.js';
 import type { SourceRecord } from '../../shared/schemas.js';
 import { SOURCE_KIND_LABELS } from '../../shared/schemas.js';
 import { useAction, useDocumentTitle, useFormat, useResource } from '../hooks.js';
@@ -106,6 +106,7 @@ function SourceCard({ s, onChange, onDeleted }: { s: SourceRecord; onChange: (s:
       {s.lastMessage ? <p className={`small ${failing ? 'text-bad' : 'muted'}`}>{s.lastMessage}</p> : null}
       {failing && s.lastOkAt ? <p className="small muted">Last worked {fmt.dateTime(s.lastOkAt)}.</p> : null}
       {s.notes ? <p className="small">{s.notes}</p> : null}
+      {s.kind === 'email_alerts' ? <AlertImport onImported={onChange} source={s} /> : null}
 
       <div className="button-row">
         <button type="button" className="btn btn-secondary" onClick={runTest} disabled={test.busy}>
@@ -192,6 +193,62 @@ function TestResult({ r }: { r: SourceTest }) {
           </table>
         </details>
       ) : null}
+    </div>
+  );
+}
+
+/** Drop saved BC Bid / Bonfire alert e-mails (.eml) here; they are read straight away. */
+function AlertImport({ source, onImported }: { source: SourceRecord; onImported: (s: SourceRecord) => void }) {
+  const action = useAction();
+  const [dragging, setDragging] = useState(false);
+  const inputId = useId();
+
+  async function importFiles(list: FileList | null) {
+    const files = [...(list ?? [])].filter((f) => /\.eml$/i.test(f.name) || f.type === 'message/rfc822');
+    if (files.length === 0) {
+      action.setMessage({ ok: false, text: 'Please choose saved e-mails (.eml files).' });
+      return;
+    }
+    const done = await action.run(async () => {
+      let n = 0;
+      for (const f of files) {
+        const form = new FormData();
+        form.append('file', f, f.name);
+        await api.upload<ActionResult>('/api/alerts/import', form);
+        n += 1;
+      }
+      // Read them now rather than at the next scheduled check.
+      await api.post<RunState>('/api/runs').catch(() => null);
+      return n;
+    });
+    if (done) {
+      action.setMessage({ ok: true, text: `${plural(done, 'e-mail')} imported. Lgbids is reading ${done === 1 ? 'it' : 'them'} now; new bids appear under Opportunities.` });
+      if (!source.enabled) onImported({ ...source, enabled: true });
+    }
+  }
+
+  return (
+    <div className="alert-import">
+      <div
+        className={`dropzone dropzone-compact ${dragging ? 'is-dragging' : ''}`}
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragging(true);
+        }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragging(false);
+          importFiles(e.dataTransfer.files);
+        }}
+      >
+        <label htmlFor={inputId} className="dropzone-label">
+          Import alert e-mails
+        </label>
+        <p className="small muted">Drop saved BC Bid or Bonfire alerts (.eml) here. In Gmail: open the alert, ⋮ menu, “Download message”.</p>
+        <input id={inputId} type="file" accept=".eml,message/rfc822" multiple disabled={action.busy} onChange={(e) => importFiles(e.target.files)} />
+      </div>
+      <Live message={action.message} />
     </div>
   );
 }

@@ -1,6 +1,6 @@
-import { mkdirSync, rmSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import type { Readable } from 'node:stream';
 import { createDeps, startServer } from '../bootstrap.js';
 import { loadConfig } from '../config.js';
@@ -94,6 +94,14 @@ function demoSource(id: string, name: string, kind: SourceKind, notes: string, c
 function demoSources(base: string) {
   const note = 'An invented sample site served by demo mode.';
   return [
+    // Same id as the real alert source, so the inbox settings and import work as they do outside the demo.
+    demoSource(
+      'email-alerts',
+      'Bid alert e-mails',
+      'email_alerts',
+      'Reads BC Bid and Bonfire alert e-mails. In the demo there is no inbox: one invented alert e-mail is placed in the import folder, and you can drop more .eml files here.',
+      { fetchDetails: false, bcOnly: true },
+    ),
     demoSource('demo-canadabuys-federal', 'Government of Canada tenders', 'canadabuys_csv', note, { url: `${base}/canadabuys/opendata/open.csv` }),
     demoSource('demo-canadabuys-bcbid', 'BC Bid notices via CanadaBuys', 'canadabuys_search', note, {
       url: `${base}/canadabuys/en/tender-opportunities?search_filter={query}&words={query}`,
@@ -181,6 +189,18 @@ const DEMO_PROFILE: Partial<Profile> = {
   ],
 };
 
+const DEMO_ALERT_EML = [
+  'From: BC Bid (demo) <noreply@bcbid.gov.bc.ca>',
+  'To: bids@garryoakgardens.example',
+  'Subject: BC Bid: new opportunity matching your commodities (invented demo alert)',
+  'Date: Mon, 16 Nov 2026 08:00:00 -0700',
+  'MIME-Version: 1.0',
+  'Content-Type: text/html; charset=utf-8',
+  '',
+  '<p>An invented alert for demo mode.</p><table><tr><th>Opportunity ID</th><th>Description</th><th>Organization</th><th>Closing Date</th></tr>',
+  `<tr><td>DEMO-26-301</td><td><a href="https://bcbid.gov.bc.ca/page.aspx/en/bpm/process_manage_extranet/0">Park and Trail Mowing Services (demo)</a></td><td>Town of View Royal</td><td>${new Date(Date.now() + 21 * 86_400_000).toISOString().slice(0, 10)} 2:00 PM</td></tr></table>`,
+].join('\r\n');
+
 async function main(): Promise<void> {
   for (const line of BANNER) console.log(line);
 
@@ -197,6 +217,9 @@ async function main(): Promise<void> {
   const deps = createDeps(config);
   const now = deps.now();
   deps.store.seedSources(demoSources(fixtures.url), now);
+  // An invented BC Bid alert for the "Bid alert e-mails" source to read on the first check.
+  mkdirSync(deps.alertImportDir, { recursive: true });
+  writeFileSync(join(deps.alertImportDir, 'demo-bcbid-alert.eml'), DEMO_ALERT_EML);
   deps.settings.setProfile(DEMO_PROFILE);
   deps.settings.setEmail({
     host: '127.0.0.1',

@@ -137,7 +137,11 @@ Pattern for every page: PageHeader with one primary action → summary row → S
 5. Update docs/PLAN.md (new "UI pass" section ticked), CLAUDE.md "Done", README screenshots section optional. Commit + push to `ccr-d5d1aeaf-xi4ohg` after each phase/page.
 
 
-## Phase 6 — Read bid alert e-mails (proposal, not started)
+## Phase 6 — Read bid alert e-mails
+**Built 2026-11-17 (Gmail, BC Bid, Bonfire):** `sources/alerts/parse.ts` (tolerant reader: notices found by their link, fields from the row/block, table headers as labels, plain text too), `sources/alerts/mailbox.ts` (imapflow, read-only EXAMINE, FROM-filtered search, UID position per mailbox), `connectors/emailAlerts.ts` (inbox + `<dataDir>/alert-inbox/*.eml`, read files move to `read/`, a Test consumes nothing), settings `alertInbox` + routes (`/api/settings/alert-inbox`, `/test`, `/api/alerts/import`), built-in source `email-alerts` (off until the inbox is saved or a file is imported), Settings "Bid alert inbox" with Gmail steps, `.eml` drop zone on Sources, demo seeds one invented alert. Tests: parser (invented samples), pipeline end to end with a fake mailbox, API (password never returned, test messages, import validation). Verified in the browser in demo mode.
+**Still open:** (1) parsers checked only against invented alerts — needs 2–3 real BC Bid and Bonfire alerts each (`.eml`, anonymised into `tests/fixtures/`); (2) the IMAP path has not touched a real Gmail account (imap.gmail.com is not reachable from the cloud sandbox) — first real "Test connection" is the check.
+
+### Original proposal
 Why: Phase 4 showed BC Bid, CanadaBuys, Bonfire and CivicInfo refuse automated reading, and they carry most Greater Victoria landscaping bids. Each of them e-mails registered vendors about new opportunities. Reading those e-mails is permitted (they are sent to the user), so Lgbids can find those bids again without touching the sites.
 
 ### How it works

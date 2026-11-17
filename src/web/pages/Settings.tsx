@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { api } from '../api.js';
-import type { ActionResult, EmailSettingsView } from '../../shared/api.js';
+import type { ActionResult, AlertInboxView, EmailSettingsView } from '../../shared/api.js';
 import type { AutomationMode, AutomationSettings, EmailSettings, NoticeType, RegionSettings } from '../../shared/schemas.js';
 import { AUTOMATION_MODES, AUTOMATION_MODE_LABELS, NOTICE_TYPES, NOTICE_TYPE_LABELS } from '../../shared/schemas.js';
 import { useAction, useDocumentTitle, useFormat, useResource, useUnsavedWarning } from '../hooks.js';
@@ -25,10 +25,12 @@ export function SettingsPage() {
       <nav aria-label="Settings sections" className="section-links">
         <a href="#automation">Automation</a>
         <a href="#email">Outgoing e-mail</a>
+        <a href="#alerts">Bid alert inbox</a>
         <a href="#area">Service area (advanced)</a>
       </nav>
       <AutomationForm />
       <EmailForm />
+      <AlertInboxForm />
       <RegionForm />
     </>
   );
@@ -361,6 +363,124 @@ function EmailForm() {
         {dirty ? <p className="small text-warn">Save your changes first; the test uses the saved settings.</p> : null}
         <Live message={test.message} />
       </fieldset>
+    </form>
+  );
+}
+
+type InboxDraft = Omit<AlertInboxView, 'hasPassword' | 'verifiedAt'> & { pass: string };
+
+function AlertInboxForm() {
+  const fmt = useFormat();
+  const res = useResource<AlertInboxView>('/api/settings/alert-inbox');
+  const [v, setV] = useState<InboxDraft | null>(null);
+  const save = useAction();
+  const test = useAction();
+
+  useEffect(() => {
+    if (res.data) {
+      const { hasPassword: _h, verifiedAt: _v, ...rest } = res.data;
+      setV({ ...rest, pass: '' });
+    }
+  }, [res.data]);
+
+  if (res.loading && !v) return <Loading />;
+  if (res.error && !v) return <ErrorBox message={res.error} onRetry={res.reload} />;
+  if (!v || !res.data) return null;
+
+  const view = res.data;
+  const { hasPassword: _h, verifiedAt: _v, ...saved } = view;
+  const dirty = JSON.stringify(v) !== JSON.stringify({ ...saved, pass: '' });
+  const set = <K extends keyof InboxDraft>(k: K, val: InboxDraft[K]) => setV({ ...v, [k]: val });
+  const configured = !!view.user && view.hasPassword;
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    const r = await save.run(() => api.put<AlertInboxView>('/api/settings/alert-inbox', v), 'Alert inbox saved. The “Bid alert e-mails” source is turned on.');
+    if (r) res.setData(r);
+  }
+
+  async function runTest() {
+    const r = await test.run(() => api.post<ActionResult>('/api/settings/alert-inbox/test'));
+    if (r) {
+      test.setMessage({ ok: r.ok, text: r.message });
+      if (r.ok) res.reload();
+    }
+  }
+
+  return (
+    <form className="card form-card" id="alerts" aria-labelledby="alerts-title" onSubmit={submit}>
+      <div className="card-head">
+        <h2 id="alerts-title">Bid alert inbox</h2>
+      </div>
+      <p className="muted">
+        BC Bid and Bonfire do not allow automated reading of their sites, but they e-mail you about new opportunities. Lgbids reads those alert
+        e-mails from your Gmail, <strong>read-only</strong>: it only opens messages from BC Bid and Bonfire, and never marks, moves or deletes mail.
+      </p>
+      {view.verifiedAt ? (
+        <Callout tone="good" title={`Connected on ${fmt.dateTime(view.verifiedAt)}.`} />
+      ) : configured ? (
+        <Callout tone="warn" title="Not tested yet.">
+          <p>Press “Test connection” to check Lgbids can open the folder.</p>
+        </Callout>
+      ) : null}
+      <details className="advanced" open={!configured}>
+        <summary>How to set it up in Gmail (about 10 minutes)</summary>
+        <ol className="setup-steps">
+          <li>
+            Turn on the alerts: in <strong>BC Bid</strong>, subscribe to e-mail notifications for landscaping and grounds-maintenance
+            commodities; on each buyer’s <strong>Bonfire</strong> portal, sign in with a free vendor account and follow the buyer.
+          </li>
+          <li>
+            In Gmail, make a filter for mail from <code>bcbid</code> or <code>bonfire</code> and apply a label such as <code>Bid alerts</code>{' '}
+            (optional, but it keeps the alerts together).
+          </li>
+          <li>
+            Create an <strong>app password</strong>: Google Account → Security → 2-Step Verification (must be on) → App passwords. Paste the
+            16-letter password below. Your normal Gmail password will not work here.
+          </li>
+        </ol>
+      </details>
+      <div className="grid-2">
+        <Field label="Gmail address">
+          <input type="email" autoComplete="off" value={v.user} onChange={(e) => set('user', e.target.value)} />
+        </Field>
+        <Field
+          label="App password"
+          hint={view.hasPassword ? 'An app password is saved. Leave this empty to keep it, or paste a new one.' : 'The 16-letter app password from your Google Account.'}
+        >
+          <input type="password" autoComplete="new-password" value={v.pass} placeholder={view.hasPassword ? 'Saved' : ''} onChange={(e) => set('pass', e.target.value)} />
+        </Field>
+        <Field label="Folder or Gmail label" hint="INBOX, or the label your filter applies, for example Bid alerts.">
+          <input type="text" value={v.folder} onChange={(e) => set('folder', e.target.value)} />
+        </Field>
+        <Field label="On the first check, read alerts from the last (days)" hint="Between 1 and 90.">
+          <NumberInput value={v.lookbackDays} min={1} max={90} step={1} onChange={(n) => set('lookbackDays', Math.round(num(n, 30)))} />
+        </Field>
+      </div>
+      <details className="advanced">
+        <summary>Another mail provider</summary>
+        <div className="grid-2">
+          <Field label="Mail server (IMAP host)" hint="imap.gmail.com for Gmail.">
+            <input type="text" value={v.host} onChange={(e) => set('host', e.target.value)} />
+          </Field>
+          <Field label="Port" hint="993 for most providers.">
+            <NumberInput value={v.port} min={1} max={65535} step={1} onChange={(n) => set('port', Math.round(num(n, 993)))} />
+          </Field>
+        </div>
+        <Check label="Use implicit TLS" hint="Leave ticked for port 993." checked={v.secure} onChange={(b) => set('secure', b)} />
+        <p className="hint">Outlook.com and Microsoft 365 no longer accept passwords for this; forward the alerts to a Gmail address instead.</p>
+      </details>
+      <div className="form-footer">
+        <button type="submit" className="btn btn-primary" disabled={save.busy || !dirty}>
+          {save.busy ? 'Saving…' : 'Save alert inbox'}
+        </button>
+        <button type="button" className="btn btn-secondary" onClick={runTest} disabled={test.busy || dirty || !configured}>
+          {test.busy ? 'Connecting…' : 'Test connection'}
+        </button>
+        {dirty ? <p className="small text-warn">Save before testing.</p> : null}
+        <Live message={save.message} />
+        <Live message={test.message} />
+      </div>
     </form>
   );
 }

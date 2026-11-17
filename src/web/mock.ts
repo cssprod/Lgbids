@@ -4,6 +4,7 @@
  * Loaded with a dynamic import from api.ts and never part of a production build.
  */
 import type {
+  AlertInboxView,
   ActionResult,
   DashboardResponse,
   EmailSettingsView,
@@ -444,6 +445,7 @@ let region: RegionSettings = {
   organizations: ['Capital Regional District', 'School District No. 61', 'University of Victoria'],
 };
 const defaultRegion = structuredClone(region);
+let alertInbox: AlertInboxView = { host: 'imap.gmail.com', port: 993, secure: true, user: '', folder: 'INBOX', lookbackDays: 30, verifiedAt: null, hasPassword: false };
 let email: EmailSettingsView = {
   host: 'smtp.example.com',
   port: 587,
@@ -755,6 +757,18 @@ export async function handleMock(method: string, fullPath: string, rawBody: unkn
     if (method === 'PUT') region = body as unknown as RegionSettings;
     return ok(region);
   }
+  if (path === '/api/settings/alert-inbox/test') {
+    alertInbox = { ...alertInbox, verifiedAt: new Date().toISOString() };
+    return ok({ ok: true, message: 'Connected. Found 2 alert e-mails from BC Bid or Bonfire in “INBOX” from the last 30 days.' } satisfies ActionResult);
+  }
+  if (path === '/api/settings/alert-inbox') {
+    if (method === 'PUT') {
+      const { pass, ...rest } = body as Body & { pass?: string };
+      alertInbox = { ...alertInbox, ...(rest as Partial<AlertInboxView>), hasPassword: alertInbox.hasPassword || !!pass, verifiedAt: null };
+    }
+    return ok(alertInbox);
+  }
+  if (path === '/api/alerts/import') return ok({ ok: true, message: 'The e-mail was imported. It is read on the next check.' } satisfies ActionResult);
   if (path === '/api/settings/email/test') {
     email = { ...email, verifiedAt: new Date().toISOString() };
     return ok({ ok: true, message: `A test e-mail was sent to ${String(body.to ?? email.fromEmail)}. Check that it arrived.` } satisfies ActionResult);
