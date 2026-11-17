@@ -19,6 +19,10 @@ const GROUPS: { title: string; statuses: ApplicationStatus[]; intro: string; col
   { title: 'Finished', statuses: ['won', 'lost', 'withdrawn', 'expired'], intro: 'Won, not awarded, withdrawn or closed before submitting.', collapsed: true },
 ];
 
+function groupId(title: string): string {
+  return `stage-${title.toLowerCase().replace(/[^a-z]+/g, '-')}`;
+}
+
 export function ApplicationsPage() {
   useDocumentTitle('Applications');
   const res = useResource<Application[]>('/api/applications');
@@ -29,11 +33,25 @@ export function ApplicationsPage() {
       {res.loading && !res.data ? <Loading /> : null}
       {res.error ? <ErrorBox message={res.error} onRetry={res.reload} /> : null}
       {res.data && res.data.length === 0 ? (
-        <Empty title="No applications yet." action={<Link to="/opportunities">See suitable opportunities</Link>}>
+        <Empty title="No applications yet." action={<Link to="/opportunities" className="btn btn-primary">See suitable opportunities</Link>}>
           <p>
             Lgbids drafts an application for each suitable bid it finds (in “prepare” mode), or when you press “Pursue” on an opportunity.
           </p>
         </Empty>
+      ) : null}
+      {res.data && res.data.length > 0 ? (
+        <nav className="stage-strip" aria-label="Application stages">
+          {GROUPS.map((g) => {
+            const n = res.data!.filter((a) => g.statuses.includes(a.status)).length;
+            if (n === 0 && g.statuses.includes('failed')) return null;
+            return (
+              <a key={g.title} href={`#${groupId(g.title)}`} className={`stage ${n > 0 && g.statuses.some((s) => s === 'needs_input' || s === 'failed') ? 'stage-warn' : ''}`}>
+                <span className="stage-count">{n}</span>
+                <span className="stage-label">{g.title}</span>
+              </a>
+            );
+          })}
+        </nav>
       ) : null}
       {res.data && res.data.length > 0
         ? GROUPS.map((g) => {
@@ -51,10 +69,10 @@ export function ApplicationsPage() {
               );
             if (g.collapsed) {
               return (
-                <details key={g.title} className="card group">
+                <details key={g.title} className="card group" id={groupId(g.title)}>
                   <summary>
                     <h2>
-                      {g.title} <span className="count">({items.length})</span>
+                      {g.title} <span className="count">{items.length}</span>
                     </h2>
                   </summary>
                   <p className="muted small">{g.intro}</p>
@@ -63,10 +81,10 @@ export function ApplicationsPage() {
               );
             }
             return (
-              <section key={g.title} className="card group" aria-label={g.title}>
+              <section key={g.title} className="card group" aria-label={g.title} id={groupId(g.title)}>
                 <div className="card-head">
                   <h2>
-                    {g.title} <span className="count">({items.length})</span>
+                    {g.title} <span className="count">{items.length}</span>
                   </h2>
                 </div>
                 <p className="muted small">{g.intro}</p>

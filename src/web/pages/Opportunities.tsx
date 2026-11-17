@@ -7,6 +7,7 @@ import { NOTICE_TYPE_LABELS, SUBMISSION_METHOD_LABELS } from '../../shared/schem
 import { useDocumentTitle, useFormat } from '../hooks.js';
 import { ApplicationChip, DecisionChip, ScoreBadge } from '../components/status.js';
 import { Empty, ErrorBox, Loading, PageHeader } from '../components/ui.js';
+import { Icon } from '../components/Icon.js';
 
 const VIEWS: { key: OpportunityViewName; label: string }[] = [
   { key: 'suitable', label: 'Suitable' },
@@ -131,6 +132,7 @@ export function OpportunitiesPage() {
           <label htmlFor={searchId} className="visually-hidden">
             Search opportunities
           </label>
+          <Icon name="search" size={16} className="search-icon" />
           <input
             id={searchId}
             type="search"
@@ -153,7 +155,7 @@ export function OpportunitiesPage() {
               <p>{q ? 'Try a shorter word, or look in the “All” tab.' : EMPTY_TEXT[view]}</p>
             </Empty>
           ) : (
-            <ul className="opp-list">
+            <ul className="opp-list list-card">
               {list.items.map((o) => (
                 <OpportunityRow key={o.id} o={o} />
               ))}
@@ -191,6 +193,7 @@ function OpportunityRow({ o }: { o: Opportunity }) {
           <DecisionChip decision={o.decision} userDecision={o.userDecision} />
           {o.application ? <ApplicationChip status={o.application.status} /> : null}
           <span className="how">
+            <Icon name={o.submissionMethod === 'email' ? 'send' : o.submissionMethod === 'unknown' ? 'alert' : 'upload'} size={14} />
             <span className="visually-hidden">How to submit: </span>
             {SUBMISSION_METHOD_LABELS[o.submissionMethod]}
           </span>
