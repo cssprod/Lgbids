@@ -53,7 +53,12 @@ function crossOrigin(req: FastifyRequest): boolean {
   const host = req.headers.host;
   if (!host) return true;
   try {
-    return new URL(origin).host.toLowerCase() !== host.toLowerCase();
+    const from = new URL(origin);
+    // Compare host and port, with default ports filled in: browsers drop ":80"
+    // from Origin, while some clients keep it in Host.
+    const port = (url: URL) => url.port || (url.protocol === 'https:' ? '443' : '80');
+    const to = new URL(`${from.protocol}//${host}`);
+    return from.hostname.toLowerCase() !== to.hostname.toLowerCase() || port(from) !== port(to);
   } catch {
     return true;
   }
