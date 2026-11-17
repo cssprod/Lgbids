@@ -108,6 +108,9 @@ export function ScoreBadge({ score }: { score: number | null }) {
     <span className={`score score-${band}`} title="Suitability score out of 100">
       <span className="score-num">{score}</span>
       <span className="score-of">/100</span>
+      <span className="score-bar" aria-hidden="true">
+        <span style={{ width: `${Math.max(0, Math.min(100, score))}%` }} />
+      </span>
     </span>
   );
 }

@@ -7,6 +7,7 @@ import { useAction, useDocumentTitle, useFormat, useInterval, useResource } from
 import { ApplicationChip, SourceChip, TRIGGER_TEXT } from '../components/status.js';
 import { Callout, Empty, ErrorBox, Live, Loading, PageHeader, Section } from '../components/ui.js';
 import { plural } from '../format.js';
+import { Icon } from '../components/Icon.js';
 
 const MODE_TEXT: Record<AutomationMode, { title: string; detail: string }> = {
   off: {
@@ -96,6 +97,11 @@ export function DashboardPage({ onTimeZone }: { onTimeZone: (tz: string) => void
     { label: 'Closing within 7 days', value: d.counts.closingSoon, to: '/opportunities?view=suitable' },
   ];
 
+  const setupDone = d.setup.length - setupLeft.length;
+  const attention = d.attention.slice(0, 5);
+  const deadlines = d.deadlines.slice(0, 6);
+  const needYou = d.counts.needsInput + d.counts.ready;
+
   return (
     <>
       {d.demo ? (
@@ -105,6 +111,11 @@ export function DashboardPage({ onTimeZone }: { onTimeZone: (tz: string) => void
       ) : null}
       <PageHeader
         title="Today"
+        intro={
+          needYou > 0
+            ? `${plural(needYou, 'application')} ${needYou === 1 ? 'needs' : 'need'} you. ${plural(d.counts.openSuitable, 'suitable bid')} open.`
+            : `Nothing is waiting for you. ${plural(d.counts.openSuitable, 'suitable bid')} open.`
+        }
         actions={
           <button type="button" className="btn btn-primary" onClick={runNow} disabled={running || run.busy}>
             {running ? (
@@ -112,7 +123,9 @@ export function DashboardPage({ onTimeZone }: { onTimeZone: (tz: string) => void
                 <span className="spinner" aria-hidden="true" /> Checking…
               </>
             ) : (
-              'Run now'
+              <>
+                <Icon name="play" size={16} /> Run now
+              </>
             )}
           </button>
         }
@@ -123,20 +136,23 @@ export function DashboardPage({ onTimeZone }: { onTimeZone: (tz: string) => void
         <div className="status-mode">
           <p className="eyebrow">Automation</p>
           <h2 id="mode-title">{mode.title}</h2>
-          <p>{mode.detail}</p>
-          <p className="small">
-            <Link to="/settings">Change automation settings</Link>
-          </p>
+          <p className="muted">{mode.detail}</p>
+          <Link to="/settings" className="small">
+            Change automation settings
+          </Link>
         </div>
         <dl className="status-facts">
           <div>
-            <dt>Last check</dt>
+            <dt>
+              <Icon name="clock" size={16} /> Last check
+            </dt>
             <dd>
               {d.lastRun ? (
                 <>
-                  {fmt.dateTime(d.lastRun.startedAt)} ({TRIGGER_TEXT[d.lastRun.trigger].toLowerCase()})
+                  <span className="strong">{fmt.dateTime(d.lastRun.startedAt)}</span>{' '}
+                  <span className="muted">({TRIGGER_TEXT[d.lastRun.trigger].toLowerCase()})</span>
                   <br />
-                  <span className="muted">
+                  <span className="muted small">
                     {d.lastRun.status === 'running' ? 'Still running.' : runSummary(d.lastRun)}
                     {d.lastRun.status === 'partial' ? ' Some sources had problems.' : ''}
                     {d.lastRun.status === 'error' ? ` The check failed: ${d.lastRun.error}` : ''}
@@ -148,15 +164,21 @@ export function DashboardPage({ onTimeZone }: { onTimeZone: (tz: string) => void
             </dd>
           </div>
           <div>
-            <dt>Next check</dt>
+            <dt>
+              <Icon name="calendar" size={16} /> Next check
+            </dt>
             <dd>
-              {running
-                ? 'Running now.'
-                : d.nextRunAt
-                  ? `${fmt.dateTime(d.nextRunAt)} (${fmt.relative(d.nextRunAt)})`
-                  : d.mode === 'off'
-                    ? 'Only when you press “Run now”.'
-                    : 'Not scheduled.'}
+              {running ? (
+                'Running now.'
+              ) : d.nextRunAt ? (
+                <>
+                  <span className="strong">{fmt.dateTime(d.nextRunAt)}</span> <span className="muted">({fmt.relative(d.nextRunAt)})</span>
+                </>
+              ) : d.mode === 'off' ? (
+                'Only when you press “Run now”.'
+              ) : (
+                'Not scheduled.'
+              )}
             </dd>
           </div>
         </dl>
@@ -174,13 +196,23 @@ export function DashboardPage({ onTimeZone }: { onTimeZone: (tz: string) => void
       </ul>
 
       {setupLeft.length > 0 ? (
-        <Section title="Finish setting up">
+        <Section title="Finish setting up" actions={<span className="muted small">{setupDone} of {d.setup.length} done</span>}>
+          <div
+            className="progress"
+            role="progressbar"
+            aria-label="Setup progress"
+            aria-valuemin={0}
+            aria-valuemax={d.setup.length}
+            aria-valuenow={setupDone}
+          >
+            <span style={{ width: `${(setupDone / Math.max(1, d.setup.length)) * 100}%` }} />
+          </div>
           <p className="muted">These steps make your submissions complete and let Lgbids send e-mail for you.</p>
           <ul className="setup-list">
             {d.setup.map((s) => (
               <li key={s.key} className={s.done ? 'done' : ''}>
                 <span className="setup-mark" aria-hidden="true">
-                  {s.done ? '✓' : '○'}
+                  {s.done ? <Icon name="check" size={14} /> : null}
                 </span>
                 <span className="visually-hidden">{s.done ? 'Done: ' : 'To do: '}</span>
                 {s.done ? <span>{s.label}</span> : <Link to={s.href}>{s.label}</Link>}
@@ -191,14 +223,17 @@ export function DashboardPage({ onTimeZone }: { onTimeZone: (tz: string) => void
       ) : null}
 
       <div className="two-col">
-        <Section title="Needs your attention">
+        <Section
+          title="Needs your attention"
+          actions={d.attention.length > attention.length ? <Link to="/applications" className="small">See all {d.attention.length}</Link> : undefined}
+        >
           {d.attention.length === 0 ? (
             <Empty title="Nothing is waiting for you.">
               <p>When Lgbids drafts an application that needs your input or is ready to send, it appears here.</p>
             </Empty>
           ) : (
             <ul className="rows">
-              {d.attention.map((a) => {
+              {attention.map((a) => {
                 const o = a.opportunity;
                 const c = o ? fmt.closing(o.closesAt, o.closesAtPrecision, o.closesAtRaw) : null;
                 return (
@@ -208,21 +243,14 @@ export function DashboardPage({ onTimeZone }: { onTimeZone: (tz: string) => void
                         {o?.title ?? `Application ${a.id}`}
                       </Link>
                       <p className="row-meta">
-                        {o?.organization}
-                        {c ? (
-                          <>
-                            {' · '}
-                            <span className={c.soon ? 'text-warn' : ''}>{c.relative}</span>
-                          </>
-                        ) : null}
+                        <span>{o?.organization}</span>
+                        {c ? <span className={c.soon ? 'text-warn strong' : ''}>{c.relative}</span> : null}
                       </p>
                       {a.missing.length > 0 ? (
-                        <ul className="missing-inline">
-                          {a.missing.slice(0, 3).map((m) => (
-                            <li key={m}>{m}</li>
-                          ))}
-                          {a.missing.length > 3 ? <li>and {a.missing.length - 3} more</li> : null}
-                        </ul>
+                        <p className="missing-inline">
+                          <span className="strong">Still needed:</span> {a.missing[0]}
+                          {a.missing.length > 1 ? ` and ${plural(a.missing.length - 1, 'more item')}` : ''}
+                        </p>
                       ) : null}
                     </div>
                     <ApplicationChip status={a.status} />
@@ -233,7 +261,16 @@ export function DashboardPage({ onTimeZone }: { onTimeZone: (tz: string) => void
           )}
         </Section>
 
-        <Section title="Upcoming deadlines">
+        <Section
+          title="Upcoming deadlines"
+          actions={
+            d.deadlines.length > 0 ? (
+              <a href="/api/calendar.ics" className="small">
+                Add to calendar
+              </a>
+            ) : undefined
+          }
+        >
           {d.deadlines.length === 0 ? (
             <Empty title="No deadlines coming up.">
               <p>
@@ -243,7 +280,7 @@ export function DashboardPage({ onTimeZone }: { onTimeZone: (tz: string) => void
           ) : (
             <>
               <ul className="rows">
-                {d.deadlines.map((o) => {
+                {deadlines.map((o) => {
                   const c = fmt.closing(o.closesAt, o.closesAtPrecision, o.closesAtRaw);
                   return (
                     <li key={o.id} className="row">
@@ -261,15 +298,17 @@ export function DashboardPage({ onTimeZone }: { onTimeZone: (tz: string) => void
                   );
                 })}
               </ul>
-              <p className="small">
-                <a href="/api/calendar.ics">Add closing dates to your calendar (.ics)</a>
-              </p>
+              {d.deadlines.length > deadlines.length ? (
+                <p className="small">
+                  <Link to="/opportunities?view=suitable">See all {d.deadlines.length} deadlines</Link>
+                </p>
+              ) : null}
             </>
           )}
         </Section>
       </div>
 
-      <Section title="Bid sites" actions={<Link to="/sources">Manage sources</Link>}>
+      <Section title="Bid sites" actions={<Link to="/sources" className="small">Manage sources</Link>}>
         {failing.length > 0 ? (
           <Callout tone="bad" title={`${plural(failing.length, 'source')} could not be read on the last check.`}>
             <ul className="plain-list">
@@ -291,24 +330,27 @@ export function DashboardPage({ onTimeZone }: { onTimeZone: (tz: string) => void
             </p>
           </Callout>
         ) : (
-          <p>
-            <span aria-hidden="true" className="text-good">
-              ✓{' '}
+          <p className="ok-line">
+            <span className="ok-dot" aria-hidden="true">
+              <Icon name="check" size={14} />
             </span>
             All {plural(d.counts.sourcesEnabled, 'source')} that are turned on worked on the last check.
           </p>
         )}
-        {d.sources.length > 0 ? (
-          <ul className="source-mini">
-            {d.sources
-              .filter((s) => s.enabled)
-              .map((s) => (
-                <li key={s.id}>
-                  <span className="source-mini-name">{s.name}</span>
-                  <SourceChip status={s.lastStatus} />
-                </li>
-              ))}
-          </ul>
+        {d.sources.some((s) => s.enabled) ? (
+          <details className="source-details" open={failing.length > 0}>
+            <summary>Show each source</summary>
+            <ul className="source-mini">
+              {d.sources
+                .filter((s) => s.enabled)
+                .map((s) => (
+                  <li key={s.id}>
+                    <span className="source-mini-name">{s.name}</span>
+                    <SourceChip status={s.lastStatus} />
+                  </li>
+                ))}
+            </ul>
+          </details>
         ) : null}
       </Section>
     </>

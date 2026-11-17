@@ -1,16 +1,63 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
+import type { DashboardResponse } from '../../shared/api.js';
+import { api } from '../api.js';
 import { useApp } from '../hooks.js';
+import { Icon, type IconName } from './Icon.js';
 
-const NAV: { to: string; label: string; end?: boolean }[] = [
-  { to: '/', label: 'Today', end: true },
-  { to: '/opportunities', label: 'Opportunities' },
-  { to: '/applications', label: 'Applications' },
-  { to: '/profile', label: 'Company profile' },
-  { to: '/documents', label: 'Documents' },
-  { to: '/sources', label: 'Sources' },
-  { to: '/settings', label: 'Settings' },
-  { to: '/activity', label: 'Activity' },
+type Counts = DashboardResponse['counts'];
+
+interface NavItem {
+  to: string;
+  label: string;
+  icon: IconName;
+  end?: boolean;
+  /** Number shown beside the link when something there needs the user. */
+  badge?: (c: Counts) => { value: number; label: string; tone: 'warn' | 'bad' | 'brand' } | null;
+}
+
+const NAV: { heading: string; items: NavItem[] }[] = [
+  {
+    heading: 'Work',
+    items: [
+      { to: '/', label: 'Today', icon: 'home', end: true },
+      {
+        to: '/opportunities',
+        label: 'Opportunities',
+        icon: 'search',
+        badge: (c) => (c.openSuitable > 0 ? { value: c.openSuitable, label: `${c.openSuitable} suitable and open`, tone: 'brand' } : null),
+      },
+      {
+        to: '/applications',
+        label: 'Applications',
+        icon: 'inbox',
+        badge: (c) => {
+          const n = c.needsInput + c.ready;
+          return n > 0 ? { value: n, label: `${n} need you`, tone: 'warn' } : null;
+        },
+      },
+    ],
+  },
+  {
+    heading: 'Your company',
+    items: [
+      { to: '/profile', label: 'Company profile', icon: 'building' },
+      { to: '/documents', label: 'Documents', icon: 'file' },
+    ],
+  },
+  {
+    heading: 'System',
+    items: [
+      {
+        to: '/sources',
+        label: 'Sources',
+        icon: 'globe',
+        badge: (c) => (c.sourcesFailing > 0 ? { value: c.sourcesFailing, label: `${c.sourcesFailing} failing`, tone: 'bad' } : null),
+      },
+      { to: '/settings', label: 'Settings', icon: 'settings' },
+      { to: '/activity', label: 'Activity', icon: 'activity' },
+    ],
+  },
 ];
 
 export function Logo() {
@@ -26,16 +73,42 @@ export function Logo() {
 export function Layout({ children }: { children: ReactNode }) {
   const { demo, authRequired, signOut } = useApp();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [counts, setCounts] = useState<Counts | null>(null);
+  const menuButton = useRef<HTMLButtonElement>(null);
   const location = useLocation();
 
-  // Close the phone menu after moving to another screen, and start at the top.
+  // Close the phone menu after moving to another screen, start at the top, and
+  // refresh the nav counts so they follow what the user just did.
   useEffect(() => {
     setMenuOpen(false);
     window.scrollTo(0, 0);
+    let cancelled = false;
+    api.get<DashboardResponse>('/api/dashboard').then(
+      (d) => {
+        if (!cancelled) setCounts(d.counts);
+      },
+      () => {},
+    );
+    return () => {
+      cancelled = true;
+    };
   }, [location.pathname]);
 
+  // Escape closes the phone menu and puts focus back on its button.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setMenuOpen(false);
+        menuButton.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [menuOpen]);
+
   return (
-    <div className="app">
+    <div className={menuOpen ? 'app menu-open' : 'app'}>
       <a className="skip-link" href="#main">
         Skip to content
       </a>
@@ -47,32 +120,51 @@ export function Layout({ children }: { children: ReactNode }) {
             {demo ? <span className="demo-tag">Demo</span> : null}
           </NavLink>
           <button
+            ref={menuButton}
             type="button"
             className="menu-button btn btn-ghost"
             aria-expanded={menuOpen}
             aria-controls="main-nav"
             onClick={() => setMenuOpen((o) => !o)}
           >
-            <span aria-hidden="true">{menuOpen ? '✕' : '☰'}</span> Menu
+            <Icon name={menuOpen ? 'close' : 'menu'} />
+            Menu
           </button>
         </div>
         <nav id="main-nav" aria-label="Main" className={menuOpen ? 'nav open' : 'nav'}>
-          <ul>
-            {NAV.map((n) => (
-              <li key={n.to}>
-                <NavLink to={n.to} end={n.end}>
-                  {n.label}
-                </NavLink>
-              </li>
-            ))}
-          </ul>
+          {NAV.map((group) => (
+            <div className="nav-group" key={group.heading}>
+              <p className="nav-heading">{group.heading}</p>
+              <ul>
+                {group.items.map((n) => {
+                  const badge = counts && n.badge ? n.badge(counts) : null;
+                  return (
+                    <li key={n.to}>
+                      <NavLink to={n.to} end={n.end}>
+                        <Icon name={n.icon} />
+                        <span className="nav-label">{n.label}</span>
+                        {badge ? (
+                          <span className={`nav-badge nav-badge-${badge.tone}`}>
+                            <span aria-hidden="true">{badge.value}</span>
+                            <span className="visually-hidden">, {badge.label}</span>
+                          </span>
+                        ) : null}
+                      </NavLink>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ))}
           {authRequired ? (
             <button type="button" className="btn btn-ghost sign-out" onClick={signOut}>
+              <Icon name="logout" />
               Sign out
             </button>
           ) : null}
         </nav>
       </header>
+      {menuOpen ? <div className="nav-scrim" aria-hidden="true" onClick={() => setMenuOpen(false)} /> : null}
       <main id="main" tabIndex={-1}>
         {children}
       </main>

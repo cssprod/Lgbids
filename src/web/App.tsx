@@ -91,9 +91,12 @@ export function App() {
             <Route
               path="*"
               element={
-                <Empty title="This page does not exist." action={<Link to="/">Go to today’s overview</Link>}>
-                  <p>The link may be old or mistyped.</p>
-                </Empty>
+                <>
+                  <h1 className="visually-hidden">Page not found</h1>
+                  <Empty title="This page does not exist." action={<Link to="/" className="btn btn-primary">Go to today’s overview</Link>}>
+                    <p>The link may be old or mistyped.</p>
+                  </Empty>
+                </>
               }
             />
           </Routes>
