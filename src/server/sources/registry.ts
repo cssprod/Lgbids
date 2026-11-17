@@ -24,21 +24,30 @@ export interface DefaultSource {
   kind: SourceKind;
   notes: string;
   config: SourceConfig;
+  /** False for a site that refuses automated reading; it ships turned off. */
+  enabled?: boolean;
 }
 
-function source(id: string, name: string, kind: SourceKind, notes: string, config: Partial<SourceConfig>): DefaultSource {
-  return { id, name, kind, notes, config: sourceConfigSchema.parse(config) };
+function source(id: string, name: string, kind: SourceKind, notes: string, config: Partial<SourceConfig>, enabled = true): DefaultSource {
+  return { id, name, kind, notes, config: sourceConfigSchema.parse(config), enabled };
 }
+
+const BONFIRE_OFF =
+  'Turned off: Bonfire portals ask automated tools not to read them (their robots.txt disallows everything), so Lgbids leaves them alone. To hear about new bids, register a free vendor account on the portal and follow this buyer; Bonfire then e-mails you new opportunities.';
+const CANADABUYS_OFF =
+  'Turned off: canadabuys.canada.ca asks automated tools other than search engines not to read it (robots.txt), so Lgbids leaves it alone.';
 
 /**
  * The bid sources that ship with the app, taken from each buyer's public
  * procurement pages.
  *
- * These could not be exercised against the live sites while the app was being
- * written, so treat the first run as the test: the Sources page shows, for
- * each one, whether it answered and how many notices were read. The Victoria,
- * Saanich and Central Saanich portal addresses follow Bonfire's usual naming
- * (the North Saanich and UVic ones are published by those buyers).
+ * Checked against the live sites on 2026-11-17. The District of Saanich feed
+ * and the Township of Esquimalt page read correctly. CanadaBuys and every
+ * Bonfire portal disallow automated reading in robots.txt, and CivicInfo BC
+ * puts a Cloudflare browser check in front of its listing, so those ship
+ * turned off with a note saying how to follow them by hand. The old CRD bid
+ * site no longer answers, and Oak Bay's page could not be reached from the
+ * development environment (see each source's note).
  *
  * Greater Victoria bodies that are not listed separately (Langford, Colwood,
  * View Royal, Sidney, Sooke, Metchosin, Highlands, the school districts,
@@ -50,30 +59,46 @@ export const DEFAULT_SOURCES: DefaultSource[] = [
     'canadabuys-bcbid',
     'BC Bid notices (via CanadaBuys)',
     'canadabuys_search',
-    'Notices from BC Bid, where most Greater Victoria municipalities, school districts and public bodies post. BC Bid itself puts a browser check in front of its listing, so its notices are read from the CanadaBuys site, which republishes them.',
+    `${CANADABUYS_OFF} BC Bid itself puts a browser check in front of its listing. Most Greater Victoria municipalities, school districts and public bodies post on BC Bid: turn on BC Bid's own e-mail notifications for landscaping categories to hear about them.`,
     { url: CANADABUYS_SEARCH_URL, bcOnly: true, timeZone: 'America/Toronto', fetchDetails: true },
+    false,
   ),
   source(
     'canadabuys-federal',
     'Government of Canada tenders (open data)',
     'canadabuys_csv',
-    'Every open federal tender, from the official daily open-data file. Covers National Defence (CFB Esquimalt), Parks Canada, Fisheries and Oceans and federal buildings in the region.',
+    `${CANADABUYS_OFF} Federal work in the region (CFB Esquimalt, Parks Canada, federal buildings) is posted there: set up a saved search with e-mail alerts on CanadaBuys to hear about it.`,
     { url: CANADABUYS_OPEN_CSV, timeZone: 'America/Toronto', fetchDetails: false },
+    false,
   ),
-  source('bonfire-victoria', 'City of Victoria — bid portal', 'bonfire', 'The City of Victoria’s Bonfire portal. Bids are submitted on the portal with a free vendor account.', {
+  source(
+    'bonfire-victoria',
+    'City of Victoria — bid portal',
+    'bonfire',
+    BONFIRE_OFF,
+    {
     url: 'https://victoria.bonfirehub.ca',
     organization: 'City of Victoria',
     localBuyer: true,
     defaultSubmission: 'bonfire',
     fetchDetails: false,
-  }),
-  source('bonfire-saanich', 'District of Saanich — procurement portal', 'bonfire', 'The Saanich Procurement Portal (Bonfire). All Saanich documents, addenda and submissions go through it.', {
+    },
+    false,
+  ),
+  source(
+    'bonfire-saanich',
+    'District of Saanich — procurement portal',
+    'bonfire',
+    BONFIRE_OFF,
+    {
     url: 'https://saanich.bonfirehub.ca',
     organization: 'District of Saanich',
     localBuyer: true,
     defaultSubmission: 'bonfire',
     fetchDetails: false,
-  }),
+    },
+    false,
+  ),
   source('saanich-rss', 'District of Saanich — bid opportunities feed', 'rss', 'Saanich’s own website feed. It includes smaller quotation requests that are not posted on BC Bid.', {
     url: 'https://www.saanich.ca/EN/main/business/selling-to-saanich/bid-opportunities/data/tenders.rss',
     organization: 'District of Saanich',
@@ -81,34 +106,62 @@ export const DEFAULT_SOURCES: DefaultSource[] = [
     defaultSubmission: 'bonfire',
     fetchDetails: true,
   }),
-  source('bonfire-centralsaanich', 'District of Central Saanich — procurement portal', 'bonfire', 'Central Saanich’s Bonfire portal.', {
+  source(
+    'bonfire-centralsaanich',
+    'District of Central Saanich — procurement portal',
+    'bonfire',
+    BONFIRE_OFF,
+    {
     url: 'https://centralsaanich.bonfirehub.ca',
     organization: 'District of Central Saanich',
     localBuyer: true,
     defaultSubmission: 'bonfire',
     fetchDetails: false,
-  }),
-  source('bonfire-northsaanich', 'District of North Saanich — procurement portal', 'bonfire', 'North Saanich’s Bonfire portal.', {
+    },
+    false,
+  ),
+  source(
+    'bonfire-northsaanich',
+    'District of North Saanich — procurement portal',
+    'bonfire',
+    BONFIRE_OFF,
+    {
     url: 'https://northsaanich.bonfirehub.ca',
     organization: 'District of North Saanich',
     localBuyer: true,
     defaultSubmission: 'bonfire',
     fetchDetails: false,
-  }),
-  source('bonfire-uvic', 'University of Victoria — procurement portal', 'bonfire', 'UVic’s Euna Procurement (Bonfire) portal.', {
+    },
+    false,
+  ),
+  source(
+    'bonfire-uvic',
+    'University of Victoria — procurement portal',
+    'bonfire',
+    BONFIRE_OFF,
+    {
     url: 'https://uvic.bonfirehub.ca',
     organization: 'University of Victoria',
     localBuyer: true,
     defaultSubmission: 'bonfire',
     fetchDetails: false,
-  }),
-  source('crd', 'Capital Regional District — current opportunities', 'html_list', 'The CRD’s bid site. Work on Salt Spring, the Gulf Islands and Port Renfrew is filtered out as outside Greater Victoria.', {
+    },
+    false,
+  ),
+  source(
+    'crd',
+    'Capital Regional District — current opportunities',
+    'html_list',
+    'Turned off: the CRD’s old bid site (bid.crd.ca) now answers “not found” for every page, and its replacement on crd.ca could not be checked yet. Look at the CRD’s current opportunities on crd.ca until this source is updated. Work on Salt Spring, the Gulf Islands and Port Renfrew is filtered out as outside Greater Victoria.',
+    {
     url: 'https://bid.crd.ca/contracts-rfps/current',
     linkPattern: '^/contracts-rfps/current/[^/?#]+',
     organization: 'Capital Regional District',
     localBuyer: true,
     fetchDetails: true,
-  }),
+    },
+    false,
+  ),
   source('esquimalt', 'Township of Esquimalt — bids & tenders', 'html_list', 'Esquimalt’s own bids page.', {
     url: 'https://www.esquimalt.ca/business-development/bids-tenders',
     linkPattern: '^/business-development/bids-tenders/[^/?#]+',
@@ -116,8 +169,8 @@ export const DEFAULT_SOURCES: DefaultSource[] = [
     localBuyer: true,
     fetchDetails: true,
   }),
-  source('oakbay', 'District of Oak Bay — tenders', 'html_list', 'Oak Bay’s tenders page. Oak Bay posts its documents on BC Bid, so this page is often empty.', {
-    url: 'https://oakbay.ca/municipal-hall/tenders-grants/tenders',
+  source('oakbay', 'District of Oak Bay — tenders', 'html_list', 'Oak Bay’s tenders page (oakbay.ca now forwards to www.oakbay.ca; not yet checked against the live page). Oak Bay posts its documents on BC Bid, so this page is often empty.', {
+    url: 'https://www.oakbay.ca/municipal-hall/tenders-grants/tenders',
     organization: 'District of Oak Bay',
     localBuyer: true,
     defaultSubmission: 'bcbid',
@@ -127,8 +180,9 @@ export const DEFAULT_SOURCES: DefaultSource[] = [
     'civicinfo-bc',
     'CivicInfo BC — local government bids',
     'html_list',
-    'A province-wide listing used by BC local governments, including smaller Greater Victoria municipalities. Notices from elsewhere in BC are filtered out.',
+    'Turned off: CivicInfo BC puts a Cloudflare browser check in front of its bid listing, so it cannot be read automatically. Smaller Greater Victoria municipalities post there; check civicinfo.bc.ca/bids in your browser.',
     { url: 'https://www.civicinfo.bc.ca/bids', pageParam: 'pn', pageStart: 1, maxPages: 5, bcOnly: true, fetchDetails: true },
+    false,
   ),
 ];
 

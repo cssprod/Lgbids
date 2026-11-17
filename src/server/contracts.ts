@@ -154,8 +154,12 @@ export interface Store {
   insertSource(input: { id: string; name: string; kind: SourceKind; enabled: boolean; builtin: boolean; notes: string; config: SourceConfig }, now: Date): SourceRecord;
   updateSource(id: string, patch: Partial<Pick<SourceRecord, 'name' | 'enabled' | 'notes' | 'config'>>, now: Date): SourceRecord | undefined;
   deleteSource(id: string): boolean;
-  /** Insert any default source that is not there yet (never overwrites user edits). */
-  seedSources(defaults: { id: string; name: string; kind: SourceKind; notes: string; config: SourceConfig }[], now: Date): void;
+  /**
+   * Insert any default source that is not there yet. For built-in sources
+   * already there, refresh the note, and turn off one that now ships off
+   * (a site that refuses automated reading); addresses and settings are kept.
+   */
+  seedSources(defaults: { id: string; name: string; kind: SourceKind; notes: string; config: SourceConfig; enabled?: boolean }[], now: Date): void;
   recordSourceRun(id: string, result: { status: SourceStatus; message: string; itemCount: number | null }, now: Date): void;
   getSourceState(id: string): Record<string, unknown>;
   setSourceState(id: string, state: Record<string, unknown>): void;

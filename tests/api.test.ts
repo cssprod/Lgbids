@@ -754,7 +754,7 @@ describe('dashboard', () => {
       ['documents', false],
       ['run', false],
     ]);
-    expect(d.sources.length).toBe(d.counts.sourcesEnabled);
+    expect(d.sources.filter((s: { enabled: boolean }) => s.enabled).length).toBe(d.counts.sourcesEnabled);
   });
 });
 

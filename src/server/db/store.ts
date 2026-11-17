@@ -633,9 +633,12 @@ export function createStore(db: Database): Store {
           const at = nowIso(now);
           db.run(
             `INSERT INTO sources (id, name, kind, enabled, builtin, notes, config, created_at, updated_at)
-             VALUES (:id, :name, :kind, 1, 1, :notes, :config, :at, :at)
-             ON CONFLICT(id) DO NOTHING`,
-            { id: d.id, name: d.name, kind: d.kind, notes: d.notes, config: JSON.stringify(d.config), at },
+             VALUES (:id, :name, :kind, :enabled, 1, :notes, :config, :at, :at)
+             ON CONFLICT(id) DO UPDATE SET
+               notes = excluded.notes,
+               enabled = CASE WHEN excluded.enabled = 0 THEN 0 ELSE sources.enabled END
+             WHERE sources.builtin = 1`,
+            { id: d.id, name: d.name, kind: d.kind, enabled: d.enabled === false ? 0 : 1, notes: d.notes, config: JSON.stringify(d.config), at },
           );
         }
       });
