@@ -1,7 +1,7 @@
 # Lgbids — project memory
 
 Standalone web app that finds, qualifies and applies to gardening/landscaping bids in Greater Victoria, BC.
-Start every session with the `lean-build` skill.
+Start every session with the `lean-build` skill. Other project skills (`.claude/skills/`): `ui-design-system`, `ux-patterns`, `web-feature`, `ui-quality-pass`, `live-sources`, `release-readiness`.
 
 ## Stack & commands
 Node >= 22.13, TypeScript (ESM, `.js` import suffixes), Fastify 5, built-in `node:sqlite`, zod 4, cheerio, csv-parse, luxon, nodemailer, pdfkit, unpdf; web UI = React 19 + Vite (in `src/web`, not started). Tests: vitest.

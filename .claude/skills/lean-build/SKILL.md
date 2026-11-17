@@ -16,7 +16,8 @@ Goal: finish the work listed in CLAUDE.md with the fewest tokens, at the same qu
 - One module at a time: write it, typecheck, add a focused test, run only that test file, then move on.
 - Read only the files you are about to import from; use Grep for a symbol instead of reading whole files.
 - Match existing patterns (see "Conventions" in CLAUDE.md). Reuse helpers in `src/server/util` and `src/server/matching` rather than writing new ones.
-- No subagents, no web research, no planning documents. The live bid sites are unreachable from the cloud sandbox; test against `src/server/demo` fixtures only.
+- No subagents, no web research, no planning documents. Test against `src/server/demo` fixtures; touch the live bid sites only via the `live-sources` skill when the user has asked for it.
+- Companion skills: `ui-design-system` and `ux-patterns` before UI work, `web-feature` for new features, `ui-quality-pass` after UI changes, `live-sources` for Phase 4, `release-readiness` for finalising.
 - Keep replies to a few lines. Do not paste code back into chat.
 - Use dates in summer (June/July) in tests so results do not depend on the time zone data version.
 - Never invent company facts in generated bids; never put real e-mail addresses in fixtures (use `.example`).
