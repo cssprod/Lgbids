@@ -6,7 +6,7 @@
   --surface: #ffffff;
   --surface-2: #f0ede5;
   --border: #ddd8cc;
-  --border-strong: #b9b2a2;
+  --border-strong: #8f887a;
   --text: #1f231f;
   --text-muted: #5d625a;
   --brand: #1f4d3a;
@@ -55,7 +55,7 @@
     --surface: #1c1f1b;
     --surface-2: #242823;
     --border: #343a33;
-    --border-strong: #4c544a;
+    --border-strong: #6b7468;
     --text: #e7e9e3;
     --text-muted: #a3a99f;
     --brand: #5fae86;
@@ -2104,4 +2104,52 @@ a.row-title:focus-visible {
 }
 .dropzone p {
   margin: 0;
+}
+/* Disclosures (advanced options, finished applications): a chevron shows they open. */
+.advanced summary,
+details.group > summary {
+  list-style: none;
+  gap: var(--space-2);
+}
+.advanced summary {
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  transition: border-color 150ms var(--ease);
+}
+details.group > summary {
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+  cursor: pointer;
+}
+details.group > summary h2 {
+  margin: 0;
+}
+.advanced summary::-webkit-details-marker,
+details.group > summary::-webkit-details-marker {
+  display: none;
+}
+.advanced summary::before,
+details.group > summary::before {
+  content: '';
+  width: 0.5rem;
+  height: 0.5rem;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 150ms var(--ease);
+  flex: none;
+}
+.advanced[open] summary::before,
+details.group[open] > summary::before {
+  transform: rotate(45deg);
+}
+.advanced summary:hover {
+  border-color: var(--brand);
+}
+.advanced[open] summary {
+  margin-bottom: var(--space-3);
 }

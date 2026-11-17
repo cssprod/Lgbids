@@ -75,7 +75,10 @@ Exit: every built-in source reads correctly or is disabled with a note.
 - How to do Phase 4: run `check-sources` themselves, or approve a cloud environment with the bid-site hosts allowed.
 
 ## UI design & usability pass (Phases A–F)
-Progress: [ ] A audit · [ ] B foundation · [ ] C shell · [ ] D pages · [ ] E a11y/usability · [ ] F verification
+Progress: [x] A audit · [x] B foundation · [x] C shell · [x] D pages · [x] E a11y/usability · [~] F verification (Lighthouse not run: not installed)
+
+Result (2026-11-17): spacing/type/shadow tokens; inline SVG icon set (`components/Icon.tsx`); grouped sidebar with icons and live count badges, phone menu as overlay with Esc/scrim; score meter bar; dashboard condensed (top 5 needing attention, top 6 deadlines, setup progress bar, collapsible source list; phone height −40%); opportunities list card with search icon and submission-channel icon; detail score card; application stage strip; application detail with numbered portal steps, checklist progress, "Go to the checklist" jump, sticky save bar when dirty; sticky section pills on Profile and Settings; document drag-and-drop zone; fields no longer stretch to row height; input border contrast raised to ≥ 3:1 in both themes; 404 has an h1; disclosure chevrons.
+Verified in demo mode with Playwright: 11 routes × 1280/390 × light/dark — 0 console errors, 0 horizontal overflow, one h1 each, no unnamed controls or unlabeled inputs; keyboard Tab order with visible focus, dialog focus trap + Esc + focus return, phone menu Esc; golden paths (upload → tick checklist → price → Send → submitted → Won; second send refused 409; portal download → Mark as submitted); auto mode cannot be saved without the acknowledgement. Not done: a toast system (the existing `Live` regions cover feedback), Lighthouse.
 
 ### Phase A — Baseline audit (no code changes)
 1. `npm run build && npm run demo` (background, read port from output).

@@ -22,6 +22,7 @@ Node >= 22.13, TypeScript (ESM, `.js` import suffixes), Fastify 5, built-in `nod
 
 ## Done (240 tests passing; demo verified in a browser)
 - Everything in docs/PLAN.md phases 1–3. App builds, runs, and works end to end in demo mode.
+- UI design & usability pass (docs/PLAN.md, phases A–F): tokens, icons, nav badges, redesigned pages; verified in the browser (light/dark, 1280/390, keyboard, golden paths).
 - `src/shared/schemas.ts` — all zod schemas + DTO types (Profile, AutomationSettings, EmailSettings, RegionSettings, SourceConfig/Record, Opportunity, Application, Analysis, Requirement, RunRecord, Dashboard...).
 - `src/server/util/text.ts`, `util/dates.ts` (parseDate, findDates, findClosingDate, closingDeadline, formatLocal, nowIso).
 - `src/server/matching/` — relevance.ts (lexicon, masks, services, mightBeRelevant, DEFAULT_SEARCH_QUERIES), geo.ts (defaultRegion, assessArea, mightBeLocal, organizationKey), notice.ts (detectNoticeType, extractReference, referenceKey, titleKey), requirements.ts (extractFacts, detectSubmission, buildRequirements), analyse.ts (analyse -> score, decision, Analysis, facts).
