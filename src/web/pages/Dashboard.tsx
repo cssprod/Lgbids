@@ -98,6 +98,11 @@ export function DashboardPage({ onTimeZone }: { onTimeZone: (tz: string) => void
   ];
 
   const setupDone = d.setup.length - setupLeft.length;
+  const isDone = (key: string) => d.setup.find((s) => s.key === key)?.done ?? false;
+  // A brand-new install: show three clear first steps instead of empty counts and lists.
+  const fresh = !d.lastRun && d.attention.length === 0 && d.counts.openSuitable === 0 && !d.demo;
+  const alertSource = d.sources.find((s) => s.kind === 'email_alerts');
+  const otherSources = d.sources.filter((s) => s.enabled && s.kind !== 'email_alerts');
   const attention = d.attention.slice(0, 5);
   const deadlines = d.deadlines.slice(0, 6);
   const needYou = d.counts.needsInput + d.counts.ready;
@@ -112,11 +117,14 @@ export function DashboardPage({ onTimeZone }: { onTimeZone: (tz: string) => void
       <PageHeader
         title="Today"
         intro={
-          needYou > 0
+          fresh
+            ? 'Welcome to Lgbids. Three steps below get your first bids in.'
+            : needYou > 0
             ? `${plural(needYou, 'application')} ${needYou === 1 ? 'needs' : 'need'} you. ${plural(d.counts.openSuitable, 'suitable bid')} open.`
             : `Nothing is waiting for you. ${plural(d.counts.openSuitable, 'suitable bid')} open.`
         }
         actions={
+          fresh ? undefined : (
           <button type="button" className="btn btn-primary" onClick={runNow} disabled={running || run.busy}>
             {running ? (
               <>
@@ -128,6 +136,7 @@ export function DashboardPage({ onTimeZone }: { onTimeZone: (tz: string) => void
               </>
             )}
           </button>
+          )
         }
       />
       <Live message={run.message} />
@@ -159,7 +168,7 @@ export function DashboardPage({ onTimeZone }: { onTimeZone: (tz: string) => void
                   </span>
                 </>
               ) : (
-                'Not run yet. Press “Run now” to look for bids.'
+                'Not run yet.'
               )}
             </dd>
           </div>
@@ -184,6 +193,42 @@ export function DashboardPage({ onTimeZone }: { onTimeZone: (tz: string) => void
         </dl>
       </section>
 
+      {fresh ? (
+        <Section title="Three steps to your first bids">
+          <ol className="steps welcome-steps">
+            <li className={isDone('profile') ? 'done' : ''}>
+              <div>
+                <p className="step-title">Fill in your company profile</p>
+                <p className="small muted">Bids only ever state what you enter here: your company, insurance, services and references.</p>
+              </div>
+              <Link to="/profile" className={`btn ${isDone('profile') ? 'btn-secondary' : 'btn-primary'}`}>
+                {isDone('profile') ? 'Review profile' : 'Open profile'}
+              </Link>
+            </li>
+            <li className={isDone('alerts') ? 'done' : ''}>
+              <div>
+                <p className="step-title">Connect your bid alert inbox</p>
+                <p className="small muted">BC Bid and Bonfire e-mail you new opportunities. Lgbids reads those e-mails from your Gmail, read-only.</p>
+              </div>
+              <Link to="/settings#alerts" className={`btn ${!isDone('profile') || isDone('alerts') ? 'btn-secondary' : 'btn-primary'}`}>
+                {isDone('alerts') ? 'Connected' : 'Connect inbox'}
+              </Link>
+            </li>
+            <li>
+              <div>
+                <p className="step-title">Run the first check</p>
+                <p className="small muted">Lgbids reads your alerts and bid sites, scores each bid and drafts applications for your approval.</p>
+              </div>
+              <button type="button" className={`btn ${isDone('profile') && isDone('alerts') ? 'btn-primary' : 'btn-secondary'}`} onClick={runNow} disabled={running || run.busy}>
+                <Icon name="play" size={16} /> Run first check
+              </button>
+            </li>
+          </ol>
+        </Section>
+      ) : null}
+
+      {!fresh ? (
+      <>
       <ul className="tiles" aria-label="Counts">
         {tiles.map((t) => (
           <li key={t.label}>
@@ -308,7 +353,32 @@ export function DashboardPage({ onTimeZone }: { onTimeZone: (tz: string) => void
         </Section>
       </div>
 
-      <Section title="Bid sites" actions={<Link to="/sources" className="small">Manage sources</Link>}>
+      </>
+      ) : null}
+
+      <Section title="Where bids come from" actions={<Link to="/sources" className="small">Manage sources</Link>}>
+        {alertSource ? (
+          <div className={`alert-status ${alertSource.enabled && alertSource.lastStatus === 'ok' ? 'is-ok' : ''}`}>
+            <Icon name="inbox" size={20} />
+            <div>
+              <p className="strong">Bid alert e-mails (BC Bid and Bonfire)</p>
+              <p className="small muted">
+                {!alertSource.enabled
+                  ? 'Not set up. Most Greater Victoria landscaping bids arrive this way.'
+                  : alertSource.lastRunAt
+                    ? `${alertSource.lastMessage || 'Read on the last check.'}`
+                    : 'Turned on. Alerts are read on the next check.'}
+              </p>
+            </div>
+            {!alertSource.enabled ? (
+              <Link to="/settings#alerts" className="btn btn-primary btn-small">
+                Connect inbox
+              </Link>
+            ) : (
+              <SourceChip status={alertSource.lastStatus} />
+            )}
+          </div>
+        ) : null}
         {failing.length > 0 ? (
           <Callout tone="bad" title={`${plural(failing.length, 'source')} could not be read on the last check.`}>
             <ul className="plain-list">
@@ -329,6 +399,10 @@ export function DashboardPage({ onTimeZone }: { onTimeZone: (tz: string) => void
               Lgbids has nowhere to look for bids. <Link to="/sources">Turn on a source</Link>.
             </p>
           </Callout>
+        ) : otherSources.length > 0 && otherSources.every((s) => s.lastStatus === 'never') ? (
+          <p className="muted">
+            {plural(otherSources.length, 'bid site')} {otherSources.length === 1 ? 'is' : 'are'} turned on. {otherSources.length === 1 ? 'It is' : 'They are'} read on the first check.
+          </p>
         ) : (
           <p className="ok-line">
             <span className="ok-dot" aria-hidden="true">
@@ -337,13 +411,11 @@ export function DashboardPage({ onTimeZone }: { onTimeZone: (tz: string) => void
             All {plural(d.counts.sourcesEnabled, 'source')} that are turned on worked on the last check.
           </p>
         )}
-        {d.sources.some((s) => s.enabled) ? (
+        {otherSources.length > 0 ? (
           <details className="source-details" open={failing.length > 0}>
-            <summary>Show each source</summary>
+            <summary>Show each bid site</summary>
             <ul className="source-mini">
-              {d.sources
-                .filter((s) => s.enabled)
-                .map((s) => (
+              {otherSources.map((s) => (
                   <li key={s.id}>
                     <span className="source-mini-name">{s.name}</span>
                     <SourceChip status={s.lastStatus} />

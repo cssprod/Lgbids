@@ -13,6 +13,13 @@ export function SourcesPage() {
   useDocumentTitle('Sources');
   const res = useResource<SourceRecord[]>('/api/sources');
 
+  // Alert e-mails first (they carry most bids), then the sites that can be read,
+  // then the built-in ones that ship turned off because the site refuses robots.
+  const all = res.data ?? [];
+  const isBlocked = (s: SourceRecord) => s.builtin && !s.enabled && s.notes.startsWith('Turned off');
+  const main = [...all.filter((s) => s.kind === 'email_alerts'), ...all.filter((s) => s.kind !== 'email_alerts' && !isBlocked(s))];
+  const blocked = all.filter((s) => s.kind !== 'email_alerts' && isBlocked(s));
+
   function replace(s: SourceRecord) {
     if (res.data) res.setData(res.data.map((x) => (x.id === s.id ? s : x)));
   }
@@ -37,11 +44,27 @@ export function SourcesPage() {
         </Empty>
       ) : null}
       {res.data && res.data.length > 0 ? (
-        <ul className="source-list">
-          {res.data.map((s) => (
-            <SourceCard key={s.id} s={s} onChange={replace} onDeleted={() => res.setData((res.data ?? []).filter((x) => x.id !== s.id))} />
-          ))}
-        </ul>
+        <>
+          <ul className="source-list">
+            {main.map((s) => (
+              <SourceCard key={s.id} s={s} onChange={replace} onDeleted={() => res.setData((res.data ?? []).filter((x) => x.id !== s.id))} />
+            ))}
+          </ul>
+          {blocked.length > 0 ? (
+            <details className="advanced blocked-sources">
+              <summary>Sites that cannot be read automatically ({blocked.length})</summary>
+              <p className="hint">
+                These sites ask automated tools not to read them, or put a browser check in front of their listings. Lgbids respects that.
+                Their bids reach you through their own e-mail alerts instead; each note says how.
+              </p>
+              <ul className="source-list">
+                {blocked.map((s) => (
+                  <SourceCard key={s.id} s={s} onChange={replace} onDeleted={() => res.setData((res.data ?? []).filter((x) => x.id !== s.id))} />
+                ))}
+              </ul>
+            </details>
+          ) : null}
+        </>
       ) : null}
     </>
   );

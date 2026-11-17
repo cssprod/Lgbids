@@ -94,6 +94,22 @@ export function Layout({ children }: { children: ReactNode }) {
     };
   }, [location.pathname]);
 
+  // A link to "/settings#alerts" lands on that section. Pages load their data
+  // after the first paint, so look for the target a few times before giving up.
+  useEffect(() => {
+    if (!location.hash) return;
+    const id = decodeURIComponent(location.hash.slice(1));
+    let tries = 0;
+    const timer = window.setInterval(() => {
+      const el = document.getElementById(id);
+      if (el || ++tries > 20) {
+        window.clearInterval(timer);
+        el?.scrollIntoView({ block: 'start' });
+      }
+    }, 100);
+    return () => window.clearInterval(timer);
+  }, [location.pathname, location.hash]);
+
   // Escape closes the phone menu and puts focus back on its button.
   useEffect(() => {
     if (!menuOpen) return;

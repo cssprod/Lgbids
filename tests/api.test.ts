@@ -803,6 +803,7 @@ describe('dashboard', () => {
     expect(d.deadlines.map((o: { title: string }) => o.title)).toEqual(['Closing Soon Mowing', 'Later Mowing']);
     expect(d.setup.map((s: { key: string; done: boolean }) => [s.key, s.done])).toEqual([
       ['profile', false],
+      ['alerts', false],
       ['services', false],
       ['email', false],
       ['documents', false],

@@ -37,10 +37,18 @@ export function buildDashboard(deps: AppDeps, pipeline: Pipeline, scheduler: Sch
   const enabled = sources.filter((s) => s.enabled);
   const lastRun = store.latestRun() ?? null;
 
+  const alertSource = sources.find((s) => s.kind === 'email_alerts');
   const profile = settings.getProfile();
   const email = settings.getEmail();
   const setup: SetupItem[] = [
     { key: 'profile', label: 'Fill in your company profile', done: profileGaps(profile).length === 0, href: '/profile' },
+    {
+      key: 'alerts',
+      label: 'Connect your bid alert inbox (BC Bid and Bonfire)',
+      // Connected, or alerts already read from imported e-mails.
+      done: settings.getAlertInbox().verifiedAt !== null || (alertSource?.lastItemCount ?? 0) > 0,
+      href: '/settings#alerts',
+    },
     { key: 'services', label: 'Choose the services you offer', done: store.getSetting('profile') !== undefined, href: '/profile' },
     { key: 'email', label: 'Set up outgoing e-mail', done: emailConfigured(email) && !!email.verifiedAt, href: '/settings' },
     { key: 'documents', label: 'Upload your insurance and WorkSafeBC documents', done: store.listDocuments().length > 0, href: '/documents' },

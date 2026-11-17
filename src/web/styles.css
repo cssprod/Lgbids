@@ -2167,3 +2167,49 @@ details.group[open] > summary::before {
   display: grid;
   gap: var(--space-2);
 }
+/* Welcome steps on a new install */
+.welcome-steps > li.done::before {
+  content: '✓';
+  background: var(--good);
+  color: var(--surface);
+}
+.welcome-steps > li.done .step-title {
+  color: var(--text-muted);
+}
+/* Alert inbox status on Today */
+.alert-status {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: var(--space-3);
+  align-items: center;
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+.alert-status > .icon {
+  color: var(--brand);
+}
+.alert-status p {
+  margin: 0;
+}
+.alert-status.is-ok {
+  background: var(--good-soft);
+  border-color: color-mix(in srgb, var(--good) 35%, transparent);
+}
+@media (max-width: 760px) {
+  .alert-status {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .alert-status > :last-child {
+    grid-column: 2;
+    justify-self: start;
+  }
+}
+.blocked-sources {
+  margin-top: var(--space-5);
+}
+.blocked-sources .source-list {
+  margin-top: var(--space-3);
+}
