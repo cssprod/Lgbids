@@ -33,6 +33,7 @@ export function registerOpportunities(app: FastifyInstance, ctx: RouteContext): 
         view,
         q: q.q?.trim().slice(0, 200) || undefined,
         sourceId: q.sourceId || undefined,
+        closingWithinDays: q.closingWithinDays ? intQuery(q.closingWithinDays, 7, 1, 365) : undefined,
         limit: intQuery(q.limit, 50, 1, 500),
         offset: intQuery(q.offset, 0, 0, 1_000_000),
       },

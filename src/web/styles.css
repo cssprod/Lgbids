@@ -2213,3 +2213,114 @@ details.group[open] > summary::before {
 .blocked-sources .source-list {
   margin-top: var(--space-3);
 }
+/* Opportunity filters */
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.filters select {
+  width: auto;
+  min-width: 11rem;
+}
+@media (max-width: 760px) {
+  .filters {
+    width: 100%;
+  }
+  .filters select {
+    flex: 1 1 10rem;
+  }
+}
+/* Toasts */
+.toasts {
+  position: fixed;
+  z-index: 50;
+  left: 50%;
+  bottom: var(--space-4);
+  transform: translateX(-50%);
+  display: grid;
+  gap: var(--space-2);
+  width: min(560px, calc(100vw - 2 * var(--space-4)));
+  pointer-events: none;
+}
+.toast {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  gap: var(--space-3);
+  align-items: center;
+  padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4);
+  background: var(--text);
+  color: var(--bg);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  pointer-events: auto;
+  animation: drop-in 160ms var(--ease);
+}
+.toast p {
+  margin: 0;
+  font-size: var(--text-sm);
+}
+.toast-ok > .icon {
+  color: color-mix(in srgb, var(--good) 60%, var(--bg));
+}
+.toast-bad {
+  background: var(--bad);
+  color: #fff;
+}
+.toast .btn-secondary {
+  background: transparent;
+  color: inherit;
+  border-color: currentColor;
+}
+.toast-close {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.8;
+}
+.toast-close:hover {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .toast {
+    animation: none;
+  }
+}
+/* Quick decisions on list rows */
+.list-card .opp-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  column-gap: var(--space-4);
+  row-gap: var(--space-2);
+  align-items: start;
+}
+.opp-actions {
+  grid-column: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+@media (max-width: 760px) {
+  .list-card .opp-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .opp-actions {
+    grid-column: 1 / -1;
+  }
+}
+.inline-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+}
+.inline-links a {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}

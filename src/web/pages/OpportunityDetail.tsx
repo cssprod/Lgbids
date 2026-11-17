@@ -4,6 +4,7 @@ import type { Opportunity, Requirement, UserDecision } from '../../shared/schema
 import { NOTICE_TYPE_LABELS, SERVICE_LABELS, SUBMISSION_METHOD_LABELS } from '../../shared/schemas.js';
 import { useAction, useDocumentTitle, useFormat, useResource } from '../hooks.js';
 import { ApplicationChip, DecisionChip, ReasonList, ScoreBadge } from '../components/status.js';
+import { Icon } from '../components/Icon.js';
 import { BackLink, Callout, ErrorBox, ExternalLink, Live, Loading, PlainText, Section } from '../components/ui.js';
 
 function RequirementRow({ r }: { r: Requirement }) {
@@ -104,6 +105,11 @@ export function OpportunityDetailPage() {
           <ExternalLink href={o.url} className="btn btn-ghost">
             Original notice
           </ExternalLink>
+        ) : null}
+        {o.closesAt && isOpen ? (
+          <a className="btn btn-ghost" href={`/api/calendar.ics?id=${o.id}`}>
+            <Icon name="calendar" size={16} /> Add to calendar
+          </a>
         ) : null}
       </div>
       <Live message={action.message} />

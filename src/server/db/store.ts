@@ -896,7 +896,7 @@ export function createStore(db: Database): Store {
       return row ? toRecord(row) : undefined;
     },
 
-    listOpportunities(filter: OpportunityFilter, _now) {
+    listOpportunities(filter: OpportunityFilter, now) {
       const view = filter.view ?? 'all';
       const where = ['o.duplicate_of IS NULL', VIEW_WHERE[view] ?? VIEW_WHERE.all];
       const params: Record<string, unknown> = {};
@@ -910,6 +910,12 @@ export function createStore(db: Database): Store {
       if (filter.sourceId) {
         where.push('o.source_id = :sourceId');
         params.sourceId = filter.sourceId;
+      }
+      if (filter.closingWithinDays !== undefined) {
+        // Closing times are stored as UTC ISO strings, so text order is time order.
+        where.push('o.closes_at IS NOT NULL AND o.closes_at >= :closeFrom AND o.closes_at <= :closeUntil');
+        params.closeFrom = nowIso(now);
+        params.closeUntil = nowIso(new Date(now.getTime() + filter.closingWithinDays * 86_400_000));
       }
       const order =
         view === 'suitable' || view === 'review'

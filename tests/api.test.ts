@@ -697,6 +697,19 @@ describe('applications', () => {
 });
 
 describe('opportunities', () => {
+  it('filters by closing window', async () => {
+    const { app, deps } = await harness();
+    seedOpportunity(deps, { title: 'Closes in 3 days', closesAt: at(24 * 3) });
+    seedOpportunity(deps, { title: 'Closes in 12 days', closesAt: at(24 * 12) });
+    seedOpportunity(deps, { title: 'No closing date', closesAt: null });
+    const week = (await app.inject({ method: 'GET', url: '/api/opportunities?view=suitable&closingWithinDays=7' })).json();
+    expect(week.items.map((o: { title: string }) => o.title)).toEqual(['Closes in 3 days']);
+    const twoWeeks = (await app.inject({ method: 'GET', url: '/api/opportunities?view=suitable&closingWithinDays=14' })).json();
+    expect(twoWeeks.total).toBe(2);
+    const any = (await app.inject({ method: 'GET', url: '/api/opportunities?view=suitable' })).json();
+    expect(any.total).toBe(3);
+  });
+
   it('lists by view with counts and filters by text', async () => {
     const { app, deps } = await harness();
     seedOpportunity(deps, { title: 'Boulevard Mowing' });
@@ -775,6 +788,15 @@ describe('runs, events and calendar', () => {
     const unfolded = body.replace(/\r\n /g, '');
     expect(unfolded).toContain('SUMMARY:Bid closes: Boulevard Mowing\\; Trimming\\, and Edging');
     for (const line of body.split('\r\n')) expect(Buffer.byteLength(line)).toBeLessThanOrEqual(75);
+
+    // One bid, whatever its view; a bid without a closing date or an unknown id is refused.
+    const one = await app.inject({ method: 'GET', url: `/api/calendar.ics?id=${dated}` });
+    expect(one.body.match(/BEGIN:VEVENT/g)).toHaveLength(1);
+    expect(one.body).toContain(`UID:opportunity-${dated}@lgbids`);
+    expect(one.headers['content-disposition']).toContain(`lgbids-bid-${dated}.ics`);
+    const openEnded = deps.store.listOpportunities({ view: 'all', q: 'Open-ended' }, NOW).items[0]!.id;
+    expect((await app.inject({ method: 'GET', url: `/api/calendar.ics?id=${openEnded}` })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'GET', url: '/api/calendar.ics?id=999999' })).statusCode).toBe(404);
   });
 });
 

@@ -95,6 +95,8 @@ export interface OpportunityFilter {
   view?: OpportunityView;
   q?: string;
   sourceId?: string;
+  /** Only notices closing between now and this many days from now. */
+  closingWithinDays?: number;
   limit?: number;
   offset?: number;
 }

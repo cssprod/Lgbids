@@ -12,7 +12,7 @@ import type { AlertInboxSettings, Application, Dashboard, EmailSettings, Opportu
  *
  * GET    /api/dashboard                       -> DashboardResponse
  *
- * GET    /api/opportunities?view&q&sourceId&limit&offset -> OpportunityList
+ * GET    /api/opportunities?view&q&sourceId&closingWithinDays&limit&offset -> OpportunityList
  * GET    /api/opportunities/:id               -> Opportunity
  * POST   /api/opportunities/:id/decision {decision: 'pursue'|'dismissed'|null} -> Opportunity
  *          ('pursue' also drafts the application)

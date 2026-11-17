@@ -157,3 +157,32 @@ export function useUnsavedWarning(dirty: boolean): void {
     return () => window.removeEventListener('beforeunload', handler);
   }, [dirty]);
 }
+
+// ---------------------------------------------------------------------------
+// "New since your last visit"
+// ---------------------------------------------------------------------------
+
+const LAST_VISIT_KEY = 'lgbids.lastVisit';
+let previousVisit: string | null | undefined;
+
+/**
+ * When this browser last opened Lgbids before the current session (ISO), or
+ * null on a first visit. Worked out once per page load, then the stored time
+ * moves to now, so "new" stays the same while the user clicks around. Browser
+ * storage can be missing or blocked; then nothing is marked new.
+ */
+export function lastVisit(): string | null {
+  if (previousVisit !== undefined) return previousVisit;
+  previousVisit = null;
+  try {
+    previousVisit = window.localStorage.getItem(LAST_VISIT_KEY);
+    window.localStorage.setItem(LAST_VISIT_KEY, new Date().toISOString());
+  } catch {
+    // Private window or storage turned off: no "new" markers.
+  }
+  return previousVisit;
+}
+
+export function isNewSince(firstSeenAt: string | null | undefined, since: string | null): boolean {
+  return !!since && !!firstSeenAt && firstSeenAt > since;
+}

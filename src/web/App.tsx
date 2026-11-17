@@ -4,6 +4,7 @@ import { api, errorMessage, onUnauthorized } from './api.js';
 import type { DashboardResponse, SessionInfo } from '../shared/api.js';
 import { AppContext, type AppInfo } from './hooks.js';
 import { Layout } from './components/Layout.js';
+import { ToastProvider } from './components/Toast.js';
 import { Empty, ErrorBox, Loading } from './components/ui.js';
 import { LoginPage } from './pages/Login.js';
 import { DashboardPage } from './pages/Dashboard.js';
@@ -75,6 +76,7 @@ export function App() {
 
   return (
     <AppContext.Provider value={info}>
+      <ToastProvider>
       <BrowserRouter>
         <Layout>
           <Routes>
@@ -102,6 +104,7 @@ export function App() {
           </Routes>
         </Layout>
       </BrowserRouter>
+      </ToastProvider>
     </AppContext.Provider>
   );
 }

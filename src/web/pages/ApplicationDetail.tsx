@@ -158,8 +158,13 @@ export function ApplicationDetailPage() {
             ) : null}
           </p>
           {o ? (
-            <p className="small">
+            <p className="small inline-links">
               <Link to={`/opportunities/${o.id}`}>See the opportunity and its requirements</Link>
+              {o.closesAt && !locked ? (
+                <a href={`/api/calendar.ics?id=${o.id}`}>
+                  <Icon name="calendar" size={14} /> Add the closing time to your calendar
+                </a>
+              ) : null}
             </p>
           ) : null}
         </div>

@@ -24,15 +24,27 @@ export function registerRuns(app: FastifyInstance, ctx: RouteContext): void {
 
   app.get('/api/events', async (req) => store.listEvents(intQuery(query(req).limit, 50, 1, 500)));
 
-  app.get('/api/calendar.ics', async (_req, reply) => {
+  // All suitable open bids, or with ?id= just one (for "Add to calendar" on a bid).
+  app.get('/api/calendar.ics', async (req, reply) => {
     const at = now();
-    const items = store
-      .listOpportunities({ view: 'suitable', limit: 500 }, at)
-      .items.map(opportunityDto)
-      .filter((o) => o.status === 'open' && o.closesAt !== null);
+    const oneId = query(req).id;
+    let items;
+    if (oneId !== undefined) {
+      const id = intQuery(oneId, 0, 1, Number.MAX_SAFE_INTEGER);
+      const record = id ? store.getOpportunity(id) : undefined;
+      if (!record) throw new ApiError(404, 'That opportunity no longer exists.');
+      const opp = opportunityDto(record);
+      if (!opp.closesAt) throw new ApiError(400, 'This bid has no closing date to add to a calendar.');
+      items = [opp];
+    } else {
+      items = store
+        .listOpportunities({ view: 'suitable', limit: 500 }, at)
+        .items.map(opportunityDto)
+        .filter((o) => o.status === 'open' && o.closesAt !== null);
+    }
     return reply
       .header('content-type', 'text/calendar; charset=utf-8')
-      .header('content-disposition', 'inline; filename="lgbids-closing-dates.ics"')
+      .header('content-disposition', `inline; filename="${oneId !== undefined ? `lgbids-bid-${items[0]!.id}` : 'lgbids-closing-dates'}.ics"`)
       .header('cache-control', 'private, no-store')
       .send(buildCalendar(items, at, config.timeZone));
   });
