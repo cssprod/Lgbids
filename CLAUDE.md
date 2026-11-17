@@ -8,8 +8,8 @@ Node >= 22.13, TypeScript (ESM, `.js` import suffixes), Fastify 5, built-in `nod
 `npm test` · `npm run typecheck` · `npm run build` · `npm start` (dist/server/index.js) · `npm run dev`
 
 ## Decisions (do not revisit)
-- Network access to the real bid sites was declined in the cloud sandbox: connectors are tolerant, fixture-tested, and UNVERIFIED against live sites. Say so in README; first real run is the test. Sources page must show per-source health + a "Test" action.
-- BC Bid has a browser check, so it is read via the CanadaBuys mirror (notice ids starting `bc`).
+- Live check done 2026-11-17 (Phase 4): Saanich RSS + Esquimalt verified; CanadaBuys (both), all Bonfire portals (robots.txt Disallow) and CivicInfo (Cloudflare challenge) ship turned off with notes; bid.crd.ca is dead (off); Oak Bay moved to www.oakbay.ca, unverified (the user declined adding www.crd.ca / www.oakbay.ca to the cloud environment). Never work around robots.txt or bot checks. Sources page must show per-source health + a "Test" action.
+- BC Bid has a browser check and CanadaBuys disallows robots, so BC Bid notices are not read automatically (the CanadaBuys reader stays, turned off).
 - "Apply": e-mail submissions can be sent (one-click, or automatic if opted in); portal bids (Bonfire, BC Bid, bids&tenders) and hard copy are prepared as a package and the user uploads them. No portal logins, no AI/LLM dependency.
 - Automation modes: off | discover | prepare (default) | auto. Auto-send only when: status ready, channel email, address came from the notice, score >= autoSendThreshold, type in autoSendTypes, closing known and outside sendCutoffHours, under dailySendCap, profile + SMTP complete. Mark `sending` before SMTP; never auto-resend a `sending` row after a crash.
 - Auto mode waives exactly one checklist item, "I have read the bid documents" (key `documents`); every other required item (forms, site meeting, bond, price) still holds the submission for a person.

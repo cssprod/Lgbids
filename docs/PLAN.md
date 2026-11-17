@@ -49,6 +49,16 @@ Exit: demo golden path works in a real browser; screenshots reviewed.
 Exit: security findings fixed; Docker image runs; README complete.
 
 ## Phase 4 — Live-source check (needs network; on the user's machine or a session with the hosts allowed)
+
+**Done 2026-11-17.** Before → after:
+- Saanich RSS: ok but no closing dates/references → ok, all 10 with closing + reference (detail labels on separate lines; `findClosingDate` was skipping "Closing" after a "Posted Date"). Regression test: `tests/fixtures/saanich-notice.html`.
+- Esquimalt: ok → ok (verified titles, types, closing, statuses, documents by hand).
+- CanadaBuys BC Bid + federal CSV, Bonfire Victoria/Saanich/Central Saanich/North Saanich/UVic: blocked (robots.txt `User-agent: * Disallow: /`) → turned off with a note.
+- CivicInfo BC: 403 (Cloudflare challenge) → turned off with a note.
+- CRD: 404 (bid.crd.ca dead) → turned off; new page on www.crd.ca not checked (host not allowed in the cloud environment; user declined adding it).
+- Oak Bay: DNS → URL moved to www.oakbay.ca; still unverified for the same reason.
+- `run-once` on a fresh data dir: 27 notices (Saanich 10, Esquimalt 17), 0 suitable — correct: none is landscaping work. No matching changes needed.
+Remaining: check www.crd.ca and www.oakbay.ca from a machine that can reach them.
 The sandbox cannot reach the bid sites. Either:
 - the user runs `npm run check-sources` locally and pastes the output, or
 - a new cloud environment with these hosts allowed: canadabuys.canada.ca, *.bonfirehub.ca portals (victoria, saanich, centralsaanich, northsaanich, uvic), www.saanich.ca, bid.crd.ca, www.esquimalt.ca, oakbay.ca, www.civicinfo.bc.ca.

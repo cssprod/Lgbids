@@ -19,19 +19,22 @@ A bid is a formal offer, so nothing is sent until you review it and press Send. 
 
 ## Sources
 
-| Source | Covers |
-| --- | --- |
-| BC Bid notices, read from the CanadaBuys site | Most municipalities, school districts and public bodies in the region |
-| Government of Canada open data (daily CSV) | Federal sites: CFB Esquimalt, Parks Canada, federal buildings |
-| Bonfire portals | City of Victoria, Saanich, Central Saanich, North Saanich, University of Victoria |
-| District of Saanich feed | Smaller Saanich quotation requests |
-| Capital Regional District bid site | CRD (Gulf Islands and Port Renfrew work is filtered out) |
-| Township of Esquimalt, District of Oak Bay pages | Their own postings |
-| CivicInfo BC | Smaller municipalities province-wide (non-local filtered out) |
+Checked against the live sites on 2026-11-17:
 
-On the Sources page you can turn each source on or off and test it. Adding your own sources is not offered in this beta.
+| Source | Covers | Status |
+| --- | --- | --- |
+| District of Saanich feed | Saanich quotation requests and RFPs | **Works.** Titles, references, closing times and links checked against saanich.ca. |
+| Township of Esquimalt page | Esquimalt's own postings | **Works.** Titles, types, closing times, status (open/awarded/cancelled) and documents checked against esquimalt.ca. |
+| District of Oak Bay page | Oak Bay's own postings | On, **not yet checked**: the address moved to www.oakbay.ca and could not be reached from the development environment. |
+| BC Bid notices (via CanadaBuys) | Most municipalities, school districts and public bodies | **Off.** canadabuys.canada.ca asks automated tools not to read it (robots.txt). Use BC Bid's own e-mail notifications. |
+| Government of Canada open data | Federal sites: CFB Esquimalt, Parks Canada | **Off**, same reason. Use a saved CanadaBuys search with e-mail alerts. |
+| Bonfire portals | City of Victoria, Saanich, Central Saanich, North Saanich, UVic | **Off.** Bonfire's robots.txt disallows all automated reading. Follow each buyer on Bonfire with a free vendor account. |
+| Capital Regional District | CRD | **Off.** The old bid site (bid.crd.ca) no longer answers; its replacement has not been checked yet. |
+| CivicInfo BC | Smaller municipalities | **Off.** A Cloudflare browser check blocks automated reading. |
 
-**Important — not yet proven against the live sites.** The readers were written from each site's published format and tested on sample pages; they could not be run against the real sites during development. Treat the first run as the test: the Sources page shows, for each source, whether it answered and how many notices were read, and `npm run check-sources` prints the same from the command line. Expect to adjust one or two.
+Lgbids does not work around a site's robots.txt or browser checks. That means, for now, **most Greater Victoria landscaping bids (BC Bid and Bonfire) are not found automatically**: use those sites' own e-mail alerts alongside Lgbids, and use Lgbids to prepare, track and submit the bids.
+
+On the Sources page you can turn each source on or off and test it, and each turned-off source says why. Adding your own sources is not offered in this beta.
 
 The app identifies itself, respects each site's robots.txt, and spaces its requests out.
 
@@ -95,7 +98,7 @@ During the beta, keep **Settings → Automation** on "Find, score & draft applic
 - anything in a drafted letter or package you had to correct,
 - anything on screen that was confusing.
 
-Before the first real run, check the sources: `npm run check-sources`, or **Sources → Test** for each. The readers have not yet been run against the live sites.
+Before the first real run, check the sources: `npm run check-sources`, or **Sources → Test** for each. Saanich and Esquimalt were checked against the live sites; Oak Bay was not (see the Sources table).
 
 ## Development
 
