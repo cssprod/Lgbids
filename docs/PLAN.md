@@ -171,3 +171,47 @@ Why: Phase 4 showed BC Bid, CanadaBuys, Bonfire and CivicInfo refuse automated r
 1. Which mail provider the alerts go to (Gmail, Microsoft, other).
 2. Which alerts they receive or will set up (BC Bid, Bonfire buyers, CanadaBuys, CivicInfo).
 3. 2–3 example alert e-mails per site, saved as `.eml` (personal details can be blanked; they are anonymised before going into tests).
+
+## UI pass 2 — usability (Phases 1–6)
+Progress: [ ] 1 first-run · [ ] 2 daily loop · [ ] 3 feedback & forms · [ ] 4 help · [ ] 5 polish · [ ] 6 a11y/perf
+
+### Phase 1 — First-run and setup (highest value)
+1. **Setup checklist leads with alerts.** `src/server/dashboard.ts` builds `setup[]` (profile, services, email, documents, run). Add `alerts` ("Connect your bid alert inbox", done = `settings.getAlertInbox().verifiedAt` or any imported alert read) as step 2, linking to `/settings#alerts`. Update `tests/api.test.ts` dashboard expectation.
+2. **Welcome screen when nothing is set up** (dashboard `setup` all false and no opportunities): one card on Today — "Three steps to your first bids" (Company profile → Bid alert inbox → Run first check) with big buttons, replacing the empty tiles/lists. Reuse `Section`, `Empty`, `.progress`.
+3. **Sources page reorders by usefulness:** "Bid alert e-mails" card first and visually primary; working sources next; turned-off sources grouped under a collapsed "Sites that cannot be read automatically (8)" with their notes. `src/web/pages/Sources.tsx` only.
+4. **Dashboard "Bid sites" panel** becomes "Where bids come from": alert inbox status (connected / not set up → link), last alert read, plus working sources; stops listing turned-off ones.
+
+### Phase 2 — Daily loop
+1. **"New since your last visit".** Store the last-visit time per browser (localStorage, try/catch, per ux-patterns rule) in `hooks.ts`; Opportunities rows and Today show a "New" chip for `firstSeenAt` after it; nav badge counts new suitable. No server change (`firstSeenAt` already on `Opportunity`).
+2. **Opportunities filters:** add closing-window (this week / 2 weeks / any) and source (alerts / Saanich / Esquimalt…) selects next to search, kept in the URL like `view`/`q` (`useSearchParams` already used). Server: extend `/api/opportunities` query with `closingWithinDays` and `source` in `src/server/routes/opportunities.ts` + store query; tests in `tests/api.test.ts`.
+3. **Quick decisions from the list:** "Pursue" / "Not for us" buttons on each suitable/review row (same `/decision` endpoint as `OpportunityDetail.tsx`), with an Undo toast (Phase 3.1).
+4. **Per-bid calendar link** on opportunity and application detail (`/api/calendar.ics?id=` — check `routes/calendar.ts`; add the filter if missing).
+
+### Phase 3 — Feedback and forms
+1. **Toast system** (`components/Toast.tsx` + provider in `App.tsx`): success auto-hides after 4 s, errors stay, optional Undo action; announced via one `aria-live` region. Use for save, send, import, decisions. Keep page-level `Live` only where the message must stay next to a field.
+2. **Application detail as three steps** (`ApplicationDetail.tsx`, 693 lines → split into `pages/application/{Overview,PriceLetter,Attachments,Submit}.tsx`): a step bar "1 Price & letter · 2 Attachments · 3 Submit" with completion ticks driven by `a.missing`/`a.checklist`; same data and endpoints. Sticky bottom action bar on phones with the one next action.
+3. **Autosave drafts** for the application letter/price and Profile (debounced PUT after 1.5 s idle, "Saved" indicator) instead of the explicit Save + unsaved warning; keep `useUnsavedWarning` while a save is pending.
+4. **Inline validation**: `Field` gets an `error` prop (`aria-invalid`, `aria-describedby`), first invalid field focused on submit; used on Profile, Settings e-mail/alert inbox, application price/address.
+5. **Letter preview**: "Preview as the buyer sees it" toggle rendering the e-mail/cover letter as formatted text next to the editor (no HTML injection — `PlainText`).
+
+### Phase 4 — Help and clarity
+1. **Glossary tooltips** for RFQ, ITT, RFP, RFSQ, pre-qualification, bid bond, addenda (`components/Term.tsx`, a `<button>` with an accessible popover); used in notice types and checklist labels.
+2. **Help page** (`/help`, nav under System): getting started, how alerts work (Gmail steps), what "Suitable" means and how scores work, what Lgbids never does (send without approval, log in to portals, invent facts). Copy from README sections.
+3. **Score explanation** on hover/tap of the score meter: top 3 reasons from `analysis.reasons`.
+
+### Phase 5 — Look and polish
+1. **Manual light/dark toggle** (System / Light / Dark in Settings → Appearance): `data-theme` on `<html>`, localStorage, tokens duplicated under `:root[data-theme=dark]` per ui-design-system; `theme-color` meta updated.
+2. **Skeleton loaders** for list and detail pages (replace spinner-only `Loading` where layout is known) to stop content jumping.
+3. **Empty-state illustrations**: small inline SVG line drawings (leaf/inbox/calendar) in `Empty`, `currentColor`, decorative.
+4. **Login page and 404** with the brand mark and the same card style; PWA "Add to Home Screen" hint on phones (one-time, dismissible).
+5. **Typography/number details**: consistent money formatting (`formatMoney`) everywhere prices show; relative + absolute dates everywhere closing shows.
+
+### Phase 6 — Accessibility, performance, verification
+1. **axe-core pass** (load from cdnjs in the Playwright script when reachable; otherwise the existing DOM checks) on every route, light/dark, 390/1280; fix serious/critical.
+2. **Lighthouse** with the pre-installed Chromium (`/opt/pw-browsers/chromium --headless --no-sandbox`) via `npx lighthouse` if installable; targets ≥ 90 Accessibility/Best practices.
+3. **Lazy-load** heavier pages (`ApplicationDetail`, `Settings`, `Profile`, `Help`) with `React.lazy` + `Suspense` (skeleton fallback); keep initial JS < 150 KB gzip.
+4. Keyboard and screen-reader smoke test of new components (toast, step bar, tooltips, toggle).
+
+### Order and size
+Phase 1 (~1 day) → Phase 2 (~1.5 days) → Phase 3 (~2 days) → Phase 4 (~1 day) → Phase 5 (~1 day) → Phase 6 (~0.5 day). Each numbered item is one commit, pushed to `ccr-d5d1aeaf-xi4ohg`; docs/PLAN.md gets a "UI pass 2" progress line per phase.
+
