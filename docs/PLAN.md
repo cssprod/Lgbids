@@ -173,7 +173,7 @@ Why: Phase 4 showed BC Bid, CanadaBuys, Bonfire and CivicInfo refuse automated r
 3. 2–3 example alert e-mails per site, saved as `.eml` (personal details can be blanked; they are anonymised before going into tests).
 
 ## UI pass 2 — usability (Phases 1–6)
-Progress: [x] 1 first-run · [x] 2 daily loop · [x] 3 feedback & forms · [ ] 4 help · [ ] 5 polish · [ ] 6 a11y/perf
+Progress: [x] 1 first-run · [x] 2 daily loop · [x] 3 feedback & forms · [x] 4 help · [ ] 5 polish · [ ] 6 a11y/perf
 
 ### Phase 1 — First-run and setup (highest value)
 1. **Setup checklist leads with alerts.** `src/server/dashboard.ts` builds `setup[]` (profile, services, email, documents, run). Add `alerts` ("Connect your bid alert inbox", done = `settings.getAlertInbox().verifiedAt` or any imported alert read) as step 2, linking to `/settings#alerts`. Update `tests/api.test.ts` dashboard expectation.

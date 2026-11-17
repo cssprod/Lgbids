@@ -5,6 +5,7 @@ import { NOTICE_TYPE_LABELS, SERVICE_LABELS, SUBMISSION_METHOD_LABELS } from '..
 import { useAction, useDocumentTitle, useFormat, useResource } from '../hooks.js';
 import { ApplicationChip, DecisionChip, ReasonList, ScoreBadge } from '../components/status.js';
 import { Icon } from '../components/Icon.js';
+import { Term } from '../components/Popover.js';
 import { BackLink, Callout, ErrorBox, ExternalLink, Live, Loading, PlainText, Section } from '../components/ui.js';
 
 function RequirementRow({ r }: { r: Requirement }) {
@@ -19,7 +20,9 @@ function RequirementRow({ r }: { r: Requirement }) {
         {text}
       </span>
       <span>
-        <strong>{r.label}</strong>
+        <Term name={r.key}>
+          <strong>{r.label}</strong>
+        </Term>
         {r.detail ? <span className="muted"> — {r.detail}</span> : null}
       </span>
     </li>
@@ -55,7 +58,9 @@ export function OpportunityDetailPage() {
       <BackLink to="/opportunities">All opportunities</BackLink>
       <header className="page-header detail-header">
         <div>
-          <p className="eyebrow">{NOTICE_TYPE_LABELS[o.noticeType]}</p>
+          <p className="eyebrow">
+            <Term name={NOTICE_TYPE_LABELS[o.noticeType]}>{NOTICE_TYPE_LABELS[o.noticeType]}</Term>
+          </p>
           <h1>{o.title}</h1>
           <p className="lead">
             {o.organization || 'Buyer not stated'}

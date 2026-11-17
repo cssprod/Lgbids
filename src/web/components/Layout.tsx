@@ -56,6 +56,7 @@ const NAV: { heading: string; items: NavItem[] }[] = [
       },
       { to: '/settings', label: 'Settings', icon: 'settings' },
       { to: '/activity', label: 'Activity', icon: 'activity' },
+      { to: '/help', label: 'Help', icon: 'help' },
     ],
   },
 ];

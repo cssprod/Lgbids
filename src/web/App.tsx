@@ -17,6 +17,7 @@ import { DocumentsPage } from './pages/Documents.js';
 import { SourcesPage } from './pages/Sources.js';
 import { SettingsPage } from './pages/Settings.js';
 import { ActivityPage } from './pages/Activity.js';
+import { HelpPage } from './pages/Help.js';
 
 export function App() {
   const [session, setSession] = useState<SessionInfo | null>(null);
@@ -90,6 +91,7 @@ export function App() {
             <Route path="/sources" element={<SourcesPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/activity" element={<ActivityPage />} />
+            <Route path="/help" element={<HelpPage />} />
             <Route
               path="*"
               element={

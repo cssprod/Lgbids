@@ -5,7 +5,8 @@ import type { OpportunityList, OpportunityViewName } from '../../shared/api.js';
 import type { Opportunity, SourceRecord } from '../../shared/schemas.js';
 import { NOTICE_TYPE_LABELS, SUBMISSION_METHOD_LABELS } from '../../shared/schemas.js';
 import { isNewSince, lastVisit, useDocumentTitle, useFormat, useResource } from '../hooks.js';
-import { ApplicationChip, DecisionChip, ScoreBadge } from '../components/status.js';
+import { ApplicationChip, DecisionChip, ScoreWithReasons } from '../components/status.js';
+import { Term } from '../components/Popover.js';
 import { Chip, Empty, ErrorBox, Loading, PageHeader } from '../components/ui.js';
 import { Icon } from '../components/Icon.js';
 import { useToast } from '../components/Toast.js';
@@ -264,7 +265,7 @@ function OpportunityRow({ o, isNew, onChanged }: { o: Opportunity; isNew: boolea
         <p className="row-meta">
           {o.organization || 'Buyer not stated'}
           {' · '}
-          {NOTICE_TYPE_LABELS[o.noticeType]}
+          <Term name={NOTICE_TYPE_LABELS[o.noticeType]}>{NOTICE_TYPE_LABELS[o.noticeType]}</Term>
           {o.referenceNumber ? ` · ${o.referenceNumber}` : ''}
         </p>
         <p className="opp-tags">
@@ -287,7 +288,7 @@ function OpportunityRow({ o, isNew, onChanged }: { o: Opportunity; isNew: boolea
         <span className="muted small">{c.absolute}</span>
       </div>
       <div className="opp-score">
-        <ScoreBadge score={o.suitabilityScore} />
+        <ScoreWithReasons score={o.suitabilityScore} reasons={o.analysis?.reasons ?? []} />
       </div>
       {canDecide ? (
         <div className="opp-actions">

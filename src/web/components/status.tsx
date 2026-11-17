@@ -1,6 +1,7 @@
 import { APPLICATION_STATUS_LABELS } from '../../shared/schemas.js';
 import type { ApplicationStatus, Decision, RunRecord, SourceStatus, UserDecision, AnalysisReason } from '../../shared/schemas.js';
 import { Chip, type Tone } from './ui.js';
+import { Popover } from './Popover.js';
 
 const APP_TONE: Record<ApplicationStatus, [Tone, string]> = {
   needs_input: ['warn', '!'],
@@ -112,5 +113,19 @@ export function ScoreBadge({ score }: { score: number | null }) {
         <span style={{ width: `${Math.max(0, Math.min(100, score))}%` }} />
       </span>
     </span>
+  );
+}
+
+/** The score, and on click the main reasons for it in plain words. */
+export function ScoreWithReasons({ score, reasons }: { score: number | null; reasons: AnalysisReason[] }) {
+  if (score === null || reasons.length === 0) return <ScoreBadge score={score} />;
+  // Reasons that rule a bid out or count against it come first: they explain a low score.
+  const order: Record<AnalysisReason['tone'], number> = { block: 0, bad: 1, warn: 2, good: 3 };
+  const top = [...reasons].sort((a, b) => order[a.tone] - order[b.tone]).slice(0, 3);
+  return (
+    <Popover trigger={<ScoreBadge score={score} />} label={`Suitability ${score} out of 100. Show why`} className="score-popover">
+      <span className="popover-title">Why {score}/100</span>
+      <ReasonList reasons={top} />
+    </Popover>
   );
 }
