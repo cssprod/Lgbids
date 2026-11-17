@@ -1,7 +1,9 @@
 /**
- * Dev-only in-memory API used when VITE_MOCK=1, so every screen can be seen
- * without the server. All notices are invented; every e-mail uses .example.
- * Loaded with a dynamic import from api.ts and never part of a production build.
+ * In-memory API used when VITE_MOCK=1, so every screen can be seen without the
+ * server: in development, and as the hosted beta prototype (VITE_PROTOTYPE=1,
+ * which also saves the state in the browser). All notices are invented; every
+ * e-mail uses .example. Loaded with a dynamic import from api.ts and never part
+ * of the real app's build.
  */
 import type {
   AlertInboxView,
@@ -102,8 +104,8 @@ function analysis(partial: Partial<Analysis>): Analysis {
 
 function opp(p: Partial<Opportunity> & Pick<Opportunity, 'id' | 'title' | 'organization'>): Opportunity {
   return {
-    sourceId: 'bcbid',
-    sourceName: 'BC Bid (via CanadaBuys)',
+    sourceId: 'email-alerts',
+    sourceName: 'Bid alert e-mails (BC Bid and Bonfire)',
     externalId: `ext-${p.id}`,
     referenceNumber: '',
     noticeType: 'RFQ',
@@ -142,8 +144,8 @@ let opportunities: Opportunity[] = [
     organization: 'Sample District of Saanich',
     referenceNumber: 'RFQ 26-140',
     noticeType: 'RFQ',
-    sourceId: 'saanich',
-    sourceName: 'Saanich bid opportunities',
+    sourceId: 'saanich-rss',
+    sourceName: 'District of Saanich — bid opportunities feed',
     closesAt: iso(3 * DAY + 5 * HOUR),
     location: 'Saanich, BC',
     submissionMethod: 'email',
@@ -172,7 +174,7 @@ let opportunities: Opportunity[] = [
         { key: 'certification', label: 'Traffic control certification', detail: 'All crew on roadways', met: null },
         { key: 'pricing', label: 'Price form', detail: 'Annual lump sum', met: null },
       ],
-      alsoListed: [{ source: 'BC Bid (via CanadaBuys)', url: 'https://bids.example/bcbid/101' }],
+      alsoListed: [{ source: 'Bid alert e-mails (BC Bid and Bonfire)', url: 'https://bids.example/bcbid/101' }],
     }),
   }),
   opp({
@@ -181,13 +183,13 @@ let opportunities: Opportunity[] = [
     organization: 'Sample City of Langford',
     referenceNumber: 'PRK-26-07',
     noticeType: 'ITT',
-    sourceId: 'langford',
-    sourceName: 'Langford bids&tenders',
+    sourceId: 'email-alerts',
+    sourceName: 'Bid alert e-mails (BC Bid and Bonfire)',
     closesAt: endOfDay(12),
     closesAtPrecision: 'date',
     closesAtRaw: 'December 2026',
-    submissionMethod: 'bidsandtenders',
-    submissionUrl: 'https://langford-sample.bidsandtenders.example/Module/Tenders',
+    submissionMethod: 'bcbid',
+    submissionUrl: 'https://bcbid.example/opportunity/PRK-26-07',
     location: 'Langford, BC',
     suitabilityScore: 78,
     description: 'Mowing, aeration, top dressing and line painting of eight sports fields.\nMandatory site meeting on the 1st.',
@@ -196,7 +198,7 @@ let opportunities: Opportunity[] = [
       reasons: [
         { tone: 'good', text: 'Sports field and turf work you offer.' },
         { tone: 'warn', text: 'A site meeting is mandatory. Make sure you attend.' },
-        { tone: 'warn', text: 'Submitted on the bids&tenders portal; you upload it.' },
+        { tone: 'warn', text: 'Submitted on BC Bid; you upload the package there yourself.' },
       ],
       requirements: [
         { key: 'site_meeting', label: 'Mandatory site meeting', detail: 'At the Westhills fields', met: null },
@@ -429,13 +431,42 @@ function source(p: Partial<SourceRecord> & Pick<SourceRecord, 'id' | 'name' | 'k
   };
 }
 
+const BONFIRE_OFF =
+  'Turned off: Bonfire portals ask automated tools not to read them (their robots.txt disallows everything), so Lgbids leaves them alone. To hear about new bids, register a free vendor account on the portal and follow this buyer; Bonfire then e-mails you new opportunities.';
+const CANADABUYS_OFF =
+  'Turned off: canadabuys.canada.ca asks automated tools other than search engines not to read it (robots.txt), so Lgbids leaves it alone.';
+const off = { enabled: false, lastStatus: 'never' as const, lastRunAt: null, lastOkAt: null, lastItemCount: null };
+
+// Mirrors DEFAULT_SOURCES in src/server/sources/registry.ts (beta set-up after the live check).
 let sources: SourceRecord[] = [
-  source({ id: 'bcbid', name: 'BC Bid (via CanadaBuys)', kind: 'canadabuys_csv', lastItemCount: 214, lastMessage: '214 notices read; 6 in British Columbia look relevant.' }),
-  source({ id: 'canadabuys', name: 'CanadaBuys search', kind: 'canadabuys_search', lastItemCount: 31 }),
-  source({ id: 'saanich', name: 'Saanich bid opportunities', kind: 'html_list', lastItemCount: 7 }),
-  source({ id: 'langford', name: 'Langford bids&tenders', kind: 'html_list', lastStatus: 'blocked', lastMessage: 'The site answered with a browser check (403). Lgbids cannot read it automatically.', consecutiveFailures: 3, lastOkAt: iso(-3 * DAY) }),
-  source({ id: 'crd', name: 'Capital Regional District (Bonfire)', kind: 'bonfire', lastStatus: 'empty', lastItemCount: 0, lastMessage: 'The portal listed no open opportunities.' }),
-  source({ id: 'esquimalt', name: 'Esquimalt tenders feed', kind: 'rss', builtin: false, enabled: false, lastStatus: 'never', lastRunAt: null, lastOkAt: null, lastItemCount: null }),
+  source({
+    id: 'email-alerts',
+    name: 'Bid alert e-mails (BC Bid and Bonfire)',
+    kind: 'email_alerts',
+    notes: 'BC Bid and Bonfire e-mail you about new opportunities; Lgbids reads those alert e-mails from your inbox (read-only) or from .eml files you import here, and never opens the sites themselves. Set up the inbox under Settings → Bid alert inbox.',
+    lastItemCount: 9,
+    lastMessage: '9 alert e-mails read; 4 notices look relevant.',
+  }),
+  source({ id: 'saanich-rss', name: 'District of Saanich — bid opportunities feed', kind: 'rss', notes: 'Saanich’s own website feed. It includes smaller quotation requests that are not posted on BC Bid.', lastItemCount: 10 }),
+  source({ id: 'esquimalt', name: 'Township of Esquimalt — bids & tenders', kind: 'html_list', notes: 'Esquimalt’s own bids page.', lastItemCount: 17 }),
+  source({
+    id: 'oakbay',
+    name: 'District of Oak Bay — tenders',
+    kind: 'html_list',
+    notes: 'Oak Bay’s tenders page. Oak Bay posts its documents on BC Bid, so this page is often empty.',
+    lastStatus: 'empty',
+    lastItemCount: 0,
+    lastMessage: 'Nothing is listed right now. That is normal when the buyer has nothing open.',
+  }),
+  source({ id: 'canadabuys-bcbid', name: 'BC Bid notices (via CanadaBuys)', kind: 'canadabuys_search', notes: `${CANADABUYS_OFF} BC Bid itself puts a browser check in front of its listing. Turn on BC Bid’s own e-mail notifications for landscaping categories instead.`, ...off }),
+  source({ id: 'canadabuys-federal', name: 'Government of Canada tenders (open data)', kind: 'canadabuys_csv', notes: `${CANADABUYS_OFF} Set up a saved search with e-mail alerts on CanadaBuys to hear about federal work in the region.`, ...off }),
+  source({ id: 'bonfire-victoria', name: 'City of Victoria — bid portal', kind: 'bonfire', notes: BONFIRE_OFF, ...off }),
+  source({ id: 'bonfire-saanich', name: 'District of Saanich — procurement portal', kind: 'bonfire', notes: BONFIRE_OFF, ...off }),
+  source({ id: 'bonfire-centralsaanich', name: 'District of Central Saanich — procurement portal', kind: 'bonfire', notes: BONFIRE_OFF, ...off }),
+  source({ id: 'bonfire-northsaanich', name: 'District of North Saanich — procurement portal', kind: 'bonfire', notes: BONFIRE_OFF, ...off }),
+  source({ id: 'bonfire-uvic', name: 'University of Victoria — procurement portal', kind: 'bonfire', notes: BONFIRE_OFF, ...off }),
+  source({ id: 'crd', name: 'Capital Regional District — current opportunities', kind: 'html_list', notes: 'Turned off: the CRD’s old bid site (bid.crd.ca) now answers “not found” for every page, and its replacement on crd.ca could not be checked yet. Look at the CRD’s current opportunities on crd.ca until this source is updated.', ...off }),
+  source({ id: 'civicinfo-bc', name: 'CivicInfo BC — local government bids', kind: 'html_list', notes: 'Turned off: CivicInfo BC puts a Cloudflare browser check in front of its bid listing, so it cannot be read automatically. Check civicinfo.bc.ca/bids in your browser.', ...off }),
 ];
 
 let automation: AutomationSettings = automationSchema.parse({ notifyEmail: 'office@garryoak.example' });
@@ -481,11 +512,11 @@ function runRecord(id: number, offset: number, status: RunRecord['status'], trig
   };
 }
 
-let runs: RunRecord[] = [runRecord(14, -2 * HOUR, 'partial'), runRecord(13, -8 * HOUR, 'partial'), runRecord(12, -14 * HOUR, 'ok', 'manual'), runRecord(11, -20 * HOUR, 'error', 'startup')];
+let runs: RunRecord[] = [runRecord(14, -2 * HOUR, 'ok'), runRecord(13, -8 * HOUR, 'ok'), runRecord(12, -14 * HOUR, 'ok', 'manual'), runRecord(11, -20 * HOUR, 'error', 'startup')];
 let running: RunRecord | null = null;
 
 let events: EventRecord[] = [
-  { id: 9, at: iso(-2 * HOUR), level: 'warn', kind: 'source', message: 'Langford bids&tenders could not be read: the site answered with a browser check.', opportunityId: null, applicationId: null, runId: 14 },
+  { id: 9, at: iso(-2 * HOUR), level: 'info', kind: 'source', message: 'District of Oak Bay — tenders listed nothing open. That is normal when the buyer has nothing out to bid.', opportunityId: null, applicationId: null, runId: 14 },
   { id: 8, at: iso(-2 * HOUR), level: 'info', kind: 'drafted', message: 'Drafted an application for “RFQ 26-140 – Boulevard and Median Landscape Maintenance”. It needs your input.', opportunityId: 101, applicationId: 201, runId: 14 },
   { id: 7, at: iso(-2 * HOUR), level: 'info', kind: 'found', message: 'Found a suitable bid: “RFQ 26-140 – Boulevard and Median Landscape Maintenance” (score 86).', opportunityId: 101, applicationId: null, runId: 14 },
   { id: 6, at: iso(-9 * HOUR), level: 'error', kind: 'send', message: 'Sending “Cemetery Grounds Maintenance” failed: the mail server refused the password.', opportunityId: 103, applicationId: 203, runId: null },
@@ -571,43 +602,60 @@ function dashboard(): DashboardResponse {
     deadlines: open.filter((o) => o.closesAt).sort((a, b) => (a.closesAt! < b.closesAt! ? -1 : 1)),
     setup: [
       { key: 'profile', label: 'Fill in your company profile', done: profileMissing().length === 0, href: '/profile' },
-      { key: 'documents', label: 'Add your insurance certificate and WorkSafeBC letter', done: documents.length >= 2, href: '/documents' },
-      { key: 'email', label: 'Set up outgoing e-mail and send a test', done: email.verifiedAt !== null, href: '/settings#email' },
-      { key: 'sources', label: 'Turn on at least one source', done: sources.some((s) => s.enabled), href: '/sources' },
+      { key: 'alerts', label: 'Connect your bid alert inbox (BC Bid and Bonfire)', done: alertInbox.verifiedAt !== null || (sources.find((s) => s.kind === 'email_alerts')?.lastItemCount ?? 0) > 0, href: '/settings#alerts' },
+      { key: 'email', label: 'Set up outgoing e-mail', done: email.verifiedAt !== null, href: '/settings#email' },
+      { key: 'documents', label: 'Upload your insurance and WorkSafeBC documents', done: documents.length > 0, href: '/documents' },
     ],
     sources,
   };
 }
 
-function sampleTest(input: { name: string; config: { url: string } }): SourceTest {
-  const blocked = input.name.toLowerCase().includes('langford');
-  return blocked
-    ? {
-        status: 'blocked',
-        message: 'The site answered with a browser check (403). Lgbids cannot read it automatically.',
-        ms: 1830,
-        count: 0,
-        sample: [],
-        requests: [
-          { url: `${input.config.url.replace(/\/$/, '')}/robots.txt`, status: 200, bytes: 312, ms: 220 },
-          { url: input.config.url, status: 403, bytes: 5120, ms: 1610, error: 'Browser check page' },
-        ],
-      }
-    : {
-        status: 'ok',
-        message: 'Read 1 page and found 3 notices.',
-        ms: 2412,
-        count: 3,
-        sample: [
-          { title: 'RFQ 26-140 – Boulevard and Median Landscape Maintenance', url: 'https://bids.example/notice/101', organization: 'Sample District of Saanich', closesAt: iso(3 * DAY), closingRaw: '', referenceNumber: 'RFQ 26-140' },
-          { title: 'Tree Pruning – Various Parks', url: 'https://bids.example/notice/77', organization: 'Sample District of Saanich', closesAt: null, closingRaw: 'Early December', referenceNumber: '' },
-          { title: 'Washroom Building Renovation', url: 'https://bids.example/notice/78', organization: '', closesAt: iso(9 * DAY), closingRaw: '', referenceNumber: 'ENG 26-03' },
-        ],
-        requests: [
-          { url: `${input.config.url.replace(/\/$/, '')}/robots.txt`, status: 200, bytes: 312, ms: 210 },
-          { url: input.config.url || 'https://example.example/bids', status: 200, bytes: 48_220, ms: 1490 },
-        ],
-      };
+function sampleTest(input: { name: string; kind?: SourceRecord['kind']; config: { url: string } }): SourceTest {
+  const url = input.config.url || 'https://example.example/bids';
+  const robots = { url: `${url.replace(/\/$/, '')}/robots.txt`, status: 200, bytes: 312, ms: 220 };
+  const failed = (status: SourceTest['status'], message: string, request: SourceTest['requests'][number]): SourceTest => ({
+    status,
+    message,
+    ms: 1830,
+    count: 0,
+    sample: [],
+    requests: [robots, request],
+  });
+  if (input.kind === 'bonfire' || input.kind === 'canadabuys_csv' || input.kind === 'canadabuys_search') {
+    return { ...failed('blocked', 'The site’s robots.txt asks automated tools not to read it, so Lgbids did not open the listing.', robots), requests: [robots] };
+  }
+  if (input.name.startsWith('CivicInfo')) {
+    return failed('blocked', 'The site answered with a browser check (403). Lgbids cannot read it automatically.', { url, status: 403, bytes: 5120, ms: 1610, error: 'Browser check page' });
+  }
+  if (input.name.startsWith('Capital Regional')) {
+    return failed('error', 'The page answered “not found” (404). The site has probably moved.', { url, status: 404, bytes: 1024, ms: 410, error: 'Not found' });
+  }
+  if (input.kind === 'email_alerts') {
+    return {
+      status: 'ok',
+      message: 'Read 9 alert e-mails from BC Bid and Bonfire; 3 notices shown below.',
+      ms: 940,
+      count: 9,
+      sample: [
+        { title: 'Cemetery Grounds Maintenance', url: '', organization: 'Sample District of Metchosin', closesAt: iso(DAY), closingRaw: '', referenceNumber: '' },
+        { title: 'ITT PRK-26-07 – Sports Field Mowing and Turf Maintenance', url: '', organization: 'Sample City of Langford', closesAt: iso(12 * DAY), closingRaw: '', referenceNumber: 'PRK-26-07' },
+        { title: 'Washroom Building Renovation', url: '', organization: 'Sample Town of Sidney', closesAt: iso(9 * DAY), closingRaw: '', referenceNumber: 'ENG 26-03' },
+      ],
+      requests: [],
+    };
+  }
+  return {
+    status: 'ok',
+    message: 'Read 1 page and found 3 notices.',
+    ms: 2412,
+    count: 3,
+    sample: [
+      { title: 'RFQ 26-140 – Boulevard and Median Landscape Maintenance', url: 'https://bids.example/notice/101', organization: 'Sample District of Saanich', closesAt: iso(3 * DAY), closingRaw: '', referenceNumber: 'RFQ 26-140' },
+      { title: 'Tree Pruning – Various Parks', url: 'https://bids.example/notice/77', organization: 'Sample District of Saanich', closesAt: null, closingRaw: 'Early December', referenceNumber: '' },
+      { title: 'Washroom Building Renovation', url: 'https://bids.example/notice/78', organization: '', closesAt: iso(9 * DAY), closingRaw: '', referenceNumber: 'ENG 26-03' },
+    ],
+    requests: [robots, { url, status: 200, bytes: 48_220, ms: 1490 }],
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -616,7 +664,7 @@ function sampleTest(input: { name: string; config: { url: string } }): SourceTes
 
 type Body = Record<string, unknown>;
 
-export async function handleMock(method: string, fullPath: string, rawBody: unknown): Promise<MockResponse> {
+async function route(method: string, fullPath: string, rawBody: unknown): Promise<MockResponse> {
   await new Promise((r) => setTimeout(r, 120 + Math.random() * 180));
   const url = new URL(fullPath, location.origin);
   const path = url.pathname;
@@ -728,7 +776,9 @@ export async function handleMock(method: string, fullPath: string, rawBody: unkn
   if ((r = m(/^\/api\/applications\/(\d+)\/files$/))) {
     const file = rawBody instanceof FormData ? rawBody.get('file') : null;
     if (!(file instanceof File)) return fail(400, 'Choose a file to upload.');
-    return updateApp(Number(r[1]), (x) => ({ ...x, files: [...x.files, { id: nextId++, name: file.name, size: file.size, mime: file.type }] }));
+    const fid = nextId++;
+    fileBlobs.set(fid, file);
+    return updateApp(Number(r[1]), (x) => ({ ...x, files: [...x.files, { id: fid, name: file.name, size: file.size, mime: file.type }] }));
   }
   if ((r = m(/^\/api\/applications\/(\d+)\/files\/(\d+)$/)) && method === 'DELETE') {
     const fid = Number(r[2]);
@@ -823,6 +873,7 @@ export async function handleMock(method: string, fullPath: string, rawBody: unkn
       createdAt: new Date().toISOString(),
     };
     documents.unshift(d);
+    fileBlobs.set(d.id, file);
     return ok(d);
   }
   if (path === '/api/documents') return ok(documents);
@@ -843,8 +894,10 @@ export async function handleMock(method: string, fullPath: string, rawBody: unkn
     running = { ...runRecord(runs.length + 20, 0, 'running', 'manual'), finishedAt: null, stats: null };
     setTimeout(() => {
       if (!running) return;
-      runs.unshift({ ...runRecord(running.id, 0, 'partial', 'manual'), startedAt: running.startedAt, finishedAt: new Date().toISOString() });
+      runs.unshift({ ...runRecord(running.id, 0, 'ok', 'manual'), startedAt: running.startedAt, finishedAt: new Date().toISOString() });
       running = null;
+      discoverNext();
+      save();
     }, 5000);
     return ok({ running: true, run: running } satisfies RunState);
   }
@@ -853,4 +906,266 @@ export async function handleMock(method: string, fullPath: string, rawBody: unkn
   if (path === '/api/events') return ok(events.slice(0, Number(q.get('limit') ?? 50)));
 
   return fail(404, `The mock has no answer for ${method} ${path}.`);
+}
+
+// ---------------------------------------------------------------------------
+// Hosted prototype: saved state, "Run now" finds new bids, downloads
+// ---------------------------------------------------------------------------
+
+/** Files uploaded in this browser tab, so downloads give back what was uploaded. */
+const fileBlobs = new Map<number, Blob>();
+const PERSIST = import.meta.env.VITE_PROTOTYPE === '1';
+const STORAGE_KEY = 'lgbids-prototype-v1';
+
+/** Notices that "arrive" one per manual check, so testers see new bids come in. */
+const upcoming: Opportunity[] = [
+  opp({
+    id: 151,
+    title: 'Invasive Species Removal and Native Replanting – Sample Creek Park',
+    organization: 'Sample District of Saanich',
+    referenceNumber: 'RFQ 26-162',
+    sourceId: 'saanich-rss',
+    sourceName: 'District of Saanich — bid opportunities feed',
+    closesAt: iso(9 * DAY),
+    location: 'Saanich, BC',
+    submissionMethod: 'email',
+    submissionEmail: 'purchasing@saanich-sample.example',
+    contactEmail: 'purchasing@saanich-sample.example',
+    suitabilityScore: 81,
+    description: 'Removal of ivy, broom and blackberry from 0.6 ha of park, followed by planting native shrubs supplied by the District. Quotations by e-mail.',
+    analysis: analysis({
+      services: ['garden', 'restoration'],
+      reasons: [
+        { tone: 'good', text: 'Invasive plant removal and planting, which you offer.' },
+        { tone: 'good', text: 'Work is in Saanich, inside your service area.' },
+        { tone: 'good', text: 'Submitted by e-mail, so Lgbids can send it for you.' },
+      ],
+      requirements: [{ key: 'pricing', label: 'Price form', detail: 'Lump sum', met: null }],
+    }),
+  }),
+  opp({
+    id: 152,
+    title: 'Grass Cutting – Sample Fire Hall and Public Works Yard',
+    organization: 'Sample Town of Sidney',
+    referenceNumber: 'TS-26-31',
+    sourceId: 'email-alerts',
+    sourceName: 'Bid alert e-mails (BC Bid and Bonfire)',
+    closesAt: endOfDay(15),
+    closesAtPrecision: 'date',
+    submissionMethod: 'bcbid',
+    submissionUrl: 'https://bcbid.example/opportunity/TS-26-31',
+    location: 'Sidney, BC',
+    suitabilityScore: 64,
+    description: 'Weekly grass cutting, April to October, at two municipal sites. Submit on BC Bid.',
+    analysis: analysis({
+      services: ['lawn'],
+      areaMatch: 'Sidney',
+      reasons: [
+        { tone: 'good', text: 'Lawn mowing you offer.' },
+        { tone: 'warn', text: 'Submitted on BC Bid; you upload the package there yourself.' },
+      ],
+    }),
+  }),
+];
+
+function discoverNext(): void {
+  const next = upcoming.find((o) => !opportunities.some((x) => x.id === o.id));
+  if (!next) return;
+  const found = { ...next, firstSeenAt: new Date().toISOString(), lastSeenAt: new Date().toISOString(), publishedAt: new Date().toISOString() };
+  opportunities.unshift(found);
+  events.unshift({
+    id: nextId++,
+    at: new Date().toISOString(),
+    level: 'info',
+    kind: 'found',
+    message: `Found a suitable bid: “${found.title}” (score ${found.suitabilityScore}).`,
+    opportunityId: found.id,
+    applicationId: null,
+    runId: runs[0]?.id ?? null,
+  });
+}
+
+interface Snapshot {
+  savedAt: number;
+  state: Record<string, unknown>;
+}
+
+function save(): void {
+  if (!PERSIST) return;
+  const state = { profile, opportunities, applications, documents, sources, automation, region, alertInbox, email, runs, events, nextId };
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ savedAt: Date.now(), state } satisfies Snapshot));
+  } catch {
+    // Private windows or full storage: the prototype still works, it just forgets on reload.
+  }
+}
+
+const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
+
+/** Move every timestamp forward by the time since the save, so "closes in 4 days" stays true on the next visit. */
+function shiftTimes<T>(value: T, delta: number): T {
+  if (typeof value === 'string') return (ISO_TIME.test(value) ? new Date(Date.parse(value) + delta).toISOString() : value) as T;
+  if (Array.isArray(value)) return value.map((v) => shiftTimes(v, delta)) as T;
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, shiftTimes(v, delta)])) as T;
+  }
+  return value;
+}
+
+function restore(): void {
+  if (!PERSIST) return;
+  let snap: Snapshot | null = null;
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    snap = raw ? (JSON.parse(raw) as Snapshot) : null;
+  } catch {
+    snap = null;
+  }
+  if (!snap?.state) return;
+  const st = shiftTimes(snap.state, Date.now() - snap.savedAt) as Record<string, never>;
+  profile = st.profile ?? profile;
+  opportunities = st.opportunities ?? opportunities;
+  applications = st.applications ?? applications;
+  documents = st.documents ?? documents;
+  sources = st.sources ?? sources;
+  automation = st.automation ?? automation;
+  region = st.region ?? region;
+  alertInbox = st.alertInbox ?? alertInbox;
+  email = st.email ?? email;
+  runs = st.runs ?? runs;
+  events = st.events ?? events;
+  nextId = st.nextId ?? nextId;
+}
+restore();
+
+/** Forget everything the tester changed and start again from the sample data. */
+export function resetPrototype(): void {
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // Nothing saved, nothing to remove.
+  }
+}
+
+export async function handleMock(method: string, fullPath: string, rawBody: unknown): Promise<MockResponse> {
+  const res = await route(method, fullPath, rawBody);
+  if (method !== 'GET') save();
+  return res;
+}
+
+// --- Downloads -------------------------------------------------------------
+
+export interface MockDownload {
+  blob: Blob;
+  filename: string;
+}
+
+function icsText(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
+}
+
+function icsStamp(date: Date): string {
+  return date.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+}
+
+function calendar(items: Opportunity[]): string {
+  const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Lgbids//Bid closing dates//EN', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH', 'X-WR-CALNAME:Bid closing dates'];
+  for (const o of items) {
+    if (!o.closesAt) continue;
+    const closes = new Date(o.closesAt);
+    lines.push('BEGIN:VEVENT', `UID:opportunity-${o.id}@lgbids`, `DTSTAMP:${icsStamp(new Date())}`);
+    lines.push(`DTSTART:${icsStamp(closes)}`, `DTEND:${icsStamp(new Date(closes.getTime() + 30 * 60_000))}`);
+    const details = [o.organization && `Buyer: ${o.organization}`, o.referenceNumber && `Reference: ${o.referenceNumber}`].filter(Boolean).join('\n');
+    lines.push(`SUMMARY:${icsText(`Bid closes: ${o.title}`)}`, `DESCRIPTION:${icsText(details)}`, 'END:VEVENT');
+  }
+  lines.push('END:VCALENDAR');
+  return `${lines.join('\r\n')}\r\n`;
+}
+
+const money = (n: number) => n.toLocaleString('en-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: Number.isInteger(n) ? 0 : 2 });
+
+async function packagePdf(a: Application): Promise<Blob> {
+  const { buildPdf } = await import('./prototypePdf.js');
+  const o = opportunities.find((x) => x.id === a.opportunityId);
+  const p = profile;
+  const blocks: import('./prototypePdf.js').PdfBlock[] = [
+    { kind: 'title', text: o?.title ?? a.subject },
+    { kind: 'small', text: [o?.organization, o?.referenceNumber && `Reference ${o.referenceNumber}`].filter(Boolean).join(' · ') },
+    { kind: 'small', text: `Submitted by ${p.legalName || p.tradeName || 'your company'}` },
+    { kind: 'heading', text: 'Cover letter' },
+    { kind: 'text', text: a.body || '(The letter is empty.)' },
+    { kind: 'heading', text: 'Price' },
+    { kind: 'text', text: a.priceTotal !== null ? `Total: ${money(a.priceTotal)} (CAD)` : 'No total price entered.' },
+  ];
+  if (a.priceNotes) blocks.push({ kind: 'text', text: a.priceNotes });
+  if (a.includeRates && p.rates.length) {
+    blocks.push({ kind: 'heading', text: 'Hourly and unit rates' });
+    for (const r of p.rates) blocks.push({ kind: 'text', text: `${r.label}: ${money(r.rate)} per ${r.unit}` });
+  }
+  blocks.push({ kind: 'heading', text: 'Company profile' });
+  blocks.push({ kind: 'text', text: [p.legalName, p.addressLine, [p.city, p.postalCode].filter(Boolean).join(' '), p.phone, p.email].filter(Boolean).join('\n') });
+  if (p.about) blocks.push({ kind: 'text', text: p.about });
+  const facts = [
+    p.yearEstablished && `In business since ${p.yearEstablished}`,
+    p.crewSize && `Crew of ${p.crewSize}`,
+    p.insuranceLiability && `General liability insurance: ${money(p.insuranceLiability)}${p.insuranceProvider ? ` with ${p.insuranceProvider}` : ''}`,
+    p.gstNumber && `GST number: ${p.gstNumber}`,
+    p.worksafeNumber && `WorkSafeBC account: ${p.worksafeNumber}`,
+    ...p.certifications,
+  ].filter(Boolean) as string[];
+  for (const f of facts) blocks.push({ kind: 'text', text: `• ${f}` });
+  if (p.references.length) {
+    blocks.push({ kind: 'heading', text: 'References' });
+    for (const r of p.references) {
+      blocks.push({ kind: 'text', text: [r.client, r.description, [r.year, r.value].filter(Boolean).join(' · '), [r.contactName, r.contactInfo].filter(Boolean).join(', ')].filter(Boolean).join('\n') });
+    }
+  }
+  const attached = documents.filter((d) => a.documentIds.includes(d.id));
+  if (attached.length || a.files.length) {
+    blocks.push({ kind: 'heading', text: 'Attached documents' });
+    for (const d of attached) blocks.push({ kind: 'text', text: `• ${d.name} (${d.filename})` });
+    for (const f of a.files) blocks.push({ kind: 'text', text: `• ${f.name}` });
+  }
+  blocks.push({ kind: 'small', text: 'Prototype: this package was built from invented sample data in your browser.' });
+  return buildPdf(blocks, `${p.tradeName || p.legalName || 'Lgbids'} · ${o?.referenceNumber || o?.title || ''}`);
+}
+
+async function placeholder(name: string): Promise<Blob> {
+  const { buildPdf } = await import('./prototypePdf.js');
+  return buildPdf(
+    [
+      { kind: 'title', text: name },
+      { kind: 'text', text: 'This is a stand-in for a sample document. In the real app you get back exactly the file you uploaded. Files you upload in this prototype can be downloaded until you close or reload the tab.' },
+    ],
+    'Lgbids prototype',
+  );
+}
+
+/** The file a download link would fetch from the server, built in the browser instead. */
+export async function mockDownload(href: string): Promise<MockDownload | null> {
+  const url = new URL(href, location.origin);
+  const path = url.pathname;
+  let r: RegExpExecArray | null;
+  if (path === '/api/calendar.ics') {
+    const id = Number(url.searchParams.get('id'));
+    const items = id ? opportunities.filter((o) => o.id === id) : opportunities.filter((o) => viewOf(o).includes('suitable'));
+    return { blob: new Blob([calendar(items)], { type: 'text/calendar' }), filename: id ? `bid-${id}.ics` : 'bid-closing-dates.ics' };
+  }
+  if ((r = /^\/api\/applications\/(\d+)\/package\.pdf$/.exec(path))) {
+    const a = applications.find((x) => x.id === Number(r![1]));
+    if (!a) return null;
+    return { blob: await packagePdf(a), filename: `bid-package-${a.id}.pdf` };
+  }
+  if ((r = /^\/api\/documents\/(\d+)\/download$/.exec(path))) {
+    const d = documents.find((x) => x.id === Number(r![1]));
+    if (!d) return null;
+    return { blob: fileBlobs.get(d.id) ?? (await placeholder(d.name)), filename: fileBlobs.has(d.id) ? d.filename : `${d.name}.pdf` };
+  }
+  if ((r = /^\/api\/applications\/(\d+)\/files\/(\d+)$/.exec(path))) {
+    const fid = Number(r[2]);
+    const f = applications.flatMap((a) => a.files).find((x) => x.id === fid);
+    if (!f) return null;
+    return { blob: fileBlobs.get(fid) ?? (await placeholder(f.name)), filename: fileBlobs.has(fid) ? f.name : `${f.name}.pdf` };
+  }
+  return null;
 }

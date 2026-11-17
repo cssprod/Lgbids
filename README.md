@@ -110,6 +110,17 @@ During the beta, keep **Settings → Automation** on "Find, score & draft applic
 
 Before the first real run, check the sources: `npm run check-sources`, or **Sources → Test** for each. Saanich and Esquimalt were checked against the live sites; Oak Bay was not (see the Sources table).
 
+### Hosted prototype for testers (Netlify)
+
+`npm run build:prototype` builds the web UI as a static site in `dist/prototype`, running on invented sample data in the browser (`src/web/mock.ts`). There is no server: nothing is read from bid sites and nothing is sent. Testers get a bar at the top with **What to try** (a short task list), **Send feedback** and **Start over**. Their changes are kept in their own browser (localStorage) until they press Start over; files they upload last until the tab is closed. The package PDF and calendar downloads are built in the browser.
+
+Deploy on Netlify, either way:
+
+- **From the repository**: *Add new site → Import an existing project*, pick this repository and the branch to publish. `netlify.toml` already sets the build command (`npm run build:prototype`), the folder (`dist/prototype`) and Node 22.
+- **By hand**: run `npm run build:prototype` and drag the `dist/prototype` folder onto *Sites → Deploy manually*.
+
+Feedback arrives under **Forms → beta-feedback** in the Netlify site (Netlify detects the form on the first deploy; turn on form detection under *Forms* if it asks). Each entry carries the kind, the message, the page, the screen size and the browser. Set up a form notification there to get each one by e-mail. The prototype sends `noindex` headers and a `robots.txt` so search engines leave it alone; share the link only with your testers.
+
 ## Development
 
 ```

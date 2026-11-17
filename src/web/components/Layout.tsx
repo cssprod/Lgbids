@@ -1,4 +1,7 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react';
+
+// Only the hosted beta prototype has the tester bar; the real app never loads it.
+const PrototypeBar = import.meta.env.VITE_PROTOTYPE === '1' ? lazy(() => import('./PrototypeBar.js').then((m) => ({ default: m.PrototypeBar }))) : null;
 import { NavLink, useLocation } from 'react-router-dom';
 import type { DashboardResponse } from '../../shared/api.js';
 import { api } from '../api.js';
@@ -55,7 +58,6 @@ const NAV: { heading: string; items: NavItem[] }[] = [
         badge: (c) => (c.sourcesFailing > 0 ? { value: c.sourcesFailing, label: `${c.sourcesFailing} failing`, tone: 'bad' } : null),
       },
       { to: '/settings', label: 'Settings', icon: 'settings' },
-      { to: '/activity', label: 'Activity', icon: 'activity' },
       { to: '/help', label: 'Help', icon: 'help' },
     ],
   },
@@ -134,7 +136,7 @@ export function Layout({ children }: { children: ReactNode }) {
           <NavLink to="/" className="brand" end>
             <Logo />
             <span>Lgbids</span>
-            {demo ? <span className="demo-tag">Demo</span> : null}
+            {demo ? <span className="demo-tag">{PrototypeBar ? 'Beta' : 'Demo'}</span> : null}
           </NavLink>
           <button
             ref={menuButton}
@@ -183,6 +185,11 @@ export function Layout({ children }: { children: ReactNode }) {
       </header>
       {menuOpen ? <div className="nav-scrim" aria-hidden="true" onClick={() => setMenuOpen(false)} /> : null}
       <main id="main" tabIndex={-1}>
+        {PrototypeBar ? (
+          <Suspense fallback={null}>
+            <PrototypeBar />
+          </Suspense>
+        ) : null}
         {children}
       </main>
     </div>

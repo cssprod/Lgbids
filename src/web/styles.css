@@ -2625,3 +2625,32 @@ form.login-card .btn-block {
 .subheading {
   font-size: var(--text-md);
 }
+
+/* Hosted beta prototype bar (VITE_PROTOTYPE=1 only). */
+.prototype-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  border: 1px solid var(--warn);
+  background: var(--warn-soft);
+  color: var(--text);
+  border-radius: var(--radius);
+  padding: 0.6rem 0.9rem;
+  margin-bottom: 1rem;
+}
+.prototype-bar p {
+  margin: 0;
+}
+.prototype-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.prototype-tasks {
+  padding-left: 1.25rem;
+}
+.prototype-tasks li + li {
+  margin-top: 0.5rem;
+}

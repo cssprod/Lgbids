@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { PROTOTYPE } from '../prototypeFlag.js';
 import { Link } from 'react-router-dom';
 import { api } from '../api.js';
 import type { DashboardResponse, RunState } from '../../shared/api.js';
@@ -109,7 +110,7 @@ export function DashboardPage({ onTimeZone }: { onTimeZone: (tz: string) => void
 
   return (
     <>
-      {d.demo ? (
+      {d.demo && !PROTOTYPE ? (
         <div className="demo-banner" role="note">
           <strong>Demo mode</strong> — these are invented sample notices, not real opportunities. Nothing is sent to real buyers.
         </div>
@@ -166,6 +167,10 @@ export function DashboardPage({ onTimeZone }: { onTimeZone: (tz: string) => void
                     {d.lastRun.status === 'partial' ? ' Some sources had problems.' : ''}
                     {d.lastRun.status === 'error' ? ` The check failed: ${d.lastRun.error}` : ''}
                   </span>
+                  <br />
+                  <Link to="/activity" className="small">
+                    See every check and what Lgbids did
+                  </Link>
                 </>
               ) : (
                 'Not run yet.'

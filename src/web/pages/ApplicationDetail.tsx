@@ -67,16 +67,22 @@ export function ApplicationDetailPage() {
   const o = a?.opportunity;
   useDocumentTitle(o?.title ?? 'Application');
 
-  // The draft that an autosave sent, so edits typed while it was on its way are not lost.
-  const sentRef = useRef<string | null>(null);
+  // The server copy the current draft was based on. When a new copy arrives (after
+  // an autosave, a checklist tick or a reload), fields the user changed since that
+  // base keep the user's value; untouched fields take the server's.
+  const baseRef = useRef<Draft | null>(null);
   useEffect(() => {
     if (!a) return;
+    const next = draftOf(a);
+    const base = baseRef.current;
+    baseRef.current = next;
     setDraft((prev) => {
-      const sent = sentRef.current;
-      sentRef.current = null;
-      // Typed more since the save left: keep that; otherwise take the server's copy.
-      if (prev && sent !== null && JSON.stringify(prev) !== sent) return prev;
-      return draftOf(a);
+      if (!prev || !base) return next;
+      const merged = { ...next } as Record<keyof Draft, unknown>;
+      for (const key of Object.keys(next) as (keyof Draft)[]) {
+        if (JSON.stringify(prev[key]) !== JSON.stringify(base[key])) merged[key] = prev[key];
+      }
+      return merged as Draft;
     });
   }, [a]);
 
@@ -92,13 +98,11 @@ export function ApplicationDetailPage() {
     if (!dirty || !editable || save.busy || !a || !draft || saveFailed) return;
     const t = window.setTimeout(() => {
       const json = JSON.stringify(draft);
-      sentRef.current = json;
       void save.run(() => api.patch<Application>(`/api/applications/${a.id}`, draft)).then((updated) => {
         if (updated) {
           setFailedDraft(null);
           res.setData(updated);
         } else {
-          sentRef.current = null;
           setFailedDraft(json);
         }
       });

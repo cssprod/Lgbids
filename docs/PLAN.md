@@ -18,6 +18,7 @@ Working rule for every phase: one task at a time, `npm test` + both typechecks g
 - Phase 2 done: demo run ok (8 sources, 32 notices, 11 suitable); every screen checked at desktop/phone, light/dark, no console errors or overflow; send flow, second-send refusal, portal package, mark submitted, won, and auto-mode acknowledgement all verified in Chromium. Fixed: zod eval probe vs CSP, layout bugs, outdated browser tz data showing BC times an hour early.
 - Phase 3 done except running Docker (no daemon in the sandbox): /api/health, 180-day history pruning, HEALTHCHECK, startup guard verified, focused security check (uploads, cookies, password handling, file names). A full /security-review was not run.
 - Next: Phase 4 (live sources) needs the user — see Decisions needed.
+- Hosted prototype (2026-11-17): static Netlify build of the UI on sample data for testers, with a task list, feedback form (Netlify Forms) and reset. Sample sources now match the real beta set-up; Activity moved out of the menu. To do by the user: create the Netlify site and share the link.
 
 ## Phase 1 — Finish and integrate (sandbox)
 1. Commit the current uncommitted work (auto mode now waives only the "I have read the documents" tick; cover note regenerated at send time with the price; better RFQ detection). Record the auto-mode rule in CLAUDE.md "Decisions".

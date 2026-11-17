@@ -1,0 +1,8 @@
+# Hosted beta prototype: the web UI with invented sample data, no server.
+# Netlify runs the build below and publishes dist/prototype.
+[build]
+  command = "npm run build:prototype"
+  publish = "dist/prototype"
+
+[build.environment]
+  NODE_VERSION = "22"
