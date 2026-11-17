@@ -28,7 +28,7 @@ const RULES: TypeRule[] = [
   { type: 'RFI', re: /\bRFI\b|request for information/i },
   { type: 'RFSO', re: /\b(?:RFSO|RFSA|SOA)\b|standing offers?|supply arrangements?/i },
   { type: 'ITT', re: /\b(?:ITT|ITB|IFB|RFT|NIT)\b|invitation to (?:tender|bid)|(?:request|call) for tenders?|invitation for bids?/i },
-  { type: 'RFQ', re: /\b(?:RFQ|ITQ)\b|request for quot(?:e|es|ation|ations)|invitation to quote|call for quot/i },
+  { type: 'RFQ', re: /\b(?:RFQ|ITQ)\b|request for quot(?:e|es|ation|ations)|invitation to quote|call for quot|invit\w+ (?:written |sealed )?quot(?:e|es|ation|ations)|quot(?:es|ations) (?:are|is) (?:invited|requested)/i },
   { type: 'RFP', re: /\b(?:RFP|NRFP|RFSP)\b|(?:request|call) for proposals?/i },
 ];
 

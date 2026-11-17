@@ -12,6 +12,8 @@ Node >= 22.13, TypeScript (ESM, `.js` import suffixes), Fastify 5, built-in `nod
 - BC Bid has a browser check, so it is read via the CanadaBuys mirror (notice ids starting `bc`).
 - "Apply": e-mail submissions can be sent (one-click, or automatic if opted in); portal bids (Bonfire, BC Bid, bids&tenders) and hard copy are prepared as a package and the user uploads them. No portal logins, no AI/LLM dependency.
 - Automation modes: off | discover | prepare (default) | auto. Auto-send only when: status ready, channel email, address came from the notice, score >= autoSendThreshold, type in autoSendTypes, closing known and outside sendCutoffHours, under dailySendCap, profile + SMTP complete. Mark `sending` before SMTP; never auto-resend a `sending` row after a crash.
+- Auto mode waives exactly one checklist item, "I have read the bid documents" (key `documents`); every other required item (forms, site meeting, bond, price) still holds the submission for a person.
+- The e-mail cover note is regenerated at send time (if not hand-edited) so it carries the final price and attachments.
 - Generated bids state only facts present in the profile.
 - Time zones: use the tz database via luxon. BC is UTC-7 year-round since 2026 in current tz data; warn at startup if the runtime still shows UTC-8 for America/Vancouver in January. CanadaBuys zone-less times = Eastern; Bonfire `DateClose` = UTC (both the cautious reading).
 - Date-only closings: stored as end of local day, precision `date`; deadlines for sending use start of that day (`closingDeadline`).
@@ -28,7 +30,10 @@ Node >= 22.13, TypeScript (ESM, `.js` import suffixes), Fastify 5, built-in `nod
 - `src/server/demo/` — fixtures.ts + server.ts: invented sample sites (all e-mails `.example`), dates relative to now.
 - Tests: tests/dates, matching, connectors.
 
-## Remaining work (in order)
+## Remaining work
+See docs/PLAN.md (phases 1–5). Older list below is superseded.
+
+## Remaining work (old)
 - [ ] `db/store.ts`: repositories + row mappers; opportunity upsert (keep richer detail fields, detect closing-date change, content hash), cross-source dedupe via `ref_key`/`title_key` (`orgKey:refKey`, `orgKey:titleKey`, closings within 36 h) setting `duplicate_of` and merging empty fields.
 - [ ] `settings.ts`: typed get/set with defaults (region default = `defaultRegion()`); clear every source `state` when region/automation settings change.
 - [ ] `pipeline/run.ts`: per enabled source listSource -> upsert -> detail fetch (new items; cap ~40/source/run; national sources only for plausible rows) -> read linked PDFs with unpdf for relevant+local items (max 3 docs, 15 MB, never fatal) -> analyse -> draft applications for `suitable` (or user `pursue`) when mode >= prepare -> auto-send when mode = auto -> close past-deadline opportunities, expire unsent applications -> run stats + events. `bcSource = raw.bcSource || config.localBuyer || config.bcOnly`. Mutex against overlapping runs.

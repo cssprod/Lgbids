@@ -14,6 +14,7 @@ import {
   type SourceRunStat,
 } from '../../shared/schemas.js';
 import { assessReadiness, draftApplication, mergeChecklist } from '../applications/draft.js';
+import { transmittalText } from '../applications/templates.js';
 import { buildPackagePdf } from '../applications/pdf.js';
 import { packageFilename } from '../applications/templates.js';
 import type { AppDeps, ApplicationPatch, DraftContext, OpportunityRecord, OutgoingMail, Pipeline, SendResult, SourceTestResult } from '../contracts.js';
@@ -75,6 +76,8 @@ export function createPipeline(deps: AppDeps): Pipeline {
   const { store, settings, config } = deps;
   const zone = config.timeZone;
   let running = false;
+  /** The run under way, so sends made by it are filed under it in the activity log. */
+  let currentRunId: number | null = null;
 
   const snapshot = (): Snapshot => ({
     automation: settings.getAutomation(),
@@ -126,7 +129,8 @@ export function createPipeline(deps: AppDeps): Pipeline {
       description: opp.description,
       location: opp.location,
       categories: opp.categories,
-      noticeTypeHint: opp.noticeTypeHint,
+      // A portal's reference ("RFQ 26-140") often states the type when the title does not.
+      noticeTypeHint: `${opp.noticeTypeHint} ${opp.referenceNumber}`.trim(),
       closesAt: opp.closesAt,
       closesAtPrecision: opp.closesAtPrecision,
       status: opp.status,
@@ -212,6 +216,17 @@ export function createPipeline(deps: AppDeps): Pipeline {
     return rows;
   }
 
+  /**
+   * How an application looks to fully automatic mode. Every draft carries a
+   * required "I have read the bid documents" tick, which only a person can
+   * give. By switching automatic mode on the user has accepted sending without
+   * that review, so it alone is waived. Nothing else is: buyer's forms, a site
+   * meeting, a bond or a price still hold the submission for a person.
+   */
+  function autoView(app: Application): Application {
+    return { ...app, checklist: app.checklist.map((item) => (item.key === 'documents' ? { ...item, done: true } : item)) };
+  }
+
   // -------------------------------------------------------------------------
   // send: the only way anything leaves the system
   // -------------------------------------------------------------------------
@@ -226,7 +241,9 @@ export function createPipeline(deps: AppDeps): Pipeline {
     if (!app) return refuse('This submission no longer exists.');
     if (app.status === 'sending') return refuse('This submission is already being sent.');
     if (app.status === 'submitted') return refuse('This submission has already been sent.');
-    const sendable: ApplicationStatus[] = auto ? ['ready'] : ['ready', 'failed'];
+    // Automatic mode may pick up a draft whose only open item is the "I have read
+    // the documents" acknowledgement (see autoView); everything else must be ready.
+    const sendable: ApplicationStatus[] = auto ? ['ready', 'needs_input'] : ['ready', 'failed'];
     if (!sendable.includes(app.status)) {
       return refuse(app.status === 'needs_input' ? 'This submission still needs your input before it can be sent.' : 'This submission is not in a state that can be sent.');
     }
@@ -253,7 +270,7 @@ export function createPipeline(deps: AppDeps): Pipeline {
     const snap = snapshot();
     if (!emailConfigured(snap.email)) return refuse('Outgoing e-mail is not set up yet.');
     const ctx = draftContext(snap, now);
-    const readiness = assessReadiness(app, opp, ctx);
+    const readiness = assessReadiness(auto ? autoView(app) : app, opp, ctx);
     if (readiness.status !== 'ready') {
       if (!auto && app.status === 'ready') store.updateApplication(app.id, { status: 'needs_input', missing: readiness.missing }, now);
       return refuse(`It is not ready to send: ${readiness.missing.join(' ')}`);
@@ -313,13 +330,23 @@ export function createPipeline(deps: AppDeps): Pipeline {
       for (const file of store.listApplicationFiles(app.id)) {
         attachments.push({ filename: file.name, content: await deps.files.read(file.storedName), contentType: file.mime || 'application/octet-stream' });
       }
-      mail = buildSubmissionMail({ app, settings: snap.email, attachments });
+      // An untouched covering note is rewritten now, so it names the final price and attachments.
+      let outgoing = app;
+      if (!app.editedByUser) {
+        const body = transmittalText(opp, snap.profile, {
+          priceTotal: app.priceTotal,
+          includeRates: app.includeRates,
+          attachmentNames: attachments.map((a) => a.filename),
+        });
+        if (body !== app.body) outgoing = store.updateApplication(app.id, { body }, now) ?? { ...app, body };
+      }
+      mail = buildSubmissionMail({ app: outgoing, settings: snap.email, attachments });
     } catch (error) {
       return refuse(`The submission could not be put together: ${errorText(error)}`);
     }
 
     // g. Claim it, then send. The claim is what makes a second send impossible.
-    if (!store.transitionApplication(app.id, ['ready', 'failed'], 'sending', now)) {
+    if (!store.transitionApplication(app.id, sendable, 'sending', now)) {
       return refuse('This submission is already being sent.');
     }
     const to = mail.to.join(', ');
@@ -331,7 +358,11 @@ export function createPipeline(deps: AppDeps): Pipeline {
         { status: 'submitted', submittedAt: nowIso(sentAt), submittedVia: auto ? 'auto-email' : 'email', submissionRef: result.messageId, error: '' },
         sentAt,
       );
-      event('info', 'sent', `Sent the submission for ${quoted(opp.title)} to ${to}${auto ? ' automatically' : ''}.`, { opportunityId: opp.id, applicationId: app.id });
+      event('info', 'sent', `Sent the submission for ${quoted(opp.title)} to ${to}${auto ? ' automatically' : ''}.`, {
+        opportunityId: opp.id,
+        applicationId: app.id,
+        runId: auto ? currentRunId : null,
+      });
       return { ok: true, error: '' };
     } catch (error) {
       const message = errorText(error);
@@ -413,19 +444,21 @@ export function createPipeline(deps: AppDeps): Pipeline {
     running = true;
     try {
       const runId = store.startRun(trigger, deps.now()).id;
+      currentRunId = runId;
       const stats: RunStats = { sources: [], found: 0, added: 0, analysed: 0, suitable: 0, drafted: 0, sent: 0, expired: 0 };
       try {
         await runSteps(runId, stats);
       } catch (error) {
         const message = errorText(error);
         event('error', 'run', `The run stopped early because of an unexpected problem: ${message}`, { runId });
-        return finish(runId, 'error', stats, message);
+        return await finish(runId, 'error', stats, message);
       }
       const failed = stats.sources.filter((s) => s.status === 'error' || s.status === 'blocked').length;
       const status: RunRecord['status'] = failed === 0 ? 'ok' : failed === stats.sources.length ? 'error' : 'partial';
-      return finish(runId, status, stats, status === 'error' ? 'None of the sources could be read.' : '');
+      return await finish(runId, status, stats, status === 'error' ? 'None of the sources could be read.' : '');
     } finally {
       running = false;
+      currentRunId = null;
     }
 
     async function finish(runId: number, status: RunRecord['status'], stats: RunStats, error: string): Promise<RunRecord> {
@@ -543,7 +576,7 @@ export function createPipeline(deps: AppDeps): Pipeline {
     // 7. Fully automatic mode: send what passes every guardrail.
     if (mode === 'auto') {
       const ready = store
-        .listApplications({ status: ['ready'] })
+        .listApplications({ status: ['ready', 'needs_input'] })
         .filter((a) => a.channel === 'email')
         // Soonest closing first, so the daily cap is spent where time is short.
         .sort((a, b) => (a.opportunity?.closesAt ?? '9999').localeCompare(b.opportunity?.closesAt ?? '9999'));

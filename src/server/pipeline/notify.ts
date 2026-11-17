@@ -52,22 +52,19 @@ export async function sendDigest(deps: AppDeps, run: RunRecord): Promise<boolean
       if (page.items.length < 500) break;
     }
 
-    const since = run.startedAt;
-    const drafted = (app: Application) => app.createdAt >= since;
-    const needsInput = store.listApplications({ status: ['needs_input'] }).filter(drafted);
-    const readyToApprove = store.listApplications({ status: ['ready'] }).filter((a) => drafted(a) && a.channel === 'email');
-    const autoSent = store
-      .listApplications({ status: ['submitted'] })
-      .filter((a) => a.submittedVia === 'auto-email' && a.submittedAt !== null && a.submittedAt >= since);
+    // What this run did is read back from its own activity entries, which
+    // is exact even when two runs fall within the same second.
+    const events = store.listEvents(1000);
+    const ofThisRun = (kind: string) => new Set(events.filter((e) => e.runId === run.id && e.kind === kind).map((e) => e.applicationId));
+    const drafted = ofThisRun('drafted');
+    const sent = ofThisRun('sent');
+    const needsInput = store.listApplications({ status: ['needs_input'] }).filter((a) => drafted.has(a.id));
+    const readyToApprove = store.listApplications({ status: ['ready'] }).filter((a) => drafted.has(a.id) && a.channel === 'email');
+    const autoSent = store.listApplications({ status: ['submitted'] }).filter((a) => sent.has(a.id) && a.submittedVia === 'auto-email');
 
     // Unsent submissions closing soon, each reminded once.
     const horizon = now.getTime() + automation.deadlineReminderDays * 86_400_000;
-    const reminded = new Set(
-      store
-        .listEvents(1000)
-        .filter((e) => e.kind === REMINDER_KIND && e.applicationId !== null)
-        .map((e) => e.applicationId),
-    );
+    const reminded = new Set(events.filter((e) => e.kind === REMINDER_KIND && e.applicationId !== null).map((e) => e.applicationId));
     const closingSoon =
       automation.deadlineReminderDays > 0
         ? store.listApplications({ status: ['ready', 'needs_input'] }).filter((a) => {
@@ -123,7 +120,7 @@ export async function sendDigest(deps: AppDeps, run: RunRecord): Promise<boolean
     for (const app of closingSoon) {
       store.updateApplication(app.id, { remindedAt: nowIso(now) }, now);
       store.addEvent(
-        { level: 'info', kind: REMINDER_KIND, message: `Sent a reminder that ${app.opportunity?.title ?? 'a submission'} closes soon.`, opportunityId: app.opportunityId, applicationId: app.id, runId: run.id },
+        { level: 'info', kind: REMINDER_KIND, message: `Sent a reminder that “${app.opportunity?.title ?? 'Untitled notice'}” closes soon.`, opportunityId: app.opportunityId, applicationId: app.id, runId: run.id },
         now,
       );
     }
