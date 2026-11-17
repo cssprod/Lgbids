@@ -25,7 +25,7 @@ export function SettingsPage() {
       <nav aria-label="Settings sections" className="section-links">
         <a href="#automation">Automation</a>
         <a href="#email">Outgoing e-mail</a>
-        <a href="#area">Service area</a>
+        <a href="#area">Service area (advanced)</a>
       </nav>
       <AutomationForm />
       <EmailForm />
@@ -79,6 +79,9 @@ function AutomationForm() {
 
   const set = <K extends keyof AutomationSettings>(k: K, val: AutomationSettings[K]) => setV({ ...v, [k]: val });
   const needsAck = v.mode === 'auto' && !ack;
+  // Fully automatic sending is hidden for the beta. It only shows for someone
+  // whose saved setting is already "auto", so they can see it and switch away.
+  const savedAuto = res.data?.mode === 'auto';
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -94,7 +97,7 @@ function AutomationForm() {
       </div>
       <fieldset className="mode-cards">
         <legend>What should Lgbids do on its own?</legend>
-        {AUTOMATION_MODES.map((m) => (
+        {AUTOMATION_MODES.filter((m) => m !== 'auto' || savedAuto).map((m) => (
           <label key={m} className={`mode-card ${v.mode === m ? 'selected' : ''} ${m === 'auto' ? 'mode-auto' : ''}`}>
             <input
               type="radio"
@@ -134,15 +137,10 @@ function AutomationForm() {
         </Field>
       </div>
 
-      <TypeChecklist
-        legend="Notice types worth pursuing"
-        hint="Bids of other types are marked not suitable."
-        value={v.pursueTypes}
-        onChange={(t) => set('pursueTypes', t)}
-      />
 
-      <fieldset className="sub-fieldset">
-        <legend>Rules for sending without review</legend>
+      {v.mode === 'auto' ? (
+        <fieldset className="sub-fieldset">
+          <legend>Rules for sending without review</legend>
         <p className="hint">Used only in fully automatic mode. A submission is sent only when it meets every rule.</p>
         <div className="grid-3">
           <Field label="Minimum score" hint="Out of 100.">
@@ -161,8 +159,31 @@ function AutomationForm() {
           value={v.autoSendTypes}
           onChange={(t) => set('autoSendTypes', t)}
         />
+        </fieldset>
+      ) : null}
+
+      <fieldset className="sub-fieldset">
+        <legend>Notifications</legend>
+        <div className="grid-2">
+          <Field label="Send notifications to" hint="Leave empty for no e-mail notifications." optional>
+            <input type="email" value={v.notifyEmail} onChange={(e) => set('notifyEmail', e.target.value)} />
+          </Field>
+          <Field label="Deadline reminder (days before closing)" hint="0 turns reminders off.">
+            <NumberInput value={v.deadlineReminderDays} min={0} max={30} step={1} onChange={(n) => set('deadlineReminderDays', Math.round(num(n, 3)))} />
+          </Field>
+        </div>
+        <Check label="E-mail me when new suitable bids are found" checked={v.notifyOnNew} onChange={(b) => set('notifyOnNew', b)} />
       </fieldset>
 
+      <details className="advanced">
+        <summary>Advanced: bid types, keywords and how sites are read</summary>
+        <p className="hint">The defaults suit most landscaping businesses. Change these only if Lgbids keeps missing bids or picking up the wrong ones.</p>
+      <TypeChecklist
+        legend="Notice types worth pursuing"
+        hint="Bids of other types are marked not suitable."
+        value={v.pursueTypes}
+        onChange={(t) => set('pursueTypes', t)}
+      />
       <fieldset className="sub-fieldset">
         <legend>Keywords</legend>
         <div className="grid-2">
@@ -181,21 +202,8 @@ function AutomationForm() {
         </div>
       </fieldset>
 
-      <fieldset className="sub-fieldset">
-        <legend>Notifications</legend>
-        <div className="grid-2">
-          <Field label="Send notifications to" hint="Leave empty for no e-mail notifications." optional>
-            <input type="email" value={v.notifyEmail} onChange={(e) => set('notifyEmail', e.target.value)} />
-          </Field>
-          <Field label="Deadline reminder (days before closing)" hint="0 turns reminders off.">
-            <NumberInput value={v.deadlineReminderDays} min={0} max={30} step={1} onChange={(n) => set('deadlineReminderDays', Math.round(num(n, 3)))} />
-          </Field>
-        </div>
-        <Check label="E-mail me when new suitable bids are found" checked={v.notifyOnNew} onChange={(b) => set('notifyOnNew', b)} />
-      </fieldset>
-
-      <details className="sub-fieldset advanced">
-        <summary>How bid sites are read</summary>
+        <fieldset className="sub-fieldset">
+          <legend>How bid sites are read</legend>
         <Check
           label="Read linked bid documents (PDF)"
           hint="Finds submission instructions and requirements that are not on the notice page."
@@ -216,6 +224,7 @@ function AutomationForm() {
             <input type="text" value={v.userAgent} minLength={3} maxLength={200} onChange={(e) => set('userAgent', e.target.value)} />
           </Field>
         </div>
+        </fieldset>
       </details>
 
       <div className="form-footer">
@@ -388,7 +397,12 @@ function RegionForm() {
       <div className="card-head">
         <h2 id="area-title">Service area</h2>
       </div>
-      <p className="muted">Lgbids uses these names to decide whether a bid is in the area you work in.</p>
+      <p className="muted">
+        Lgbids uses these names to decide whether a bid is in the area you work in. It comes set up for Greater Victoria (
+        {v.places.length} places, {v.organizations.length} local buyers); most businesses never need to change it.
+      </p>
+      <details className="advanced" open={dirty}>
+        <summary>Edit the places and buyers</summary>
       <TagEditor label="Places you work in" hint="Towns, neighbourhoods and areas, for example Saanich or Westshore." values={v.places} onChange={(p) => setV({ ...v, places: p })} />
       <TagEditor
         label="Places you do not work in"
@@ -403,6 +417,7 @@ function RegionForm() {
         maxLength={120}
         onChange={(p) => setV({ ...v, organizations: p })}
       />
+      </details>
       <div className="form-footer">
         <button type="submit" className="btn btn-primary" disabled={save.busy || !dirty}>
           {save.busy ? 'Saving…' : 'Save service area'}

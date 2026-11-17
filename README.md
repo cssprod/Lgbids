@@ -7,7 +7,7 @@ Finds gardening and landscaping bid opportunities in Greater Victoria, BC, works
 1. **Finds** — several times a day it reads the public bid listings below.
 2. **Qualifies** — each notice is checked: is it landscaping work, is it in Greater Victoria, is it still open, is it a service you offer, and does it ask for anything you do not have (bonding, a certification, a higher insurance limit, a site meeting that has passed). Every decision comes with its reasons.
 3. **Prepares** — for each suitable notice it drafts a submission package (cover letter, company information, references, rates, compliance) from your company profile, and a checklist of what the buyer requires.
-4. **Submits** — where the buyer accepts bids by e-mail, it sends the submission from your own mailbox, either when you press Send or automatically if you switch that on. Where the buyer uses a bidding portal or hard copy, it gives you the finished package to upload and tracks the deadline.
+4. **Submits** — where the buyer accepts bids by e-mail, it sends the submission from your own mailbox, when you press Send. Where the buyer uses a bidding portal or hard copy, it gives you the finished package to upload and tracks the deadline.
 
 ### What it does not do
 
@@ -15,7 +15,7 @@ Finds gardening and landscaping bid opportunities in Greater Victoria, BC, works
 - **It does not price lump-sum jobs.** A total price needs the bid documents and usually a site visit. The app holds the submission until you enter the price. Rate-based requests use the rates in your profile.
 - **It does not fill in the buyer's own forms.** If a notice requires them, the submission is held until you attach the completed forms.
 
-A bid is a formal offer. Fully automatic sending is off by default and, when on, only sends submissions that are complete, addressed to the e-mail given in the notice, above your score threshold, of the notice types you allow, and within a daily cap.
+A bid is a formal offer, so nothing is sent until you review it and press Send. (The server still supports a fully automatic mode with strict rules, but it is hidden in this beta.)
 
 ## Sources
 
@@ -29,7 +29,7 @@ A bid is a formal offer. Fully automatic sending is off by default and, when on,
 | Township of Esquimalt, District of Oak Bay pages | Their own postings |
 | CivicInfo BC | Smaller municipalities province-wide (non-local filtered out) |
 
-You can add any other listing page, RSS feed or Bonfire portal on the Sources page and test it before saving.
+On the Sources page you can turn each source on or off and test it. Adding your own sources is not offered in this beta.
 
 **Important — not yet proven against the live sites.** The readers were written from each site's published format and tested on sample pages; they could not be run against the real sites during development. Treat the first run as the test: the Sources page shows, for each source, whether it answered and how many notices were read, and `npm run check-sources` prints the same from the command line. Expect to adjust one or two.
 

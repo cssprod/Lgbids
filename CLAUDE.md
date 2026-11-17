@@ -19,6 +19,7 @@ Node >= 22.13, TypeScript (ESM, `.js` import suffixes), Fastify 5, built-in `nod
 - Date-only closings: stored as end of local day, precision `date`; deadlines for sending use start of that day (`closingDeadline`).
 - Default host 127.0.0.1; `APP_PASSWORD` enables login; SMTP password never returned by the API.
 - Add a PWA manifest (`display: standalone`), no service worker.
+- Beta scope (2026-11-17, user decision): the UI hides fully automatic mode (shown only if the saved mode is already `auto`, so the user can switch away), offers no "Add a source"/"Edit" on Sources (on/off, Test, health only; user-added sources can still be deleted), and folds bid types, keywords, site-reading options and the service-area lists into collapsed "Advanced" sections. Server/API support for all of these stays, with its tests.
 
 ## Done (240 tests passing; demo verified in a browser)
 - Everything in docs/PLAN.md phases 1–3. App builds, runs, and works end to end in demo mode.
