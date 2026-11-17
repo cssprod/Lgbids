@@ -590,6 +590,8 @@ export function createPipeline(deps: AppDeps): Pipeline {
     // 8. Close what has passed its closing time; unsent drafts expire with it.
     const closedNow = deps.now();
     store.closeExpired(closedNow);
+    // Keep about six months of run history and activity.
+    store.pruneHistory(nowIso(new Date(closedNow.getTime() - 180 * 86_400_000)));
     for (const app of store.listApplications({ status: UNSENT })) {
       const opp = store.getOpportunity(app.opportunityId);
       if (!opp || opp.status === 'open') continue;

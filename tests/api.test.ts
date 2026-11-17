@@ -247,6 +247,13 @@ describe('sign-in', () => {
     expect((await app.inject({ method: 'GET', url: '/api/sources' })).statusCode).toBe(200);
   });
 
+  it('answers the health check without signing in', async () => {
+    const { app } = await harness({ appPassword: 'secret-pass-123' });
+    const res = await app.inject({ method: 'GET', url: '/api/health' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ ok: true });
+  });
+
   it('protects the API, signs in with a cookie and signs out', async () => {
     const { app } = await harness({ appPassword: 'correct horse' });
     expect((await app.inject({ method: 'GET', url: '/api/session' })).json()).toMatchObject({ authRequired: true, authenticated: false });

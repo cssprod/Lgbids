@@ -20,7 +20,8 @@ Node >= 22.13, TypeScript (ESM, `.js` import suffixes), Fastify 5, built-in `nod
 - Default host 127.0.0.1; `APP_PASSWORD` enables login; SMTP password never returned by the API.
 - Add a PWA manifest (`display: standalone`), no service worker.
 
-## Done (117 tests passing)
+## Done (240 tests passing; demo verified in a browser)
+- Everything in docs/PLAN.md phases 1–3. App builds, runs, and works end to end in demo mode.
 - `src/shared/schemas.ts` — all zod schemas + DTO types (Profile, AutomationSettings, EmailSettings, RegionSettings, SourceConfig/Record, Opportunity, Application, Analysis, Requirement, RunRecord, Dashboard...).
 - `src/server/util/text.ts`, `util/dates.ts` (parseDate, findDates, findClosingDate, closingDeadline, formatLocal, nowIso).
 - `src/server/matching/` — relevance.ts (lexicon, masks, services, mightBeRelevant, DEFAULT_SEARCH_QUERIES), geo.ts (defaultRegion, assessArea, mightBeLocal, organizationKey), notice.ts (detectNoticeType, extractReference, referenceKey, titleKey), requirements.ts (extractFacts, detectSubmission, buildRequirements), analyse.ts (analyse -> score, decision, Analysis, facts).

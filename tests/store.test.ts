@@ -410,6 +410,10 @@ describe('sources, runs, events, sessions, settings rows', () => {
     store.addEvent({ level: 'info', kind: 'run', message: 'Started.', opportunityId: null, applicationId: null, runId: run.id }, now);
     store.addEvent({ level: 'warn', kind: 'source', message: 'Slow.', opportunityId: null, applicationId: null, runId: null }, now);
     expect(store.listEvents(1)[0]?.message).toBe('Slow.');
+    // Pruning removes old history but never a run still in progress.
+    const running = store.startRun('manual', now);
+    expect(store.pruneHistory('2026-06-16T00:00:00Z')).toEqual({ events: 2, runs: 2 });
+    expect(store.listRuns(10).map((r) => r.id)).toEqual([running.id]);
   });
 
   it('expires sessions', () => {

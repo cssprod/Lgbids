@@ -224,6 +224,8 @@ export interface Store {
   listRuns(limit: number): RunRecord[];
   addEvent(event: Omit<EventRecord, 'id' | 'at'> , now: Date): void;
   listEvents(limit: number): EventRecord[];
+  /** Delete events and finished runs older than the given instant, so the database does not grow forever. */
+  pruneHistory(beforeIso: string): { events: number; runs: number };
 
   // sessions
   createSession(token: string, expiresAt: Date, now: Date): void;

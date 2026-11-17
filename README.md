@@ -61,6 +61,8 @@ To look around first with invented sample notices (nothing real is read or sent)
 | `PORT` / `HOST` | `3000` / `127.0.0.1` | Where the app listens |
 | `DATA_DIR` | `./data` | Database and uploaded files — back this folder up |
 | `APP_PASSWORD` | (none) | Required before the app will listen beyond localhost |
+| `TRUST_PROXY` | (off) | Set to `1` behind an HTTPS reverse proxy so sign-in cookies are marked secure |
+| `TZ_LOCAL` | `America/Vancouver` | Time zone for closing dates |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM_NAME`, `SMTP_FROM_EMAIL` | (none) | Outgoing mail, instead of the Settings page |
 
 ### Running on a server
@@ -70,7 +72,30 @@ docker build -t lgbids .
 docker run -d -p 3000:3000 -v lgbids-data:/data -e APP_PASSWORD=choose-a-long-one lgbids
 ```
 
-Put it behind HTTPS (a reverse proxy such as Caddy) if it is reachable from the internet. The mail password is stored in the data folder; keep that folder private.
+If it is reachable from the internet, put it behind HTTPS. With [Caddy](https://caddyserver.com) that is one line in the Caddyfile:
+
+```
+bids.example.com {
+  reverse_proxy 127.0.0.1:3000
+}
+```
+
+and run the app with `TRUST_PROXY=1`. `GET /api/health` answers `{"ok":true}` without signing in, for uptime monitors.
+
+### Backups and updates
+
+Everything (database, uploaded documents, settings including the mail password) lives in `DATA_DIR`. Back that folder up, and keep it private. To update: stop the app, `git pull`, `npm install`, `npm run build`, start it again. Keep Node.js on the latest 22.x release: British Columbia has been on UTC−7 all year since 2026, and older releases show closing times an hour off (the app warns at start-up if yours is affected).
+
+## Beta testing
+
+During the beta, keep **Settings → Automation** on "Find, score & draft applications for my approval" so nothing is sent without you pressing Send. Please note:
+
+- any notice you know about that the app missed (title and where it was posted),
+- any notice marked suitable that is not (and why),
+- anything in a drafted letter or package you had to correct,
+- anything on screen that was confusing.
+
+Before the first real run, check the sources: `npm run check-sources`, or **Sources → Test** for each. The readers have not yet been run against the live sites.
 
 ## Development
 

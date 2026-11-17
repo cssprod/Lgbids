@@ -10,7 +10,7 @@ const MAX_FAILURES = 5;
 const LOCKOUT_MS = 10 * 60 * 1000;
 
 /** Routes anyone may call, so the UI can find out whether to show the sign-in page. */
-const PUBLIC_ROUTES = new Set(['GET /api/session', 'POST /api/login']);
+const PUBLIC_ROUTES = new Set(['GET /api/session', 'POST /api/login', 'GET /api/health']);
 
 function digest(value: string): Buffer {
   return createHash('sha256').update(value, 'utf8').digest();
@@ -57,6 +57,9 @@ export function registerAuth(app: FastifyInstance, ctx: RouteContext): void {
       return reply;
     }
   });
+
+  // For hosting platforms and uptime monitors; reveals nothing.
+  app.get('/api/health', async () => ({ ok: true }));
 
   app.get('/api/session', async (req) => info(signedIn(req)));
 

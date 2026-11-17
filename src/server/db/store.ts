@@ -1201,6 +1201,12 @@ export function createStore(db: Database): Store {
       return db.all<EventRow>('SELECT * FROM events ORDER BY id DESC LIMIT :limit', { limit: Math.max(1, Math.floor(limit)) }).map(toEvent);
     },
 
+    pruneHistory(beforeIso) {
+      const events = db.run('DELETE FROM events WHERE at < :before', { before: beforeIso }).changes;
+      const runs = db.run("DELETE FROM runs WHERE status != 'running' AND started_at < :before", { before: beforeIso }).changes;
+      return { events, runs };
+    },
+
     // ---- sessions --------------------------------------------------------
     createSession(token, expiresAt, now) {
       const at = nowIso(now);

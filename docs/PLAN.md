@@ -13,6 +13,12 @@ Working rule for every phase: one task at a time, `npm test` + both typechecks g
 
 ---
 
+## Progress
+- Phase 1 done (2026-11-17): origin-check fix, stylesheet, manifest + icons, build works, UI found when run from source.
+- Phase 2 done: demo run ok (8 sources, 32 notices, 11 suitable); every screen checked at desktop/phone, light/dark, no console errors or overflow; send flow, second-send refusal, portal package, mark submitted, won, and auto-mode acknowledgement all verified in Chromium. Fixed: zod eval probe vs CSP, layout bugs, outdated browser tz data showing BC times an hour early.
+- Phase 3 done except running Docker (no daemon in the sandbox): /api/health, 180-day history pruning, HEALTHCHECK, startup guard verified, focused security check (uploads, cookies, password handling, file names). A full /security-review was not run.
+- Next: Phase 4 (live sources) needs the user — see Decisions needed.
+
 ## Phase 1 — Finish and integrate (sandbox)
 1. Commit the current uncommitted work (auto mode now waives only the "I have read the documents" tick; cover note regenerated at send time with the price; better RFQ detection). Record the auto-mode rule in CLAUDE.md "Decisions".
 2. Fix the failing origin-check test in `src/server/app.ts` / `tests/api.test.ts` (non-GET with an `Origin` that differs from `Host` must get 403).
