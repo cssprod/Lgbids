@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sourceConfigSchema, type SourceConfig, type SourceKind, type SourceRecord } from '../src/shared/schemas.js';
 import { startFixtureServer, type FixtureServer } from '../src/server/demo/server.js';
@@ -354,6 +355,21 @@ describe('extractDetail', () => {
     expect(detail.contactPhone).toBe('250-555-0199');
     expect(detail.documents).toEqual([{ name: 'RFP document', url: 'https://town.example/files/rfp-26-01.pdf' }]);
     expect(detail.description).toContain('Proposals are invited for mowing.');
+  });
+});
+
+describe('real pages (trimmed copies)', () => {
+  it('reads a District of Saanich notice page, where each label and value sit in separate blocks', () => {
+    const html = readFileSync(new URL('./fixtures/saanich-notice.html', import.meta.url), 'utf8');
+    const url = 'https://www.saanich.ca/EN/main/business/selling-to-saanich/bid-opportunities/accounts-payable-automation-software.html';
+    const detail = extractDetail(html, url, { zone: 'America/Vancouver', now: new Date('2026-11-17T12:00:00Z') });
+    expect(detail.title).toBe('Accounts Payable Automation Software');
+    // "December 8, 2026, 3:00pm" Pacific; BC stays on UTC−7 in winter since 2026.
+    expect(detail.closing).toEqual({ iso: '2026-12-08T22:00:00Z', precision: 'datetime' });
+    expect(detail.closingRaw).toBe('December 8, 2026, 3:00pm');
+    expect(detail.referenceNumber).toBe('RFP 26-239');
+    expect(detail.publishedAt).toBe('2026-11-10T23:00:00Z');
+    expect(detail.status).toBe('open');
   });
 });
 

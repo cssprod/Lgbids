@@ -101,6 +101,10 @@ describe('findDates', () => {
 });
 
 describe('findClosingDate', () => {
+  it('is not put off by a posted date written just before the closing label', () => {
+    const text = 'Posted Date:  July 1, 2026, 4:00pm  Closing Date:  July 9, 2026, 3:00pm';
+    expect(findClosingDate(text, opts)?.iso).toBe('2026-07-09T22:00:00Z');
+  });
   it('finds a labelled closing date', () => {
     expect(findClosingDate('Closing Date: July 9th, 2026 2:00 PM', opts)?.iso).toBe('2026-07-09T21:00:00Z');
     expect(findClosingDate('Tenders will be received until 2:00 PM local time, Thursday, July 9, 2026.', opts)?.iso).toBe(

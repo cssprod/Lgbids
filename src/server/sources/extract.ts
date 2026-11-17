@@ -154,11 +154,23 @@ export function labelledFields($: $Root, container: cheerio.Cheerio<Element>, he
     const dd = $(dt).nextAll('dd').first();
     if (dd.length) put($(dt).text(), blockText($, dd[0]!).replace(/\n/g, ' '));
   });
-  // <strong>Label:</strong> value, or a plain "Label: value" line.
-  for (const line of blockText($, container[0]!).split('\n')) {
-    const m = /^([A-Za-z][A-Za-z /&#.()'-]{1,48}?)\s*[:：]\s+(\S.*)$/.exec(line.trim());
-    if (m) put(m[1]!, m[2]!);
-  }
+  // <strong>Label:</strong> value, or a plain "Label: value" line. Some sites
+  // (Saanich) put the label and the value in separate blocks, so a line that is
+  // only "Label:" takes the next non-empty line as its value.
+  const lines = blockText($, container[0]!)
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
+  lines.forEach((line, i) => {
+    const m = /^([A-Za-z][A-Za-z /&#.()'-]{1,48}?)\s*[:：]\s+(\S.*)$/.exec(line);
+    if (m) {
+      put(m[1]!, m[2]!);
+      return;
+    }
+    const label = /^([A-Za-z][A-Za-z /&#.()'-]{1,48}?)\s*[:：]$/.exec(line);
+    const next = lines[i + 1];
+    if (label && next && !/[:：]$/.test(next)) put(label[1]!, next);
+  });
   return fields;
 }
 
@@ -173,7 +185,7 @@ const CLOSING_LABEL = /clos|deadline|due|end date|submission date|expir|bids? re
 const NOT_CLOSING_LABEL = /question|inquir|enquir|site|meeting|award|addend|post|publish|issue/;
 const PUBLISHED_LABEL = /post|publish|issue|open date|opening date|start date|release|date posted|^date$/;
 const ORG_LABEL = /organi[sz]ation|buyer|entity|issued by|owner|agency|municipality|client|department|local government/;
-const REF_LABEL = /^(?:ref|reference|number|no|id|bid|solicitation|tender|rfp|project)(?:erence)?(?: (?:no|number|#|id))?\.?$|reference (?:no|number|#)|solicitation (?:no|number)|bid (?:no|number|#)|tender (?:no|number|#)/;
+const REF_LABEL = /^(?:ref|reference|number|no|id|bid|solicitation|tender|rfp|project)(?:erence)?(?: (?:no|number|#|id))?\.?$|reference (?:no|number|#)|solicitation (?:no|number)|bid (?:no|number|#)|tender (?:no|number|#)|competition (?:no|number|#)/;
 const TYPE_LABEL = /^(?:type|notice type|solicitation type|bid type|opportunity type|category|classification)$/;
 const STATUS_LABEL = /^status$/;
 

@@ -329,8 +329,10 @@ export function parseDate(input: string | null | undefined, opts: ParseOptions =
 const CLOSING_LABEL =
   /\b(clos(?:ing|es|ed|ure|e)|deadline|due(?:\s+date)?|submission\s+(?:date|deadline|time)|end\s+date|no\s+later\s+than|not\s+later\s+than|(?:received|accepted|submitted)\s+(?:on\s+or\s+)?(?:before|until|up\s+to|by|prior\s+to)|until|expir(?:es|y|ation))\b/gi;
 
+// The look-back stops at a full stop, a semicolon or a digit: a date in between
+// ("Posted Date: November 10, 2026, 4:00pm  Closing Date: ...") ends the other field.
 const NOT_CLOSING_NEAR =
-  /\b(question|inquir|enquir|clarification|site\s+(?:meeting|visit|tour)|pre-?bid|information\s+(?:meeting|session)|addend|award|start\s+date|commenc|posted|publish|issued|issue\s+date|open(?:ing|ed|s)?\s+date)\w*[^.;]{0,60}$/i;
+  /\b(question|inquir|enquir|clarification|site\s+(?:meeting|visit|tour)|pre-?bid|information\s+(?:meeting|session)|addend|award|start\s+date|commenc|posted|publish|issued|issue\s+date|open(?:ing|ed|s)?\s+date)\w*[^.;\d]{0,60}$/i;
 
 /**
  * Find the bid closing date in free text: the first date that follows a
