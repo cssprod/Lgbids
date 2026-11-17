@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { IANAZone } from 'luxon';
 import type { AppConfig } from './contracts.js';
@@ -22,9 +22,11 @@ function port(env: NodeJS.ProcessEnv): number {
 
 function webDir(env: NodeJS.ProcessEnv): string {
   const raw = value(env, 'WEB_DIR');
-  // The built UI sits next to the compiled server: dist/server/config.js → dist/web.
-  const dir = raw ? resolve(raw) : fileURLToPath(new URL('../web', import.meta.url));
-  return existsSync(dir) ? dir : '';
+  if (raw) return existsSync(resolve(raw)) ? resolve(raw) : '';
+  // The built UI sits next to the compiled server (dist/server → dist/web). When the
+  // server runs from source (tsx), ../web is the unbuilt src/web, so use dist/web.
+  const candidates = [new URL('../web', import.meta.url), new URL('../../dist/web', import.meta.url)].map((u) => fileURLToPath(u));
+  return candidates.find((dir) => existsSync(join(dir, 'index.html')) && existsSync(join(dir, 'assets'))) ?? '';
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {

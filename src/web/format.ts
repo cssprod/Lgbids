@@ -5,7 +5,28 @@ import type { DatePrecision } from '../shared/schemas.js';
 const LOCALE = 'en-CA';
 const cache = new Map<string, Intl.DateTimeFormat>();
 
-function dtf(timeZone: string, options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
+/**
+ * British Columbia has been on UTC−7 all year since 2026. A browser whose time
+ * zone data predates that change still puts Vancouver at UTC−8 in winter and
+ * would show every closing time an hour early. Detect that and use a fixed
+ * UTC−7 zone instead ("Etc/GMT+7" is UTC−7: the sign is inverted by convention).
+ */
+let vancouverOutdated: boolean | null = null;
+function effectiveZone(timeZone: string): string {
+  if (timeZone !== 'America/Vancouver') return timeZone;
+  if (vancouverOutdated === null) {
+    try {
+      const hour = new Intl.DateTimeFormat('en-CA', { timeZone, hour: 'numeric', hourCycle: 'h23' }).format(new Date('2027-01-15T20:00:00Z'));
+      vancouverOutdated = Number(hour) === 12; // 20:00 UTC is 13:00 at UTC−7, 12:00 at UTC−8.
+    } catch {
+      vancouverOutdated = false;
+    }
+  }
+  return vancouverOutdated ? 'Etc/GMT+7' : timeZone;
+}
+
+function dtf(requestedZone: string, options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
+  const timeZone = effectiveZone(requestedZone);
   const key = timeZone + JSON.stringify(options);
   let f = cache.get(key);
   if (!f) {

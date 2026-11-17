@@ -411,9 +411,16 @@ main {
 }
 .facts {
   display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
-  gap: 0.35rem 1rem;
+  gap: 0.5rem;
   margin: 0;
+}
+.facts > div {
+  display: grid;
+  grid-template-columns: 9rem minmax(0, 1fr);
+  gap: 0 1rem;
+}
+.detail-side .facts > div {
+  grid-template-columns: minmax(0, 1fr);
 }
 .facts dt {
   color: var(--text-muted);
@@ -1137,13 +1144,19 @@ a.tile:hover {
   font-size: 0.9rem;
 }
 .source-mini {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.source-mini li {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   gap: 0.75rem;
   padding: 0.35rem 0;
   border-bottom: 1px solid var(--border);
 }
-.source-mini:last-child {
+.source-mini li:last-child {
   border-bottom: 0;
 }
 .source-mini-name {
@@ -1392,12 +1405,8 @@ a.tile:hover {
     gap: 0.5rem;
     align-items: center;
   }
-  .facts {
+  .facts > div {
     grid-template-columns: minmax(0, 1fr);
-    gap: 0.1rem;
-  }
-  .facts dd {
-    margin-bottom: 0.5rem;
   }
   .rate-row {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -1443,4 +1452,31 @@ a.tile:hover {
     justify-self: start;
     text-align: left;
   }
+}
+
+/* ---------- Fixes found in the browser pass ---------- */
+
+/* .btn sets display, so the phone-only menu button needs the higher specificity. */
+.menu-button.btn {
+  display: none;
+}
+@media (max-width: 760px) {
+  .menu-button.btn {
+    display: inline-flex;
+  }
+}
+.tiles {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 1rem;
+}
+.tiles > li {
+  display: grid;
+}
+/* Radio option: bold label on one line, explanation below it. */
+.radio > span {
+  display: grid;
+}
+.radio .hint {
+  margin: 0;
 }
