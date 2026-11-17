@@ -28,9 +28,15 @@ const TEXT_SECTIONS: { key: 'about' | 'approach' | 'safety' | 'environment' | 't
 const emptyReference = (): Reference => ({ client: '', contactName: '', contactInfo: '', description: '', year: '', value: '' });
 const emptyRate = (): Rate => ({ label: '', unit: '', rate: 0 });
 
+const SECTIONS = ['Company', 'Contact and signatory', 'Registration and insurance', 'Services offered', 'Credentials', 'About your company', 'References', 'Rates'];
+
+function sectionId(title: string): string {
+  return `profile-${title.toLowerCase().replace(/[^a-z]+/g, '-')}`;
+}
+
 function Fieldset({ title, intro, children }: { title: string; intro?: ReactNode; children: ReactNode }) {
   return (
-    <fieldset className="card form-section">
+    <fieldset className="card form-section" id={sectionId(title)}>
       <legend>{title}</legend>
       {intro ? <div className="muted small section-intro">{intro}</div> : null}
       {children}
@@ -99,6 +105,13 @@ export function ProfilePage() {
           </p>
         }
       />
+      <nav aria-label="Profile sections" className="section-links">
+        {SECTIONS.map((t) => (
+          <a key={t} href={`#${sectionId(t)}`}>
+            {t}
+          </a>
+        ))}
+      </nav>
 
       {missing.length > 0 ? (
         <Callout tone="warn" title="Still needed before any submission can be sent">

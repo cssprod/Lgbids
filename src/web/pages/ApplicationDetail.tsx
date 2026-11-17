@@ -8,6 +8,7 @@ import { ApplicationChip } from '../components/status.js';
 import { ConfirmDialog, Dialog } from '../components/Dialog.js';
 import { BackLink, Callout, Check, ErrorBox, ExternalLink, Field, Live, Loading, NumberInput, Section } from '../components/ui.js';
 import { formatBytes, formatMoney } from '../format.js';
+import { Icon } from '../components/Icon.js';
 
 interface Draft {
   channel: ApplicationChannel;
@@ -189,14 +190,36 @@ export function ApplicationDetailPage() {
       {!locked && a.missing.length > 0 ? (
         <section className="missing-box" aria-labelledby="missing-title">
           <h2 id="missing-title">
-            <span aria-hidden="true">! </span>
+            <Icon name="alert" size={18} />
             Still needed before this can be submitted
           </h2>
+          {a.checklist.length > 0 ? (
+            <div className="progress-row">
+              <div
+                className="progress progress-warn"
+                role="progressbar"
+                aria-label="Checklist progress"
+                aria-valuemin={0}
+                aria-valuemax={a.checklist.length}
+                aria-valuenow={a.checklist.filter((c) => c.done).length}
+              >
+                <span style={{ width: `${(a.checklist.filter((c) => c.done).length / a.checklist.length) * 100}%` }} />
+              </div>
+              <span className="small muted">
+                {a.checklist.filter((c) => c.done).length} of {a.checklist.length} checklist items ticked
+              </span>
+            </div>
+          ) : null}
           <ul>
             {a.missing.map((m) => (
               <li key={m}>{m}</li>
             ))}
           </ul>
+          {a.checklist.some((c) => !c.done) ? (
+            <p className="small missing-jump">
+              <a href="#checklist">Go to the checklist</a>
+            </p>
+          ) : null}
         </section>
       ) : null}
 
@@ -242,7 +265,7 @@ export function ApplicationDetailPage() {
               </p>
               <div className="button-row">
                 <button type="button" className="btn btn-primary" disabled={!canSendEmail || dirty || send.busy} onClick={() => setConfirmSend(true)}>
-                  Send submission
+                  <Icon name="send" size={16} /> Send submission
                 </button>
                 <a className="btn btn-secondary" href={packageUrl} target="_blank" rel="noopener">
                   Preview package (PDF)
@@ -256,29 +279,47 @@ export function ApplicationDetailPage() {
             </>
           ) : (
             <>
-              <p>
-                {a.channel === 'portal'
-                  ? `This bid is submitted on the buyer’s portal (${o ? SUBMISSION_METHOD_LABELS[o.submissionMethod] : 'online'}). Download the package, upload it there, then mark it as submitted here.`
-                  : 'This bid is delivered by hand or courier. Download and print the package, deliver it, then mark it as submitted here.'}
-              </p>
-              <div className="button-row">
-                <a className="btn btn-primary" href={packageUrl} download>
-                  Download package
-                </a>
-                {portalUrl ? (
-                  <ExternalLink href={portalUrl} className="btn btn-secondary">
-                    {a.channel === 'portal' ? 'Open the buyer’s portal' : 'Open the notice'}
-                  </ExternalLink>
-                ) : null}
-                <button type="button" className="btn btn-secondary" onClick={() => setMarkOpen(true)}>
-                  Mark as submitted
-                </button>
-              </div>
-              <p className="small">
-                <a href={packageUrl} target="_blank" rel="noopener">
-                  Preview package (PDF)
-                </a>
-              </p>
+              <ol className="steps">
+                <li>
+                  <div>
+                    <p className="step-title">Download the package</p>
+                    <p className="small muted">
+                      Your cover letter, company profile and attachments in one PDF.{' '}
+                      <a href={packageUrl} target="_blank" rel="noopener">
+                        Preview it first
+                      </a>
+                      .
+                    </p>
+                  </div>
+                  <a className="btn btn-primary" href={packageUrl} download>
+                    <Icon name="download" size={16} /> Download package
+                  </a>
+                </li>
+                <li>
+                  <div>
+                    <p className="step-title">{a.channel === 'portal' ? 'Upload it on the buyer’s portal' : 'Print and deliver it'}</p>
+                    <p className="small muted">
+                      {a.channel === 'portal'
+                        ? `Submit on ${o ? SUBMISSION_METHOD_LABELS[o.submissionMethod] : 'the buyer’s portal'} before the closing time. Add the buyer’s own forms there too.`
+                        : 'Deliver it to the address in the bid documents before the closing time.'}
+                    </p>
+                  </div>
+                  {portalUrl ? (
+                    <ExternalLink href={portalUrl} className="btn btn-secondary">
+                      {a.channel === 'portal' ? 'Open the buyer’s portal' : 'Open the notice'}
+                    </ExternalLink>
+                  ) : null}
+                </li>
+                <li>
+                  <div>
+                    <p className="step-title">Mark it as submitted here</p>
+                    <p className="small muted">So Lgbids stops reminding you and you can record the result later.</p>
+                  </div>
+                  <button type="button" className="btn btn-secondary" onClick={() => setMarkOpen(true)}>
+                    <Icon name="check" size={16} /> Mark as submitted
+                  </button>
+                </li>
+              </ol>
             </>
           )}
           <Live message={send.message?.ok ? send.message : null} />
@@ -353,7 +394,7 @@ export function ApplicationDetailPage() {
             </Field>
 
             {!locked ? (
-              <div className="form-footer">
+              <div className={`form-footer ${dirty ? 'is-dirty' : ''}`}>
                 <button type="submit" className="btn btn-primary" disabled={save.busy || !dirty}>
                   {save.busy ? 'Saving…' : 'Save changes'}
                 </button>
@@ -368,7 +409,7 @@ export function ApplicationDetailPage() {
         </div>
 
         <div className="detail-side">
-          <Section title="Checklist">
+          <Section title="Checklist" id="checklist">
             {a.checklist.length === 0 ? (
               <p className="muted">Nothing to tick for this bid.</p>
             ) : (

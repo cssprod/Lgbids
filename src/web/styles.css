@@ -1561,11 +1561,46 @@ a.tile:hover {
 
 /* Section links (jump list on long forms) */
 .section-links {
+  position: sticky;
+  top: 0;
+  z-index: 6;
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem 1rem;
-  margin-bottom: 1rem;
-  font-size: 0.9rem;
+  gap: var(--space-2);
+  overflow-x: auto;
+  scrollbar-width: none;
+  margin: 0 calc(-1 * var(--space-2)) var(--space-4);
+  padding: var(--space-2);
+  background: color-mix(in srgb, var(--bg) 90%, transparent);
+  backdrop-filter: blur(6px);
+}
+.section-links a {
+  flex: none;
+  padding: 0.3rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  text-decoration: none;
+  transition: border-color 150ms var(--ease), color 150ms var(--ease);
+}
+.section-links a:hover {
+  border-color: var(--brand);
+  color: var(--brand);
+}
+.form-section,
+form.card[id] {
+  scroll-margin-top: 64px;
+}
+@media (max-width: 760px) {
+  .section-links {
+    top: 56px;
+  }
+  .form-section,
+  form.card[id] {
+    scroll-margin-top: 120px;
+  }
 }
 
 /* ---------- Dialog ---------- */
@@ -1924,4 +1959,149 @@ a.row-title:focus-visible {
   border: 0;
   background: none;
   padding: 0;
+}
+/* Application detail */
+.missing-box {
+  border-color: color-mix(in srgb, var(--warn) 55%, transparent);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4) var(--space-5);
+}
+.missing-box h2 {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--warn);
+  font-size: var(--text-md);
+}
+.progress-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: var(--space-2) 0;
+}
+.progress-row .progress {
+  flex: 1;
+  max-width: 260px;
+  margin: 0;
+}
+.progress-warn > span {
+  background: var(--warn);
+}
+.steps {
+  list-style: none;
+  counter-reset: step;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0;
+}
+.steps > li {
+  counter-increment: step;
+  display: grid;
+  grid-template-columns: 2rem minmax(0, 1fr) auto;
+  gap: var(--space-3);
+  align-items: center;
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--border);
+}
+.steps > li:last-child {
+  border-bottom: 0;
+}
+.steps > li::before {
+  content: counter(step);
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  background: var(--brand-soft);
+  color: var(--brand);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.steps p {
+  margin: 0;
+}
+.step-title {
+  font-weight: 600;
+}
+.form-footer.is-dirty {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  margin: var(--space-4) calc(-1 * var(--space-5)) calc(-1 * var(--space-5));
+  padding: var(--space-3) var(--space-5);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  backdrop-filter: blur(6px);
+  border-top: 1px solid var(--border);
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+}
+@media (max-width: 760px) {
+  .steps > li {
+    grid-template-columns: 2rem minmax(0, 1fr);
+  }
+  .steps > li > .btn,
+  .steps > li > a.btn {
+    grid-column: 2;
+    justify-self: start;
+  }
+}
+.live:empty {
+  min-height: 0;
+}
+.form-card {
+  display: grid;
+  gap: var(--space-4);
+}
+.form-card > .card-head,
+.form-card > fieldset {
+  margin-bottom: 0;
+}
+.missing-jump {
+  margin: var(--space-2) 0 0;
+}
+#checklist {
+  scroll-margin-top: 72px;
+}
+/* Fields never stretch to their row height. */
+.form-grid,
+.grid-2,
+.grid-3 {
+  align-items: start;
+}
+.field {
+  align-content: start;
+}
+/* Document upload drop zone */
+.dropzone {
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: var(--space-2);
+  min-height: 180px;
+  padding: var(--space-5);
+  text-align: center;
+  border: 2px dashed var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  transition: border-color 150ms var(--ease), background-color 150ms var(--ease);
+}
+.dropzone.is-dragging,
+.dropzone:focus-within {
+  border-color: var(--brand);
+  background: var(--brand-soft);
+  color: var(--brand);
+}
+.dropzone.has-file {
+  border-style: solid;
+  border-color: var(--good);
+}
+.dropzone-label {
+  font-weight: 600;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.dropzone p {
+  margin: 0;
 }

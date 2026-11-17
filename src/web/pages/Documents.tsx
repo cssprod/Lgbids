@@ -6,6 +6,7 @@ import { useAction, useApp, useDocumentTitle, useFormat, useResource } from '../
 import { ConfirmDialog } from '../components/Dialog.js';
 import { Check, Chip, Empty, ErrorBox, Field, Live, Loading, PageHeader, Section } from '../components/ui.js';
 import { daysUntilPlainDate, formatBytes, formatPlainDate } from '../format.js';
+import { Icon } from '../components/Icon.js';
 
 function ExpiryChip({ expiresOn }: { expiresOn: string }) {
   const { timeZone } = useApp();
@@ -40,6 +41,7 @@ export function DocumentsPage() {
   const [expiresOn, setExpiresOn] = useState('');
   const [attachByDefault, setAttachByDefault] = useState(true);
   const [toDelete, setToDelete] = useState<LibraryDocument | null>(null);
+  const [dragging, setDragging] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const fileId = useId();
 
@@ -78,6 +80,11 @@ export function DocumentsPage() {
     setToDelete(null);
   }
 
+  function chooseFile(f: File | null) {
+    setFile(f);
+    if (f && !name) setName(f.name.replace(/\.[^.]+$/, ''));
+  }
+
   return (
     <>
       <PageHeader
@@ -87,19 +94,34 @@ export function DocumentsPage() {
 
       <Section title="Add a document">
         <form onSubmit={submit} className="form-grid">
-          <div className="field">
-            <label htmlFor={fileId}>File</label>
+          <div
+            className={`dropzone ${dragging ? 'is-dragging' : ''} ${file ? 'has-file' : ''}`}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragging(true);
+            }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragging(false);
+              const f = e.dataTransfer.files?.[0];
+              if (!f || !fileRef.current) return;
+              fileRef.current.files = e.dataTransfer.files;
+              chooseFile(f);
+            }}
+          >
+            <Icon name="upload" size={28} />
+            <label htmlFor={fileId} className="dropzone-label">
+              {file ? file.name : 'Drop a file here, or choose one'}
+            </label>
+            <p className="small muted">{file ? formatBytes(file.size) : 'PDF, Word or image, up to 25 MB.'}</p>
             <input
               id={fileId}
               ref={fileRef}
               type="file"
               required
               accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
-              onChange={(e) => {
-                const f = e.target.files?.[0] ?? null;
-                setFile(f);
-                if (f && !name) setName(f.name.replace(/\.[^.]+$/, ''));
-              }}
+              onChange={(e) => chooseFile(e.target.files?.[0] ?? null)}
             />
           </div>
           <div className="grid-2">
