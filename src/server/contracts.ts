@@ -28,6 +28,7 @@ import type {
 } from '../shared/schemas.js';
 import type { HttpClient } from './http/client.js';
 import type { RawOpportunity } from './sources/types.js';
+import type { UserRole } from '../shared/api.js';
 
 /**
  * The seams between the server's modules. Each module is written against
@@ -56,6 +57,24 @@ export interface AppConfig {
 // ---------------------------------------------------------------------------
 // Store
 // ---------------------------------------------------------------------------
+
+export type SessionStage = 'full' | 'totp';
+
+/** An account as stored, secrets included; never sent to the browser as is. */
+export interface UserRecord {
+  id: number;
+  email: string;
+  name: string;
+  role: UserRole;
+  passwordHash: string;
+  totpSecret: string;
+  totpEnabled: boolean;
+  totpLastStep: number;
+  active: boolean;
+  lastLoginAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
 
 /** An opportunity with the internal fields the pipeline needs. */
 export interface OpportunityRecord extends Opportunity {
@@ -230,15 +249,32 @@ export interface Store {
   failStaleRuns(now: Date): void;
   latestRun(): RunRecord | undefined;
   listRuns(limit: number): RunRecord[];
-  addEvent(event: Omit<EventRecord, 'id' | 'at'> , now: Date): void;
+  addEvent(event: Omit<EventRecord, 'id' | 'at'> & { actorUserId?: number | null }, now: Date): void;
   listEvents(limit: number): EventRecord[];
   /** Delete events and finished runs older than the given instant, so the database does not grow forever. */
   pruneHistory(beforeIso: string): { events: number; runs: number };
 
   // sessions
-  createSession(token: string, expiresAt: Date, now: Date): void;
+  createSession(token: string, expiresAt: Date, now: Date, opts?: { userId?: number | null; stage?: SessionStage }): void;
   sessionValid(token: string, now: Date): boolean;
+  /** The live session for a token, or undefined. */
+  getSession(token: string, now: Date): { userId: number | null; stage: SessionStage } | undefined;
   deleteSession(token: string): void;
+  /** End every session of an account, except optionally one. */
+  deleteUserSessions(userId: number, exceptToken?: string): void;
+
+  // user accounts
+  countUsers(): number;
+  listUsers(): UserRecord[];
+  getUser(id: number): UserRecord | undefined;
+  getUserByEmail(email: string): UserRecord | undefined;
+  createUser(input: { email: string; name: string; role: UserRole; passwordHash: string }, now: Date): UserRecord;
+  updateUser(
+    id: number,
+    patch: Partial<Pick<UserRecord, 'name' | 'role' | 'passwordHash' | 'totpSecret' | 'totpEnabled' | 'totpLastStep' | 'active' | 'lastLoginAt'>>,
+    now: Date,
+  ): UserRecord | undefined;
+  deleteUser(id: number): boolean;
 
   close(): void;
 }

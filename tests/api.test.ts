@@ -245,7 +245,7 @@ describe('sign-in', () => {
   it('is open when no password is set', async () => {
     const { app } = await harness();
     const session = await app.inject({ method: 'GET', url: '/api/session' });
-    expect(session.json()).toEqual({ authRequired: false, authenticated: true, demo: false });
+    expect(session.json()).toMatchObject({ authRequired: false, authenticated: true, demo: false });
     expect((await app.inject({ method: 'GET', url: '/api/sources' })).statusCode).toBe(200);
   });
 

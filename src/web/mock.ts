@@ -673,15 +673,15 @@ async function route(method: string, fullPath: string, rawBody: unknown): Promis
   const m = (re: RegExp) => re.exec(path);
   let r: RegExpExecArray | null;
 
-  if (path === '/api/session') return ok({ authRequired, authenticated, demo: true } satisfies SessionInfo);
+  if (path === '/api/session') return ok({ authRequired, authenticated, demo: true, accounts: false, totpPending: false, user: null, role: 'owner' } satisfies SessionInfo);
   if (path === '/api/login') {
     if (body.password === 'demo') authenticated = true;
     else return fail(401, 'That password is not right. In the mock, the password is “demo”.');
-    return ok({ authRequired, authenticated, demo: true } satisfies SessionInfo);
+    return ok({ authRequired, authenticated, demo: true, accounts: false, totpPending: false, user: null, role: 'owner' } satisfies SessionInfo);
   }
   if (path === '/api/logout') {
     authenticated = false;
-    return ok({ authRequired, authenticated, demo: true } satisfies SessionInfo);
+    return ok({ authRequired, authenticated, demo: true, accounts: false, totpPending: false, user: null, role: 'owner' } satisfies SessionInfo);
   }
   if (authRequired && !authenticated) return fail(401, 'Please sign in.');
 

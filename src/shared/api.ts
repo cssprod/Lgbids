@@ -7,8 +7,26 @@ import type { AlertInboxSettings, Application, Dashboard, EmailSettings, Opportu
  * /api/login answers 401 when a password is set and the caller is not signed in.
  *
  * GET    /api/session                         -> SessionInfo
- * POST   /api/login            {password}     -> SessionInfo
+ * POST   /api/login            {email?, password} -> SessionInfo (totpPending when a code is still needed)
+ * POST   /api/login/totp       {code}         -> SessionInfo
  * POST   /api/logout                          -> SessionInfo
+ *
+ * GET    /api/account                         -> UserInfo
+ * PATCH  /api/account          {name}         -> UserInfo
+ * POST   /api/account/password {current, next} -> UserInfo (ends the account's other sessions)
+ * POST   /api/account/totp/setup              -> TotpSetup  (new secret, not active yet)
+ * POST   /api/account/totp/enable {code}      -> UserInfo
+ * POST   /api/account/totp/disable {password} -> UserInfo
+ *
+ * Owner only:
+ * GET    /api/users                           -> UserInfo[]
+ * POST   /api/users            {email, name, role, password} -> UserInfo
+ * PATCH  /api/users/:id        {name?, role?, active?} -> UserInfo
+ * POST   /api/users/:id/password {password}   -> UserInfo (also turns off two-step sign-in)
+ * DELETE /api/users/:id                       -> {ok: true}
+ *
+ * Roles: viewers may only read; estimators may not send applications, change
+ * settings or sources, or manage accounts.
  *
  * GET    /api/dashboard                       -> DashboardResponse
  *
@@ -65,11 +83,44 @@ import type { AlertInboxSettings, Application, Dashboard, EmailSettings, Opportu
  * GET    /api/calendar.ics                    -> text/calendar  (closing dates of suitable opportunities)
  */
 
+export const USER_ROLES = ['owner', 'estimator', 'viewer'] as const;
+export type UserRole = (typeof USER_ROLES)[number];
+export const USER_ROLE_LABELS: Record<UserRole, string> = {
+  owner: 'Owner — everything, including sending bids and settings',
+  estimator: 'Estimator — prepares bids, cannot send them or change settings',
+  viewer: 'Viewer — can look, cannot change anything',
+};
+
+/** An account as the browser sees it. */
+export interface UserInfo {
+  id: number;
+  email: string;
+  name: string;
+  role: UserRole;
+  totpEnabled: boolean;
+  active: boolean;
+  lastLoginAt: string | null;
+  createdAt: string;
+}
+
 export interface SessionInfo {
-  /** A password is configured. */
+  /** A password or at least one account is set up, so signing in is needed. */
   authRequired: boolean;
   authenticated: boolean;
   demo: boolean;
+  /** Accounts exist: sign in with e-mail and password. */
+  accounts: boolean;
+  /** Password accepted; the authenticator code is still needed. */
+  totpPending: boolean;
+  /** The signed-in account; null with the shared password or no sign-in. */
+  user: UserInfo | null;
+  /** What the caller may do. */
+  role: UserRole;
+}
+
+export interface TotpSetup {
+  secret: string;
+  uri: string;
 }
 
 export interface DashboardResponse extends Dashboard {

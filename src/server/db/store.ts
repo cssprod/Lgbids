@@ -32,6 +32,7 @@ import type {
   Store,
   StoredFile,
   UpsertResult,
+  UserRecord,
 } from '../contracts.js';
 import { organizationKey } from '../matching/geo.js';
 import { extractReference, referenceKey, titleKey } from '../matching/notice.js';
@@ -440,6 +441,38 @@ function toRun(row: RunRow): RunRecord {
     finishedAt: row.finished_at,
     stats: parseJson<RunStats | null>(row.stats, null),
     error: row.error,
+  };
+}
+
+interface UserRow {
+  id: number;
+  email: string;
+  name: string;
+  role: string;
+  password_hash: string;
+  totp_secret: string;
+  totp_enabled: number;
+  totp_last_step: number;
+  active: number;
+  last_login_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+function toUser(row: UserRow): UserRecord {
+  return {
+    id: row.id,
+    email: row.email,
+    name: row.name,
+    role: row.role === 'owner' || row.role === 'estimator' ? row.role : 'viewer',
+    passwordHash: row.password_hash,
+    totpSecret: row.totp_secret,
+    totpEnabled: row.totp_enabled === 1,
+    totpLastStep: row.totp_last_step,
+    active: row.active === 1,
+    lastLoginAt: row.last_login_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
   };
 }
 
@@ -1192,8 +1225,8 @@ export function createStore(db: Database): Store {
 
     addEvent(event, now) {
       db.run(
-        `INSERT INTO events (at, level, kind, message, opportunity_id, application_id, run_id)
-         VALUES (:at, :level, :kind, :message, :opportunity_id, :application_id, :run_id)`,
+        `INSERT INTO events (at, level, kind, message, opportunity_id, application_id, run_id, actor_user_id)
+         VALUES (:at, :level, :kind, :message, :opportunity_id, :application_id, :run_id, :actor)`,
         {
           at: nowIso(now),
           level: event.level,
@@ -1202,6 +1235,7 @@ export function createStore(db: Database): Store {
           opportunity_id: event.opportunityId ?? null,
           application_id: event.applicationId ?? null,
           run_id: event.runId ?? null,
+          actor: event.actorUserId ?? null,
         },
       );
     },
@@ -1217,22 +1251,90 @@ export function createStore(db: Database): Store {
     },
 
     // ---- sessions --------------------------------------------------------
-    createSession(token, expiresAt, now) {
+    createSession(token, expiresAt, now, opts = {}) {
       const at = nowIso(now);
       db.tx(() => {
         // Tidy up on each sign-in so the table never grows without bound.
         db.run('DELETE FROM sessions WHERE expires_at <= :at', { at });
-        db.run('INSERT INTO sessions (token, created_at, expires_at) VALUES (:token, :at, :expires)', { token, at, expires: nowIso(expiresAt) });
+        db.run('INSERT INTO sessions (token, created_at, expires_at, user_id, stage) VALUES (:token, :at, :expires, :user, :stage)', {
+          token,
+          at,
+          expires: nowIso(expiresAt),
+          user: opts.userId ?? null,
+          stage: opts.stage ?? 'full',
+        });
       });
     },
 
     sessionValid(token, now) {
-      if (!token) return false;
-      return db.get<{ token: string }>('SELECT token FROM sessions WHERE token = :token AND expires_at > :at', { token, at: nowIso(now) }) !== undefined;
+      return store.getSession(token, now)?.stage === 'full';
     },
 
     deleteSession(token) {
       db.run('DELETE FROM sessions WHERE token = :token', { token });
+    },
+
+    getSession(token, now) {
+      if (!token) return undefined;
+      const row = db.get<{ user_id: number | null; stage: string }>(
+        'SELECT user_id, stage FROM sessions WHERE token = :token AND expires_at > :at',
+        { token, at: nowIso(now) },
+      );
+      return row ? { userId: row.user_id, stage: row.stage === 'totp' ? 'totp' : 'full' } : undefined;
+    },
+
+    deleteUserSessions(userId, exceptToken) {
+      db.run('DELETE FROM sessions WHERE user_id = :userId AND token != :except', { userId, except: exceptToken ?? '' });
+    },
+
+    // ---- user accounts ---------------------------------------------------
+    countUsers() {
+      return db.get<{ n: number }>('SELECT COUNT(*) AS n FROM users')?.n ?? 0;
+    },
+
+    listUsers() {
+      return db.all<UserRow>('SELECT * FROM users ORDER BY id').map(toUser);
+    },
+
+    getUser(id) {
+      const row = db.get<UserRow>('SELECT * FROM users WHERE id = :id', { id });
+      return row ? toUser(row) : undefined;
+    },
+
+    getUserByEmail(email) {
+      const row = db.get<UserRow>('SELECT * FROM users WHERE email = :email', { email: email.trim() });
+      return row ? toUser(row) : undefined;
+    },
+
+    createUser(input, now) {
+      const at = nowIso(now);
+      const { lastInsertRowid } = db.run(
+        `INSERT INTO users (email, name, role, password_hash, created_at, updated_at)
+         VALUES (:email, :name, :role, :hash, :at, :at)`,
+        { email: input.email.trim(), name: input.name.trim(), role: input.role, hash: input.passwordHash, at },
+      );
+      return store.getUser(Number(lastInsertRowid))!;
+    },
+
+    updateUser(id, patch, now) {
+      const columns: Record<string, string> = {
+        name: 'name', role: 'role', passwordHash: 'password_hash', totpSecret: 'totp_secret',
+        totpEnabled: 'totp_enabled', totpLastStep: 'totp_last_step', active: 'active', lastLoginAt: 'last_login_at',
+      };
+      const sets: string[] = [];
+      const params: Record<string, string | number | null> = { id, at: nowIso(now) };
+      for (const [key, value] of Object.entries(patch)) {
+        const column = columns[key];
+        if (!column || value === undefined) continue;
+        sets.push(`${column} = :${key}`);
+        params[key] = typeof value === 'boolean' ? (value ? 1 : 0) : (value as string | number | null);
+      }
+      if (sets.length) db.run(`UPDATE users SET ${sets.join(', ')}, updated_at = :at WHERE id = :id`, params);
+      return store.getUser(id);
+    },
+
+    deleteUser(id) {
+      return db.run('DELETE FROM users WHERE id = :id', { id }).changes > 0;
     },
 
     close() {

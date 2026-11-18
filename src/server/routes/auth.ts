@@ -40,7 +40,7 @@ export function registerAuth(app: FastifyInstance, ctx: RouteContext): void {
   }
 
   function info(authenticated: boolean): SessionInfo {
-    return { authRequired, authenticated, demo: config.demo };
+    return { authRequired, authenticated, demo: config.demo, accounts: false, totpPending: false, user: null, role: 'owner' };
   }
 
   function cookieOptions(req: FastifyRequest) {

@@ -262,6 +262,28 @@ const MIGRATIONS: string[] = [
     expires_at TEXT NOT NULL
   );
   `,
+  // 2: user accounts with roles and two-step sign-in. Sessions belong to an
+  // account (NULL for the single shared APP_PASSWORD) and are 'totp' while
+  // the second step is still owed. Events record who made a change.
+  `
+  CREATE TABLE users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    name TEXT NOT NULL DEFAULT '',
+    role TEXT NOT NULL,
+    password_hash TEXT NOT NULL,
+    totp_secret TEXT NOT NULL DEFAULT '',
+    totp_enabled INTEGER NOT NULL DEFAULT 0,
+    totp_last_step INTEGER NOT NULL DEFAULT 0,
+    active INTEGER NOT NULL DEFAULT 1,
+    last_login_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  ALTER TABLE sessions ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE;
+  ALTER TABLE sessions ADD COLUMN stage TEXT NOT NULL DEFAULT 'full';
+  ALTER TABLE events ADD COLUMN actor_user_id INTEGER;
+  `,
 ];
 
 /** Open the database file and bring its schema up to date. */
