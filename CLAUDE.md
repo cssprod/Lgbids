@@ -23,6 +23,8 @@ Node >= 22.13, TypeScript (ESM, `.js` import suffixes), Fastify 5, built-in `nod
 - Activity is not in the menu (it is a log, not part of the find → qualify → apply flow); it is linked from Today's "Last check".
 - Beta scope (2026-11-17, user decision): the UI hides fully automatic mode (shown only if the saved mode is already `auto`, so the user can switch away), offers no "Add a source"/"Edit" on Sources (on/off, Test, health only; user-added sources can still be deleted), and folds bid types, keywords, site-reading options and the service-area lists into collapsed "Advanced" sections. Server/API support for all of these stays, with its tests.
 
+- v1 plan (2026-11-18, user decisions): docs/PLAN-v1.md is the roadmap (recurring contracts, estimating, private work, after-bid). One company (the user's friend), Greater Victoria only. No AI add-on. No AWS/cloud hosting for now: runs on the friend's machine or any Docker host. Accounts with roles + TOTP added; `APP_PASSWORD` stays for single-user/demo. Fillable PDF/XLSX buyer price forms get filled for review. Private work (RFP inbox, quote page, proposal acceptance) added; public pages stay off until the app is reachable over HTTPS.
+
 ## Done (254 tests passing; demo verified in a browser)
 - Everything in docs/PLAN.md phases 1–3. App builds, runs, and works end to end in demo mode.
 - UI design & usability pass (docs/PLAN.md, phases A–F): tokens, icons, nav badges, redesigned pages; verified in the browser (light/dark, 1280/390, keyboard, golden paths).
@@ -39,7 +41,7 @@ Node >= 22.13, TypeScript (ESM, `.js` import suffixes), Fastify 5, built-in `nod
 - Tests: tests/dates, matching, connectors.
 
 ## Remaining work
-See docs/PLAN.md (phases 1–5). Older list below is superseded.
+See docs/PLAN-v1.md (M0–M7), top to bottom. Progress is ticked there. Older list below is superseded.
 
 ## Remaining work (old)
 - [ ] `db/store.ts`: repositories + row mappers; opportunity upsert (keep richer detail fields, detect closing-date change, content hash), cross-source dedupe via `ref_key`/`title_key` (`orgKey:refKey`, `orgKey:titleKey`, closings within 36 h) setting `duplicate_of` and merging empty fields.
