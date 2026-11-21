@@ -451,8 +451,8 @@ describe('default sources', () => {
     const ids = DEFAULT_SOURCES.map((s) => s.id);
     expect(new Set(ids).size).toBe(ids.length);
     for (const s of DEFAULT_SOURCES) {
-      // The alert e-mail source reads the inbox, not a web address.
-      if (s.kind !== 'email_alerts') expect(s.config.url, s.id).toMatch(/^https:\/\//);
+      // The alert e-mail source reads the inbox, and bids added by hand have no address.
+      if (s.kind !== 'email_alerts' && s.kind !== 'manual') expect(s.config.url, s.id).toMatch(/^https:\/\//);
       expect(connectorFor(s.kind).kind).toBe(s.kind);
       if (s.config.linkPattern) expect(() => new RegExp(s.config.linkPattern)).not.toThrow();
     }

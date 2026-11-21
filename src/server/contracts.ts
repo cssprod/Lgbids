@@ -7,19 +7,29 @@ import type {
   ApplicationFile,
   ApplicationStatus,
   AutomationSettings,
+  Award,
   ChecklistItem,
   Decision,
   DocumentKind,
   EmailSettings,
   EventRecord,
+  FeedbackRecord,
   LibraryDocument,
+  NoticeChange,
   NoticeType,
   Opportunity,
   Profile,
   PushSettings,
+  Recipient,
+  RecipientInput,
+  RecipientPatch,
   RegionSettings,
   RunRecord,
   RunStats,
+  SavedSearch,
+  SavedSearchInput,
+  SavedSearchPatch,
+  ServiceKey,
   SourceConfig,
   SourceKind,
   SourceRecord,
@@ -52,6 +62,15 @@ export interface AppConfig {
   demo: boolean;
   /** Folder with the built web UI, or '' when not built. */
   webDir: string;
+  /**
+   * Host names the server answers to (Host header), against DNS rebinding.
+   * Undefined or empty = this computer's names and the bind address only.
+   */
+  allowedHosts?: string[];
+  /** Fastify `trustProxy`: true/false, a hop count, or addresses / CIDR ranges of trusted proxies. */
+  trustProxy?: boolean | number | string | string[];
+  /** Log file path; '' = log to stdout only. Undefined = the default for the environment. */
+  logFile?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -98,6 +117,12 @@ export interface OpportunityFilter {
   sourceId?: string;
   /** Only notices closing between now and this many days from now. */
   closingWithinDays?: number;
+  /** Suitability score at least this (0–100); unscored notices are left out. */
+  minScore?: number;
+  /** Only notices whose analysis found this service. */
+  service?: ServiceKey;
+  /** Contained in the analysis area match or the location, ignoring case. */
+  place?: string;
   limit?: number;
   offset?: number;
 }
@@ -141,6 +166,25 @@ export type ApplicationPatch = Partial<
   >
 > & { remindedAt?: string | null };
 
+/** What is stored for a new change row. */
+export type NoticeChangeCreate = Omit<NoticeChange, 'id' | 'notifiedAt' | 'seenAt'>;
+
+/** Feedback as saved; `opportunityId` null is a bid Lgbids missed. */
+export type FeedbackSave = Omit<FeedbackRecord, 'id' | 'createdAt'>;
+
+/** An award as saved; with an `opportunityId` it replaces that bid's award. */
+export type AwardSave = Omit<Award, 'id' | 'updatedAt'>;
+
+export interface ReminderRecord {
+  opportunityId: number;
+  thresholdHours: number;
+  /** The closing instant the reminder was for, so a moved date re-arms it. */
+  closesAt: string;
+  sentAt: string;
+  /** Channels that went through, e.g. ['push', 'email']. */
+  channels: string[];
+}
+
 export interface StoredFile {
   storedName: string;
   name: string;
@@ -163,7 +207,11 @@ export interface Store {
    * Insert any default source that is not there yet (`enabled: false` starts
    * it off). For built-in sources already there, refresh the note, and turn
    * off one marked `forceOff` (a site that refuses automated reading); the
-   * user's on/off choice for every other source, addresses and settings are kept.
+   * user's on/off choice for every other source is kept. The name and config
+   * are replaced with the new default only while the stored config still
+   * equals the default it was seeded with, so a fix reaches existing installs
+   * but a source the user edited keeps their settings. User-added sources are
+   * never touched.
    */
   seedSources(defaults: { id: string; name: string; kind: SourceKind; notes: string; config: SourceConfig; enabled?: boolean; forceOff?: boolean }[], now: Date): void;
   /** Also keeps the "layout may have changed" warning up to date; `raised` is true on the run that first set it. */
@@ -244,10 +292,65 @@ export interface Store {
   /** Delete events and finished runs older than the given instant, so the database does not grow forever. */
   pruneHistory(beforeIso: string): { events: number; runs: number };
 
+  // v2: watching bids and their changes
+  setAlertsMuted(opportunityId: number, muted: boolean): boolean;
+  addChange(change: NoticeChangeCreate): NoticeChange;
+  /** Newest first. */
+  listChanges(opportunityId: number): NoticeChange[];
+  /** Oldest first, every opportunity. */
+  unnotifiedChanges(): NoticeChange[];
+  markChangesNotified(ids: number[], now: Date): void;
+  /** Returns how many were newly marked. */
+  markChangesSeen(opportunityId: number, now: Date): number;
+  /** Unseen, non-silent changes on canonical rows. */
+  countUnseenChanges(): number;
+
+  // v2: closing reminders
+  reminderSent(opportunityId: number, thresholdHours: number, closesAt: string): boolean;
+  recordReminder(reminder: ReminderRecord): void;
+  listReminders(opportunityId: number): ReminderRecord[];
+
+  // v2: feedback (one per opportunity; saving again replaces it)
+  saveFeedback(feedback: FeedbackSave, now: Date): FeedbackRecord;
+  getFeedback(id: number): FeedbackRecord | undefined;
+  getFeedbackFor(opportunityId: number): FeedbackRecord | undefined;
+  deleteFeedbackFor(opportunityId: number): boolean;
+  /** Newest first. */
+  listFeedback(filter?: { sinceIso?: string }): FeedbackRecord[];
+
+  // v2: awards (one per opportunity)
+  saveAward(award: AwardSave, now: Date): Award;
+  getAwardFor(opportunityId: number): Award | undefined;
+  deleteAwardFor(opportunityId: number): boolean;
+  listAwards(): Award[];
+
+  // v2: saved searches (names unique ignoring case)
+  listSavedSearches(): SavedSearch[];
+  getSavedSearch(id: number): SavedSearch | undefined;
+  /** Null when the name is already taken. */
+  createSavedSearch(input: SavedSearchInput, now: Date): SavedSearch | null;
+  /** Undefined when not found; null when the new name is already taken. */
+  updateSavedSearch(id: number, patch: SavedSearchPatch): SavedSearch | null | undefined;
+  deleteSavedSearch(id: number): boolean;
+
+  // v2: alert recipients
+  listRecipients(): Recipient[];
+  getRecipient(id: number): Recipient | undefined;
+  createRecipient(input: RecipientInput, now: Date): Recipient;
+  updateRecipient(id: number, patch: RecipientPatch): Recipient | undefined;
+  deleteRecipient(id: number): boolean;
+  markRecipientVerified(id: number, now: Date): void;
+
+  // v2: meta values (e.g. keys_version)
+  getMeta(key: string): string | undefined;
+  setMeta(key: string, value: string): void;
+
   // sessions
   createSession(token: string, expiresAt: Date, now: Date): void;
   sessionValid(token: string, now: Date): boolean;
   deleteSession(token: string): void;
+  /** Sign everyone out (after a password change). Returns how many were removed. */
+  deleteAllSessions(): number;
 
   close(): void;
 }

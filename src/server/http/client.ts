@@ -29,6 +29,11 @@ export interface HttpClientOptions {
   maxBytes?: number;
   retries?: number;
   fetchImpl?: typeof fetch;
+  /**
+   * Allow requests to this computer and private network addresses. Only the
+   * demo sites and local test servers need it; bid sites are always public.
+   */
+  allowPrivate?: boolean;
 }
 
 export interface RequestOptions {

@@ -267,15 +267,121 @@ const MIGRATIONS: string[] = [
   ALTER TABLE sources ADD COLUMN layout_warning TEXT NOT NULL DEFAULT '';
   ALTER TABLE sources ADD COLUMN last_ok_item_count INTEGER;
   `,
+  // 3: everything v2 needs, in one step. Migrations 1 and 2 are never edited.
+  `
+  -- The config a built-in source was last seeded with; while the stored config
+  -- still equals it, a corrected default may replace it (the user has not edited it).
+  ALTER TABLE sources ADD COLUMN default_config TEXT;
+  ALTER TABLE opportunities ADD COLUMN alerts_muted INTEGER NOT NULL DEFAULT 0;
+
+  CREATE TABLE opportunity_changes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    opportunity_id INTEGER NOT NULL REFERENCES opportunities(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL,
+    summary TEXT NOT NULL DEFAULT '',
+    before_value TEXT NOT NULL DEFAULT '',
+    after_value TEXT NOT NULL DEFAULT '',
+    addendum INTEGER NOT NULL DEFAULT 0,
+    detected_at TEXT NOT NULL,
+    run_id INTEGER,
+    notified_at TEXT,
+    seen_at TEXT
+  );
+  CREATE INDEX idx_changes_opportunity ON opportunity_changes (opportunity_id, detected_at);
+  CREATE INDEX idx_changes_unnotified ON opportunity_changes (notified_at) WHERE notified_at IS NULL;
+
+  CREATE TABLE reminders_sent (
+    opportunity_id INTEGER NOT NULL REFERENCES opportunities(id) ON DELETE CASCADE,
+    threshold_hours INTEGER NOT NULL,
+    closes_at TEXT NOT NULL,
+    sent_at TEXT NOT NULL,
+    channels TEXT NOT NULL DEFAULT '[]',
+    PRIMARY KEY (opportunity_id, threshold_hours, closes_at)
+  );
+
+  CREATE TABLE feedback (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    opportunity_id INTEGER UNIQUE REFERENCES opportunities(id) ON DELETE SET NULL,
+    verdict TEXT NOT NULL,
+    reasons TEXT NOT NULL DEFAULT '[]',
+    note TEXT NOT NULL DEFAULT '',
+    title TEXT NOT NULL DEFAULT '',
+    url TEXT NOT NULL DEFAULT '',
+    organization TEXT NOT NULL DEFAULT '',
+    found_via TEXT NOT NULL DEFAULT '',
+    source_id TEXT NOT NULL DEFAULT '',
+    notice_type TEXT NOT NULL DEFAULT 'OTHER',
+    score INTEGER,
+    decision TEXT,
+    matched_terms TEXT NOT NULL DEFAULT '[]',
+    services TEXT NOT NULL DEFAULT '[]',
+    area TEXT NOT NULL DEFAULT 'unknown',
+    area_match TEXT NOT NULL DEFAULT '',
+    trace TEXT,
+    lexicon_version TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX idx_feedback_created ON feedback (created_at);
+
+  CREATE TABLE awards (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    opportunity_id INTEGER UNIQUE REFERENCES opportunities(id) ON DELETE CASCADE,
+    notice_opportunity_id INTEGER REFERENCES opportunities(id) ON DELETE SET NULL,
+    org_key TEXT NOT NULL DEFAULT '',
+    ref_key TEXT NOT NULL DEFAULT '',
+    title TEXT NOT NULL DEFAULT '',
+    winner TEXT NOT NULL DEFAULT '',
+    amount REAL,
+    amount_text TEXT NOT NULL DEFAULT '',
+    awarded_on TEXT,
+    url TEXT NOT NULL DEFAULT '',
+    excerpt TEXT NOT NULL DEFAULT '',
+    origin TEXT NOT NULL DEFAULT 'manual' CHECK (origin IN ('parsed', 'manual')),
+    status TEXT NOT NULL DEFAULT 'suggested' CHECK (status IN ('suggested', 'confirmed')),
+    notes TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL
+  );
+  CREATE INDEX idx_awards_ref ON awards (ref_key) WHERE ref_key != '';
+
+  CREATE TABLE saved_searches (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    filter TEXT NOT NULL DEFAULT '{}',
+    position INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+  );
+
+  CREATE TABLE recipients (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    email TEXT NOT NULL DEFAULT '',
+    channel TEXT NOT NULL DEFAULT 'none',
+    chat_id_or_topic TEXT NOT NULL DEFAULT '',
+    kinds TEXT NOT NULL DEFAULT '[]',
+    saved_search_id INTEGER REFERENCES saved_searches(id) ON DELETE SET NULL,
+    verified_at TEXT,
+    created_at TEXT NOT NULL
+  );
+
+  -- Version of the dedupe-key rules the stored ref_key / title_key were made with.
+  INSERT OR IGNORE INTO meta (key, value) VALUES ('keys_version', '1');
+  `,
 ];
 
-/** Open the database file and bring its schema up to date. */
-export function openDatabase(path: string): Database {
+/** The schema version a fully migrated database has. */
+export const SCHEMA_VERSION = MIGRATIONS.length;
+
+/**
+ * Open the database file and bring its schema up to date. `upTo` stops at an
+ * older version (tests use it to build a database as an earlier release left it).
+ */
+export function openDatabase(path: string, opts: { upTo?: number } = {}): Database {
   const db = new Database(path);
   db.exec('CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
   const row = db.get<{ value: string }>("SELECT value FROM meta WHERE key = 'schema_version'");
   let version = row ? Number(row.value) : 0;
-  while (version < MIGRATIONS.length) {
+  const target = Math.min(MIGRATIONS.length, opts.upTo ?? MIGRATIONS.length);
+  while (version < target) {
     const migration = MIGRATIONS[version]!;
     db.tx(() => {
       db.exec(migration);

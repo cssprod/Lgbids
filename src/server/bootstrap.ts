@@ -31,7 +31,7 @@ export function createDeps(config: AppConfig, overrides: Partial<AppDeps> = {}):
   const files = overrides.files ?? createFileStore(inMemory ? mkdtempSync(join(tmpdir(), 'lgbids-files-')) : config.dataDir);
   const mailerFactory = overrides.mailerFactory ?? createMailer;
   const httpFactory =
-    overrides.httpFactory ?? ((a) => new HttpClient({ userAgent: a.userAgent, respectRobots: a.respectRobots, delayMs: a.requestDelayMs }));
+    overrides.httpFactory ?? ((a) => new HttpClient({ userAgent: a.userAgent, respectRobots: a.respectRobots, delayMs: a.requestDelayMs, allowPrivate: config.demo }));
 
   const alertMailboxFactory = overrides.alertMailboxFactory ?? createImapMailbox;
   const alertImportDir = overrides.alertImportDir ?? (inMemory ? mkdtempSync(join(tmpdir(), 'lgbids-alerts-')) : join(config.dataDir, 'alert-inbox'));

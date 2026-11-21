@@ -2,6 +2,7 @@ import type { AlertMailbox } from './alerts/mailbox.js';
 import type {
   DatePrecision,
   DocumentLink,
+  NoticeEvent,
   OpportunityStatus,
   RegionSettings,
   SourceKind,
@@ -31,7 +32,13 @@ export interface RawOpportunity {
   contactEmail?: string;
   contactPhone?: string;
   documents?: DocumentLink[];
+  /** Set when the source says (e.g. an alert "Cancelled" or "Awarded"); otherwise the row keeps its status. */
   status?: OpportunityStatus;
+  /**
+   * What this item announces about the notice, when the source says (an alert
+   * for an addendum, a moved closing, a cancellation or an award). Absent = a notice.
+   */
+  event?: NoticeEvent;
   /** Known to be a British Columbia notice (e.g. mirrored from BC Bid). */
   bcSource?: boolean;
 }

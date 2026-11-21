@@ -7,11 +7,20 @@ import Fastify, { type FastifyError, type FastifyInstance, type FastifyReply, ty
 import type { AppDeps, Pipeline, Scheduler } from './contracts.js';
 import { registerApplications } from './routes/applications.js';
 import { registerAuth } from './routes/auth.js';
+import { registerAwards } from './routes/awards.js';
+import { registerCoverage } from './routes/coverage.js';
 import { registerDocuments } from './routes/documents.js';
+import { registerFeedback } from './routes/feedback.js';
+import { registerInsights } from './routes/insights.js';
+import { registerManual } from './routes/manual.js';
 import { registerOpportunities } from './routes/opportunities.js';
+import { registerRecipients } from './routes/recipients.js';
 import { registerRuns } from './routes/runs.js';
+import { registerSearches } from './routes/searches.js';
 import { registerSettings } from './routes/settings.js';
 import { registerSources } from './routes/sources.js';
+import { registerStatus } from './routes/status.js';
+import { registerWatch } from './routes/watch.js';
 import { ApiError, isZodError, MAX_UPLOAD_BYTES, zodSentence, type RouteContext } from './routes/util.js';
 
 const SECURITY_HEADERS: Record<string, string> = {
@@ -118,6 +127,16 @@ export async function buildApp(deps: AppDeps, pipeline: Pipeline, scheduler: Sch
   registerSettings(app, ctx);
   registerSources(app, ctx);
   registerDocuments(app, ctx);
+  // v2 routes (stubs answer 501 until their work package lands).
+  registerManual(app, ctx);
+  registerWatch(app, ctx);
+  registerFeedback(app, ctx);
+  registerAwards(app, ctx);
+  registerSearches(app, ctx);
+  registerCoverage(app, ctx);
+  registerRecipients(app, ctx);
+  registerStatus(app, ctx);
+  registerInsights(app, ctx);
 
   const webDir = deps.config.webDir ? resolve(deps.config.webDir) : '';
   const hasIndex = webDir !== '' && existsSync(resolve(webDir, 'index.html'));

@@ -126,7 +126,11 @@ export function createSettings(store: Store, env: NodeJS.ProcessEnv = process.en
     },
 
     getAutomation(): AutomationSettings {
-      return read(KEYS.automation, automationSchema);
+      const automation = read(KEYS.automation, automationSchema);
+      // Settings saved before v2 have no reminder times: "0 days" meant no reminders.
+      const stored = store.getSetting(KEYS.automation);
+      if (isRecord(stored) && stored.reminderHours === undefined && stored.deadlineReminderDays === 0) automation.reminderHours = [];
+      return automation;
     },
 
     setAutomation(value) {

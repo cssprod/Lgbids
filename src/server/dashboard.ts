@@ -69,6 +69,10 @@ export function buildDashboard(deps: AppDeps, pipeline: Pipeline, scheduler: Sch
       closingSoon,
       sourcesFailing: enabled.filter((s) => s.lastStatus === 'error' || s.lastStatus === 'blocked').length,
       sourcesEnabled: enabled.length,
+      sourcesWarning: enabled.filter((s) => s.layoutWarning !== '').length,
+      unseenChanges: store.countUnseenChanges(),
+      // Worked out by UX-2 (submitted, 14 or more days past closing, no result).
+      awaitingResult: 0,
     },
     attention,
     deadlines: upcoming.slice(0, LIST_MAX),

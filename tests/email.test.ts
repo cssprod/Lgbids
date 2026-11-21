@@ -93,6 +93,7 @@ function application(overrides: Partial<Application> = {}): Application {
     submissionRef: '',
     error: '',
     notes: '',
+    remindedAt: null,
     createdAt: '2026-06-15T20:00:00Z',
     updatedAt: '2026-06-15T20:00:00Z',
     ...overrides,

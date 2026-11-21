@@ -137,6 +137,9 @@ function opp(p: Partial<Opportunity> & Pick<Opportunity, 'id' | 'title' | 'organ
     firstSeenAt: iso(-4 * DAY),
     lastSeenAt: iso(-2 * HOUR),
     application: null,
+    alertsMuted: false,
+    unseenChanges: 0,
+    lastChangedAt: null,
     ...p,
   };
 }
@@ -333,6 +336,7 @@ function app(p: Partial<Application> & Pick<Application, 'id' | 'opportunityId' 
     submissionRef: '',
     error: '',
     notes: '',
+    remindedAt: null,
     createdAt: iso(-2 * DAY),
     updatedAt: iso(-1 * DAY),
     ...p,
@@ -635,6 +639,9 @@ function dashboard(): DashboardResponse {
       closingSoon: open.filter((o) => o.closesAt && new Date(o.closesAt).getTime() - Date.now() < 7 * DAY).length,
       sourcesFailing: sources.filter((s) => s.enabled && (s.lastStatus === 'error' || s.lastStatus === 'blocked')).length,
       sourcesEnabled: sources.filter((s) => s.enabled).length,
+      sourcesWarning: sources.filter((s) => s.enabled && s.layoutWarning).length,
+      unseenChanges: opportunities.reduce((n, o) => n + (o.unseenChanges ?? 0), 0),
+      awaitingResult: 0,
     },
     attention: applications.filter((a) => ['needs_input', 'ready', 'failed'].includes(a.status)).map(withOpp),
     deadlines: open.filter((o) => o.closesAt).sort((a, b) => (a.closesAt! < b.closesAt! ? -1 : 1)),

@@ -4,6 +4,7 @@ import { bonfire } from './connectors/bonfire.js';
 import { CANADABUYS_OPEN_CSV, canadabuysCsv } from './connectors/canadabuysCsv.js';
 import { CANADABUYS_SEARCH_URL, canadabuysSearch } from './connectors/canadabuysSearch.js';
 import { emailAlerts } from './connectors/emailAlerts.js';
+import { manual } from './connectors/manual.js';
 import { htmlList, rss } from './connectors/web.js';
 import type { Connector, ConnectorContext, SourceOutcome } from './types.js';
 
@@ -14,7 +15,11 @@ const CONNECTORS: Record<SourceKind, Connector> = {
   rss,
   html_list: htmlList,
   email_alerts: emailAlerts,
+  manual,
 };
+
+/** The built-in source that holds bids added by hand. */
+export const MANUAL_SOURCE_ID = 'manual';
 
 export function connectorFor(kind: SourceKind): Connector {
   return CONNECTORS[kind];
@@ -88,6 +93,13 @@ export const DEFAULT_SOURCES: DefaultSource[] = [
     'BC Bid and Bonfire e-mail you about new opportunities; Lgbids reads those alert e-mails from your inbox (read-only) or from .eml files you import here, and never opens the sites themselves. Set up the inbox under Settings → Bid alert inbox.',
     { fetchDetails: false, bcOnly: true },
     'off',
+  ),
+  source(
+    MANUAL_SOURCE_ID,
+    'Bids added by hand',
+    'manual',
+    'Bids you add on the Opportunities page, by typing them in or pasting an alert e-mail. Lgbids scores them like any other bid and never opens their links.',
+    { fetchDetails: false },
   ),
   source(
     'canadabuys-bcbid',

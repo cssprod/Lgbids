@@ -1,6 +1,12 @@
 import {
+  opportunityFilterSchema,
   sourceConfigSchema,
+  type AlertKind,
   type Analysis,
+  type AnalysisTrace,
+  type Award,
+  type AwardOrigin,
+  type AwardStatus,
   type Application,
   type ApplicationChannel,
   type ApplicationFile,
@@ -11,12 +17,21 @@ import {
   type DocumentKind,
   type DocumentLink,
   type EventRecord,
+  type FeedbackReason,
+  type FeedbackRecord,
+  type FeedbackVerdict,
   type LibraryDocument,
+  type NoticeChange,
+  type NoticeChangeKind,
   type NoticeType,
   type Opportunity,
   type OpportunityStatus,
   type RunRecord,
+  type RecipientChannel,
+  type Recipient,
   type RunStats,
+  type SavedSearch,
+  type ServiceKey,
   type SourceKind,
   type SourceRecord,
   type SourceStatus,
@@ -29,6 +44,7 @@ import type {
   OpportunityFilter,
   OpportunityRecord,
   OpportunityView,
+  ReminderRecord,
   Store,
   StoredFile,
   UpsertResult,
@@ -73,6 +89,9 @@ interface SourceRow {
   consecutive_failures: number;
   layout_warning: string;
   last_ok_item_count: number | null;
+  default_config: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 /** The columns a listing or a notice page can change. */
@@ -120,10 +139,97 @@ interface OppRow extends OppContent {
   notified_at: string | null;
   first_seen_at: string;
   last_seen_at: string;
+  alerts_muted: number;
   // joined
   source_name: string | null;
   app_id: number | null;
   app_status: string | null;
+  unseen_changes: number | null;
+  last_changed_at: string | null;
+}
+
+interface ChangeRow {
+  id: number;
+  opportunity_id: number;
+  kind: string;
+  summary: string;
+  before_value: string;
+  after_value: string;
+  addendum: number;
+  detected_at: string;
+  run_id: number | null;
+  notified_at: string | null;
+  seen_at: string | null;
+}
+
+interface ReminderRow {
+  opportunity_id: number;
+  threshold_hours: number;
+  closes_at: string;
+  sent_at: string;
+  channels: string;
+}
+
+interface FeedbackRow {
+  id: number;
+  opportunity_id: number | null;
+  verdict: string;
+  reasons: string;
+  note: string;
+  title: string;
+  url: string;
+  organization: string;
+  found_via: string;
+  source_id: string;
+  notice_type: string;
+  score: number | null;
+  decision: string | null;
+  matched_terms: string;
+  services: string;
+  area: string;
+  area_match: string;
+  trace: string | null;
+  lexicon_version: string;
+  created_at: string;
+}
+
+interface AwardRow {
+  id: number;
+  opportunity_id: number | null;
+  notice_opportunity_id: number | null;
+  org_key: string;
+  ref_key: string;
+  title: string;
+  winner: string;
+  amount: number | null;
+  amount_text: string;
+  awarded_on: string | null;
+  url: string;
+  excerpt: string;
+  origin: string;
+  status: string;
+  notes: string;
+  updated_at: string;
+}
+
+interface SavedSearchRow {
+  id: number;
+  name: string;
+  filter: string;
+  position: number;
+  created_at: string;
+}
+
+interface RecipientRow {
+  id: number;
+  name: string;
+  email: string;
+  channel: string;
+  chat_id_or_topic: string;
+  kinds: string;
+  saved_search_id: number | null;
+  verified_at: string | null;
+  created_at: string;
 }
 
 interface AppRow {
@@ -365,6 +471,106 @@ function toOpportunity(row: OppRow): Opportunity {
     firstSeenAt: row.first_seen_at,
     lastSeenAt: row.last_seen_at,
     application: row.app_id !== null ? { id: row.app_id, status: row.app_status as ApplicationStatus } : null,
+    alertsMuted: bool(row.alerts_muted),
+    unseenChanges: Number(row.unseen_changes ?? 0),
+    lastChangedAt: row.last_changed_at ?? null,
+  };
+}
+
+function toChange(row: ChangeRow): NoticeChange {
+  return {
+    id: row.id,
+    opportunityId: row.opportunity_id,
+    kind: row.kind as NoticeChangeKind,
+    summary: row.summary,
+    before: row.before_value,
+    after: row.after_value,
+    addendum: bool(row.addendum),
+    detectedAt: row.detected_at,
+    runId: row.run_id,
+    notifiedAt: row.notified_at,
+    seenAt: row.seen_at,
+  };
+}
+
+function toReminder(row: ReminderRow): ReminderRecord {
+  return {
+    opportunityId: row.opportunity_id,
+    thresholdHours: row.threshold_hours,
+    closesAt: row.closes_at,
+    sentAt: row.sent_at,
+    channels: parseJson<string[]>(row.channels, []),
+  };
+}
+
+function toFeedback(row: FeedbackRow): FeedbackRecord {
+  return {
+    id: row.id,
+    opportunityId: row.opportunity_id,
+    verdict: row.verdict as FeedbackVerdict,
+    reasons: parseJson<FeedbackReason[]>(row.reasons, []),
+    note: row.note,
+    title: row.title,
+    url: row.url,
+    organization: row.organization,
+    foundVia: row.found_via,
+    sourceId: row.source_id,
+    noticeType: row.notice_type as NoticeType,
+    score: row.score,
+    decision: (row.decision as Decision | null) ?? null,
+    matchedTerms: parseJson<string[]>(row.matched_terms, []),
+    services: parseJson<ServiceKey[]>(row.services, []),
+    area: row.area as FeedbackRecord['area'],
+    areaMatch: row.area_match,
+    trace: parseJson<AnalysisTrace | null>(row.trace, null),
+    lexiconVersion: row.lexicon_version,
+    createdAt: row.created_at,
+  };
+}
+
+function toAward(row: AwardRow): Award {
+  return {
+    id: row.id,
+    opportunityId: row.opportunity_id,
+    noticeOpportunityId: row.notice_opportunity_id,
+    orgKey: row.org_key,
+    refKey: row.ref_key,
+    title: row.title,
+    winner: row.winner,
+    amount: row.amount,
+    amountText: row.amount_text,
+    awardedOn: row.awarded_on,
+    url: row.url,
+    excerpt: row.excerpt,
+    origin: row.origin as AwardOrigin,
+    status: row.status as AwardStatus,
+    notes: row.notes,
+    updatedAt: row.updated_at,
+  };
+}
+
+function toSavedSearch(row: SavedSearchRow): SavedSearch {
+  const parsed = opportunityFilterSchema.safeParse(parseJson<unknown>(row.filter, {}));
+  return {
+    id: row.id,
+    name: row.name,
+    filter: parsed.success ? parsed.data : opportunityFilterSchema.parse({}),
+    position: row.position,
+    createdAt: row.created_at,
+  };
+}
+
+function toRecipient(row: RecipientRow): Recipient {
+  return {
+    id: row.id,
+    name: row.name,
+    email: row.email,
+    channel: row.channel as RecipientChannel,
+    chatIdOrTopic: row.chat_id_or_topic,
+    kinds: parseJson<AlertKind[]>(row.kinds, []),
+    savedSearchId: row.saved_search_id,
+    verifiedAt: row.verified_at,
+    createdAt: row.created_at,
   };
 }
 
@@ -409,6 +615,7 @@ function toApplication(row: AppRow, files: ApplicationFile[]): Application {
     submissionRef: row.submission_ref,
     error: row.error,
     notes: row.notes,
+    remindedAt: row.reminded_at ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -460,8 +667,13 @@ function toEvent(row: EventRow): EventRecord {
   };
 }
 
+/** Silent changes (a date refined to a time) are not counted as news. */
+const LOUD_CHANGE = "c.opportunity_id = o.id AND c.kind != 'closing_refined'";
+
 const OPP_SELECT = `
-  SELECT o.*, s.name AS source_name, a.id AS app_id, a.status AS app_status
+  SELECT o.*, s.name AS source_name, a.id AS app_id, a.status AS app_status,
+    (SELECT COUNT(*) FROM opportunity_changes c WHERE ${LOUD_CHANGE} AND c.seen_at IS NULL) AS unseen_changes,
+    (SELECT MAX(c.detected_at) FROM opportunity_changes c WHERE ${LOUD_CHANGE}) AS last_changed_at
   FROM opportunities o
   LEFT JOIN sources s ON s.id = o.source_id
   LEFT JOIN applications a ON a.opportunity_id = o.id`;
@@ -947,6 +1159,22 @@ export function createStore(db: Database): Store {
         params.closeFrom = nowIso(now);
         params.closeUntil = nowIso(new Date(now.getTime() + filter.closingWithinDays * 86_400_000));
       }
+      if (filter.minScore !== undefined && Number.isFinite(filter.minScore)) {
+        where.push('o.suitability_score IS NOT NULL AND o.suitability_score >= :minScore');
+        params.minScore = Math.max(0, Math.min(100, Math.round(filter.minScore)));
+      }
+      if (filter.service) {
+        where.push("EXISTS (SELECT 1 FROM json_each(o.analysis, '$.services') WHERE json_each.value = :service)");
+        params.service = filter.service;
+      }
+      const place = str(filter.place);
+      if (place) {
+        // LIKE ignores case for ASCII letters, which covers place names here.
+        where.push(
+          "(COALESCE(json_extract(o.analysis, '$.areaMatch'), '') LIKE :place ESCAPE '\\' OR o.location LIKE :place ESCAPE '\\')",
+        );
+        params.place = `%${escapeLike(place)}%`;
+      }
       const order =
         view === 'suitable' || view === 'review'
           ? 'o.closes_at IS NULL, o.closes_at ASC, o.id ASC'
@@ -1263,6 +1491,290 @@ export function createStore(db: Database): Store {
 
     deleteSession(token) {
       db.run('DELETE FROM sessions WHERE token = :token', { token });
+    },
+
+    deleteAllSessions() {
+      return db.run('DELETE FROM sessions').changes;
+    },
+
+    // ---- v2: watching bids and their changes ------------------------------
+    setAlertsMuted(opportunityId, muted) {
+      return db.run('UPDATE opportunities SET alerts_muted = :muted WHERE id = :id', { muted, id: opportunityId }).changes === 1;
+    },
+
+    addChange(change) {
+      const { lastInsertRowid } = db.run(
+        `INSERT INTO opportunity_changes (opportunity_id, kind, summary, before_value, after_value, addendum, detected_at, run_id)
+         VALUES (:opportunityId, :kind, :summary, :before, :after, :addendum, :detectedAt, :runId)`,
+        { ...change, runId: change.runId ?? null },
+      );
+      return toChange(db.get<ChangeRow>('SELECT * FROM opportunity_changes WHERE id = :id', { id: lastInsertRowid })!);
+    },
+
+    listChanges(opportunityId) {
+      return db
+        .all<ChangeRow>('SELECT * FROM opportunity_changes WHERE opportunity_id = :id ORDER BY detected_at DESC, id DESC', { id: opportunityId })
+        .map(toChange);
+    },
+
+    unnotifiedChanges() {
+      return db.all<ChangeRow>('SELECT * FROM opportunity_changes WHERE notified_at IS NULL ORDER BY detected_at, id').map(toChange);
+    },
+
+    markChangesNotified(ids, now) {
+      if (ids.length === 0) return;
+      const list = inList('c', ids);
+      db.run(`UPDATE opportunity_changes SET notified_at = :at WHERE id IN (${list.sql})`, { ...list.params, at: nowIso(now) });
+    },
+
+    markChangesSeen(opportunityId, now) {
+      return db.run('UPDATE opportunity_changes SET seen_at = :at WHERE opportunity_id = :id AND seen_at IS NULL', { at: nowIso(now), id: opportunityId })
+        .changes;
+    },
+
+    countUnseenChanges() {
+      return (
+        db.get<{ n: number }>(
+          `SELECT COUNT(*) AS n FROM opportunity_changes c JOIN opportunities o ON o.id = c.opportunity_id
+           WHERE o.duplicate_of IS NULL AND ${LOUD_CHANGE} AND c.seen_at IS NULL`,
+        )?.n ?? 0
+      );
+    },
+
+    // ---- v2: closing reminders -------------------------------------------
+    reminderSent(opportunityId, thresholdHours, closesAt) {
+      return (
+        db.get<{ n: number }>(
+          'SELECT 1 AS n FROM reminders_sent WHERE opportunity_id = :id AND threshold_hours = :h AND closes_at = :closes',
+          { id: opportunityId, h: thresholdHours, closes: closesAt },
+        ) !== undefined
+      );
+    },
+
+    recordReminder(r) {
+      db.run(
+        `INSERT INTO reminders_sent (opportunity_id, threshold_hours, closes_at, sent_at, channels)
+         VALUES (:id, :h, :closes, :sent, :channels)
+         ON CONFLICT (opportunity_id, threshold_hours, closes_at) DO UPDATE SET sent_at = excluded.sent_at, channels = excluded.channels`,
+        { id: r.opportunityId, h: r.thresholdHours, closes: r.closesAt, sent: r.sentAt, channels: JSON.stringify(r.channels) },
+      );
+    },
+
+    listReminders(opportunityId) {
+      return db
+        .all<ReminderRow>('SELECT * FROM reminders_sent WHERE opportunity_id = :id ORDER BY sent_at, threshold_hours DESC', { id: opportunityId })
+        .map(toReminder);
+    },
+
+    // ---- v2: feedback ----------------------------------------------------
+    saveFeedback(f, now) {
+      const params = {
+        opportunityId: f.opportunityId,
+        verdict: f.verdict,
+        reasons: JSON.stringify(f.reasons),
+        note: f.note,
+        title: f.title,
+        url: f.url,
+        organization: f.organization,
+        foundVia: f.foundVia,
+        sourceId: f.sourceId,
+        noticeType: f.noticeType,
+        score: f.score,
+        decision: f.decision,
+        matchedTerms: JSON.stringify(f.matchedTerms),
+        services: JSON.stringify(f.services),
+        area: f.area,
+        areaMatch: f.areaMatch,
+        trace: f.trace ? JSON.stringify(f.trace) : null,
+        lexiconVersion: f.lexiconVersion,
+        at: nowIso(now),
+      };
+      return db.tx(() => {
+        // One record per opportunity: saving again replaces it.
+        if (f.opportunityId !== null) db.run('DELETE FROM feedback WHERE opportunity_id = :opportunityId', { opportunityId: f.opportunityId });
+        const { lastInsertRowid } = db.run(
+          `INSERT INTO feedback (opportunity_id, verdict, reasons, note, title, url, organization, found_via, source_id, notice_type,
+             score, decision, matched_terms, services, area, area_match, trace, lexicon_version, created_at)
+           VALUES (:opportunityId, :verdict, :reasons, :note, :title, :url, :organization, :foundVia, :sourceId, :noticeType,
+             :score, :decision, :matchedTerms, :services, :area, :areaMatch, :trace, :lexiconVersion, :at)`,
+          params,
+        );
+        return store.getFeedback(lastInsertRowid)!;
+      });
+    },
+
+    getFeedback(id) {
+      const row = db.get<FeedbackRow>('SELECT * FROM feedback WHERE id = :id', { id });
+      return row ? toFeedback(row) : undefined;
+    },
+
+    getFeedbackFor(opportunityId) {
+      const row = db.get<FeedbackRow>('SELECT * FROM feedback WHERE opportunity_id = :id', { id: opportunityId });
+      return row ? toFeedback(row) : undefined;
+    },
+
+    deleteFeedbackFor(opportunityId) {
+      return db.run('DELETE FROM feedback WHERE opportunity_id = :id', { id: opportunityId }).changes > 0;
+    },
+
+    listFeedback(filter = {}) {
+      const where = filter.sinceIso ? 'WHERE created_at >= :since' : '';
+      return db
+        .all<FeedbackRow>(`SELECT * FROM feedback ${where} ORDER BY created_at DESC, id DESC`, filter.sinceIso ? { since: filter.sinceIso } : undefined)
+        .map(toFeedback);
+    },
+
+    // ---- v2: awards ------------------------------------------------------
+    saveAward(a, now) {
+      const params = {
+        opportunityId: a.opportunityId,
+        noticeOpportunityId: a.noticeOpportunityId,
+        orgKey: a.orgKey,
+        refKey: a.refKey,
+        title: a.title,
+        winner: a.winner,
+        amount: a.amount,
+        amountText: a.amountText,
+        awardedOn: a.awardedOn,
+        url: a.url,
+        excerpt: a.excerpt,
+        origin: a.origin,
+        status: a.status,
+        notes: a.notes,
+        at: nowIso(now),
+      };
+      return db.tx(() => {
+        if (a.opportunityId !== null) db.run('DELETE FROM awards WHERE opportunity_id = :opportunityId', { opportunityId: a.opportunityId });
+        const { lastInsertRowid } = db.run(
+          `INSERT INTO awards (opportunity_id, notice_opportunity_id, org_key, ref_key, title, winner, amount, amount_text, awarded_on,
+             url, excerpt, origin, status, notes, updated_at)
+           VALUES (:opportunityId, :noticeOpportunityId, :orgKey, :refKey, :title, :winner, :amount, :amountText, :awardedOn,
+             :url, :excerpt, :origin, :status, :notes, :at)`,
+          params,
+        );
+        return toAward(db.get<AwardRow>('SELECT * FROM awards WHERE id = :id', { id: lastInsertRowid })!);
+      });
+    },
+
+    getAwardFor(opportunityId) {
+      const row = db.get<AwardRow>('SELECT * FROM awards WHERE opportunity_id = :id', { id: opportunityId });
+      return row ? toAward(row) : undefined;
+    },
+
+    deleteAwardFor(opportunityId) {
+      return db.run('DELETE FROM awards WHERE opportunity_id = :id', { id: opportunityId }).changes > 0;
+    },
+
+    listAwards() {
+      return db.all<AwardRow>('SELECT * FROM awards ORDER BY updated_at DESC, id DESC').map(toAward);
+    },
+
+    // ---- v2: saved searches ----------------------------------------------
+    listSavedSearches() {
+      return db.all<SavedSearchRow>('SELECT * FROM saved_searches ORDER BY position, id').map(toSavedSearch);
+    },
+
+    getSavedSearch(id) {
+      const row = db.get<SavedSearchRow>('SELECT * FROM saved_searches WHERE id = :id', { id });
+      return row ? toSavedSearch(row) : undefined;
+    },
+
+    createSavedSearch(input, now) {
+      const name = input.name.trim();
+      if (db.get('SELECT id FROM saved_searches WHERE name = :name', { name })) return null;
+      const position = (db.get<{ n: number | null }>('SELECT MAX(position) AS n FROM saved_searches')?.n ?? -1) + 1;
+      const filter = opportunityFilterSchema.parse(input.filter ?? {});
+      const { lastInsertRowid } = db.run(
+        'INSERT INTO saved_searches (name, filter, position, created_at) VALUES (:name, :filter, :position, :at)',
+        { name, filter: JSON.stringify(filter), position, at: nowIso(now) },
+      );
+      return store.getSavedSearch(lastInsertRowid)!;
+    },
+
+    updateSavedSearch(id, patch) {
+      const existing = store.getSavedSearch(id);
+      if (!existing) return undefined;
+      const name = patch.name?.trim() ?? existing.name;
+      if (db.get('SELECT id FROM saved_searches WHERE name = :name AND id != :id', { name, id })) return null;
+      db.run('UPDATE saved_searches SET name = :name, filter = :filter, position = :position WHERE id = :id', {
+        name,
+        filter: JSON.stringify(patch.filter ? opportunityFilterSchema.parse(patch.filter) : existing.filter),
+        position: patch.position ?? existing.position,
+        id,
+      });
+      return store.getSavedSearch(id);
+    },
+
+    deleteSavedSearch(id) {
+      return db.run('DELETE FROM saved_searches WHERE id = :id', { id }).changes === 1;
+    },
+
+    // ---- v2: alert recipients --------------------------------------------
+    listRecipients() {
+      return db.all<RecipientRow>('SELECT * FROM recipients ORDER BY id').map(toRecipient);
+    },
+
+    getRecipient(id) {
+      const row = db.get<RecipientRow>('SELECT * FROM recipients WHERE id = :id', { id });
+      return row ? toRecipient(row) : undefined;
+    },
+
+    createRecipient(input, now) {
+      const { lastInsertRowid } = db.run(
+        `INSERT INTO recipients (name, email, channel, chat_id_or_topic, kinds, saved_search_id, created_at)
+         VALUES (:name, :email, :channel, :chat, :kinds, :search, :at)`,
+        {
+          name: input.name,
+          email: input.email,
+          channel: input.channel,
+          chat: input.chatIdOrTopic,
+          kinds: JSON.stringify(input.kinds),
+          search: input.savedSearchId,
+          at: nowIso(now),
+        },
+      );
+      return store.getRecipient(lastInsertRowid)!;
+    },
+
+    updateRecipient(id, patch) {
+      const existing = store.getRecipient(id);
+      if (!existing) return undefined;
+      const next = { ...existing, ...Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)) } as Recipient;
+      // A new address or channel has not been tested yet.
+      const moved = next.channel !== existing.channel || next.chatIdOrTopic !== existing.chatIdOrTopic || next.email !== existing.email;
+      db.run(
+        `UPDATE recipients SET name = :name, email = :email, channel = :channel, chat_id_or_topic = :chat, kinds = :kinds,
+           saved_search_id = :search, verified_at = CASE WHEN :moved = 1 THEN NULL ELSE verified_at END
+         WHERE id = :id`,
+        {
+          name: next.name,
+          email: next.email,
+          channel: next.channel,
+          chat: next.chatIdOrTopic,
+          kinds: JSON.stringify(next.kinds),
+          search: next.savedSearchId,
+          moved,
+          id,
+        },
+      );
+      return store.getRecipient(id);
+    },
+
+    deleteRecipient(id) {
+      return db.run('DELETE FROM recipients WHERE id = :id', { id }).changes === 1;
+    },
+
+    markRecipientVerified(id, now) {
+      db.run('UPDATE recipients SET verified_at = :at WHERE id = :id', { at: nowIso(now), id });
+    },
+
+    // ---- v2: meta --------------------------------------------------------
+    getMeta(key) {
+      return db.get<{ value: string }>('SELECT value FROM meta WHERE key = :key', { key })?.value;
+    },
+
+    setMeta(key, value) {
+      db.run('INSERT INTO meta (key, value) VALUES (:key, :value) ON CONFLICT(key) DO UPDATE SET value = excluded.value', { key, value });
     },
 
     close() {

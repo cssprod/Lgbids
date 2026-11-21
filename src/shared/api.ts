@@ -1,4 +1,23 @@
-import type { AlertInboxSettings, Application, Dashboard, EmailSettings, Opportunity, Profile, PushSettings, RunRecord, SourceStatus } from './schemas.js';
+import type {
+  AlertInboxSettings,
+  Application,
+  Award,
+  CoverageRow,
+  Dashboard,
+  EmailSettings,
+  FeedbackRecord,
+  NoticeChange,
+  Opportunity,
+  Profile,
+  PushSettings,
+  Recipient,
+  ResultsInsights,
+  RunRecord,
+  SavedSearch,
+  ScoringInsights,
+  SourceStatus,
+  StatusInfo,
+} from './schemas.js';
 
 /**
  * The HTTP API between the web UI and the server. Types only.
@@ -12,11 +31,54 @@ import type { AlertInboxSettings, Application, Dashboard, EmailSettings, Opportu
  *
  * GET    /api/dashboard                       -> DashboardResponse
  *
- * GET    /api/opportunities?view&q&sourceId&closingWithinDays&limit&offset -> OpportunityList
- * GET    /api/opportunities.csv?view&q&sourceId&closingWithinDays -> text/csv (UTF-8 with BOM, every match, attachment)
- * GET    /api/opportunities/:id               -> Opportunity
+ * GET    /api/opportunities?view&q&sourceId&closingWithinDays&minScore&service&place&limit&offset -> OpportunityList
+ *          (minScore 0–100; service a ServiceKey; place matched against the area match or location, ignoring case)
+ * GET    /api/opportunities.csv?view&q&sourceId&closingWithinDays&minScore&service&place -> text/csv (UTF-8 with BOM, every match, attachment)
+ * GET    /api/opportunities/:id               -> Opportunity     (with changes, award and myFeedback)
  * POST   /api/opportunities/:id/decision {decision: 'pursue'|'dismissed'|null} -> Opportunity
  *          ('pursue' also drafts the application)
+ * POST   /api/opportunities/manual  ManualOpportunityInput -> Opportunity (scored; drafted when suitable and the mode is prepare or auto)
+ * POST   /api/opportunities/paste-alert  PasteAlertInput -> PasteAlertResult (the pasted links are never opened)
+ *
+ * v2 — watching a bid
+ * POST   /api/opportunities/:id/alerts {muted}  -> Opportunity  (reminders and change alerts for this bid)
+ * POST   /api/opportunities/:id/changes/seen    -> Opportunity  (marks every change as seen)
+ *
+ * v2 — feedback on scores
+ * PUT    /api/opportunities/:id/feedback  FeedbackInput -> FeedbackRecord ('not_relevant' also dismisses the bid)
+ * DELETE /api/opportunities/:id/feedback        -> {ok: true}
+ * POST   /api/feedback/missed   MissedBidInput   -> FeedbackRecord
+ * GET    /api/feedback                          -> FeedbackRecord[]  (newest first)
+ * GET    /api/feedback.csv                      -> text/csv (UTF-8 with BOM, attachment)
+ * GET    /api/feedback/corpus.jsonl             -> application/x-ndjson (public notice fields only, eval-corpus rows)
+ *
+ * v2 — insights
+ * GET    /api/insights/scoring?days=7|30|all    -> ScoringInsights (default 30)
+ * GET    /api/insights/results                  -> ResultsInsights
+ *
+ * v2 — awards (any opportunity)
+ * PUT    /api/opportunities/:id/award  AwardInput -> Award   (confirms it)
+ * DELETE /api/opportunities/:id/award           -> {ok: true}
+ *
+ * v2 — saved searches (at most 20; names unique ignoring case, 409 when taken)
+ * GET    /api/saved-searches                    -> SavedSearch[]
+ * POST   /api/saved-searches    SavedSearchInput -> SavedSearch
+ * PATCH  /api/saved-searches/:id  SavedSearchPatch -> SavedSearch
+ * DELETE /api/saved-searches/:id                -> {ok: true}
+ *
+ * v2 — coverage ("Who you hear from")
+ * GET    /api/coverage                          -> CoverageRow[]
+ *
+ * v2 — alert recipients (no logins; tokens stay in Phone alerts)
+ * GET    /api/recipients                        -> Recipient[]
+ * POST   /api/recipients        RecipientInput   -> Recipient
+ * PATCH  /api/recipients/:id    RecipientPatch   -> Recipient
+ * DELETE /api/recipients/:id                    -> {ok: true}
+ * POST   /api/recipients/:id/test               -> ActionResult
+ *
+ * v2 — status (signed in only; /api/health stays public)
+ * GET    /api/status                            -> StatusInfo
+ * GET    /api/health                            -> {ok: true} (503 {ok: false} when the database check fails)
  *
  * GET    /api/applications?status=a,b         -> Application[]   (each with .opportunity)
  * GET    /api/applications/:id                -> Application     (with .opportunity)
@@ -48,7 +110,7 @@ import type { AlertInboxSettings, Application, Dashboard, EmailSettings, Opportu
  * PUT    /api/settings/push    PushSettingsInput -> PushSettingsView
  * POST   /api/settings/push/test              -> ActionResult   (sends a test alert with the saved settings)
  * POST   /api/settings/push/telegram-chat     -> TelegramChatResult (finds and saves the chat that last messaged the bot)
- * POST   /api/alerts/import     multipart: one .eml file -> ActionResult
+ * POST   /api/alerts/import     multipart: one .eml file -> AlertImportResult (parsed at once: "Found 2 notices: …" or "Not recognised; kept so it can be checked")
  *
  * GET    /api/sources                         -> SourceRecord[]
  * POST   /api/sources           SourceInput   -> SourceRecord
@@ -128,6 +190,43 @@ export interface SourceTest {
   sample: { title: string; url: string; organization: string; closesAt: string | null; closingRaw: string; referenceNumber: string }[];
   requests: { url: string; status: number | null; bytes: number; ms: number; error?: string }[];
 }
+
+/** POST /api/alerts/import. */
+export interface AlertImportResult extends ActionResult {
+  /** False when no notice could be read; the file is kept so it can be checked. */
+  recognised: boolean;
+  /** Titles of the notices found. */
+  titles: string[];
+}
+
+/** POST /api/opportunities/paste-alert. */
+export interface PasteAlertResult extends ActionResult {
+  recognised: boolean;
+  /** Notices found in the pasted alert. */
+  found: number;
+  /** Ids of the bids added or updated. */
+  ids: number[];
+}
+
+export interface OkResult {
+  ok: true;
+}
+
+export interface HealthResult {
+  ok: boolean;
+}
+
+export type {
+  Award,
+  CoverageRow,
+  FeedbackRecord,
+  NoticeChange,
+  Recipient,
+  ResultsInsights,
+  SavedSearch,
+  ScoringInsights,
+  StatusInfo,
+};
 
 export interface RunState {
   running: boolean;

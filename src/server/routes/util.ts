@@ -152,3 +152,8 @@ export async function readUpload(req: FastifyRequest): Promise<Upload> {
   if (file.content.length === 0) throw new ApiError(400, 'The file is empty.');
   return { ...file, fields };
 }
+
+/** Answer for a v2 route whose work package has not landed yet. */
+export function notBuilt(): never {
+  throw new ApiError(501, 'Not built yet.');
+}
