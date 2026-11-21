@@ -229,6 +229,38 @@ describe('RSS feed', () => {
 });
 
 describe('web page listing', () => {
+  it('ignores hidden timestamps when reading a tender table', () => {
+    const html = `<main><table id="jobTable"><thead><tr><th>Tender Title</th><th>Posted Date</th><th>Closing Date</th><th>Status</th></tr></thead>
+      <tbody><tr><td><a href="/rfps/park-maintenance/">Park Maintenance</a></td><td><span class="hidden">1795207213</span>October 22, 2026<div>3:00 pm</div></td>
+      <td><span class="hidden">1795701600</span>November 26, 2026<div>2:00 pm</div></td><td>Open</td></tr></tbody></table></main>`;
+    const items = extractListing(html, 'https://langford.ca/rfps/', {
+      itemSelector: '#jobTable tbody tr',
+      organization: 'City of Langford',
+      zone: 'America/Vancouver',
+      now: new Date('2026-11-01T12:00:00Z'),
+    });
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ title: 'Park Maintenance', status: 'open' });
+    expect(items[0]!.closing).toEqual({ iso: '2026-11-26T21:00:00Z', precision: 'datetime' });
+    expect(items[0]!.closingRaw).not.toContain('1795701600');
+  });
+
+  it('uses a separate title cell instead of a generic attachment label', () => {
+    const html = `<main><div class="facetwp-template"><div class="site-component-row">
+      <div><p class="attachment-header">2026-015: Parks Maintenance Contract</p><a href="/files/parks-rfp.pdf">Request for Proposals</a></div>
+      <div><p>December 3, 2026</p><p>4:00 pm</p></div></div></div></main>`;
+    const items = extractListing(html, 'https://www.sidney.ca/government/bidding-opportunities/', {
+      itemSelector: '.facetwp-template .site-component-row',
+      organization: 'Town of Sidney',
+      zone: 'America/Vancouver',
+      now: new Date('2026-11-01T12:00:00Z'),
+    });
+    expect(items).toHaveLength(1);
+    expect(items[0]!.title).toBe('2026-015: Parks Maintenance Contract');
+    expect(items[0]!.url).toBe('https://www.sidney.ca/files/parks-rfp.pdf');
+    expect(items[0]!.closing).toEqual({ iso: '2026-12-03T23:00:00Z', precision: 'datetime' });
+  });
+
   it('follows a link pattern (Capital Regional District style cards)', async () => {
     const record = source('html_list', {
       url: `${server.url}/crd/contracts-rfps/current`,

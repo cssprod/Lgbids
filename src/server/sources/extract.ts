@@ -55,6 +55,7 @@ const PROCUREMENT_WORDS =
   /\b(?:RFP|RFQ|ITT|ITQ|RFSO|RFSQ|RFPQ|RFEOI|REOI|EOI|RFI|NOI|NRFP|ITB|IFB)\b|\b(?:request for|invitation to|call for|notice of intent|expression of interest|tender|quotation|proposal|standing offer|pre-?qualification)\b/i;
 const PROCUREMENT_HREF = /(?:rfp|rfq|itt|tender|bid|quotation|proposal|opportunit|procurement|solicitation)/i;
 const GENERIC_LINK_TEXT = /^(?:view|view details|details|more|read more|learn more|more info(?:rmation)?|download|click here|here|open|see details|full details|link|pdf|document)$/i;
+const GENERIC_DOCUMENT_TEXT = /^(?:request for proposals|request for quotation|invitation to tender|invitation to quote|tender|bid document|attachment|document)$/i;
 const NOT_A_NOTICE = /^(?:home|contact(?: us)?|login|log in|sign in|register|subscribe|search|next|previous|prev|first|last|back|print|share|\d+|»|«|›|‹)$/i;
 // Links found on bid pages that lead to archives, results and how-to pages rather than to a notice.
 const SIDE_LINK =
@@ -393,22 +394,36 @@ function buildItem(
   page: URL,
   opts: ListingOptions,
 ): RawOpportunity | null {
-  const rowText = blockText($, row[0]!);
+  const cleanRow = $(row[0]!).clone() as cheerio.Cheerio<Element>;
+  cleanRow.find('.hidden').remove();
+  const rowText = blockText($, cleanRow[0]!);
   let title = candidate?.text ?? '';
+  const labelledTitle = collapse(row.find('.attachment-header, [data-label="title"], .title, .field-title').first().text());
+  if (labelledTitle && !/^(?:title|document|attachment)$/i.test(labelledTitle)) title = labelledTitle;
   if (!title || GENERIC_LINK_TEXT.test(title)) {
     const heading = collapse(row.find('h1, h2, h3, h4, h5, h6, .title, strong, b').first().text());
     title = heading || collapse(rowText.split('\n')[0] ?? '');
+  }
+  if (GENERIC_DOCUMENT_TEXT.test(title)) {
+    const labelled = collapse(row.find('.attachment-header, [data-label="title"], .title, .field-title').first().text());
+    if (labelled && !/^(?:title|document|attachment)$/i.test(labelled)) title = labelled;
   }
   title = collapse(title.replace(/\s*\((?:pdf|opens in (?:a )?new (?:window|tab))[^)]*\)\s*$/i, ''));
   if (title.length < 4 || NOT_A_NOTICE.test(title)) return null;
 
   const headers = row.is('tr') ? tableHeaders($, row) : [];
-  const fields = labelledFields($, row, headers);
+  const fields = labelledFields($, cleanRow, headers);
   const extra = fieldsToItem(fields, rowText.replace(/\n/g, ' '), opts);
   const url = candidate?.url ?? page;
   const externalId = candidate ? `${url.pathname}${url.search}`.slice(0, 400) : `${page.pathname}#${title}`.slice(0, 400);
 
-  const rest = collapse(rowText.replace(/\n/g, ' ')).replace(title, '').trim();
+  const rest = collapse(rowText.replace(/\n/g, ' ')).replace(title, '').replace(/\|/g, ' ').trim();
+  const visibleText = collapse(cleanRow.text().replace(/\n/g, ' '));
+  const closingFromVisible = visibleText ? findClosingDate(visibleText, opts) : null;
+  if (closingFromVisible) {
+    extra.closing = { iso: closingFromVisible.iso, precision: closingFromVisible.precision };
+    extra.closingRaw = closingFromVisible.text;
+  }
   const item: RawOpportunity = {
     externalId,
     title: truncate(title, 300),

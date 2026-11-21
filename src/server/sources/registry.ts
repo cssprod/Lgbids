@@ -43,16 +43,16 @@ const CANADABUYS_OFF =
  * The bid sources that ship with the app, taken from each buyer's public
  * procurement pages.
  *
- * Checked against the live sites on 2026-11-17. The District of Saanich feed
- * and the Township of Esquimalt page read correctly. CanadaBuys and every
+ * Checked against the live sites on 2026-11-21. The District of Saanich feed,
+ * Township of Esquimalt page, City of Langford table, Town of Sidney table,
+ * and District of Metchosin news list read correctly. CanadaBuys and every
  * Bonfire portal disallow automated reading in robots.txt, and CivicInfo BC
  * puts a Cloudflare browser check in front of its listing, so those ship
  * turned off with a note saying how to follow them by hand. The old CRD bid
  * site no longer answers, and Oak Bay's page could not be reached from the
  * development environment (see each source's note).
  *
- * Greater Victoria bodies that are not listed separately (Langford, Colwood,
- * View Royal, Sidney, Sooke, Metchosin, Highlands, the school districts,
+ * Greater Victoria bodies that are not listed separately (Sooke, Highlands, the school districts,
  * Camosun, Royal Roads, BC Transit, BC Housing ...) post on BC Bid, and are
  * picked up through the "BC Bid notices" source.
  */
@@ -179,8 +179,44 @@ export const DEFAULT_SOURCES: DefaultSource[] = [
     localBuyer: true,
     fetchDetails: true,
   }),
-  source('oakbay', 'District of Oak Bay — tenders', 'html_list', 'Oak Bay’s tenders page (oakbay.ca now forwards to www.oakbay.ca; not yet checked against the live page). Oak Bay posts its documents on BC Bid, so this page is often empty.', {
+  source('langford', 'City of Langford — requests for proposals', 'html_list', 'Langford’s own requests-for-proposals table.', {
+    url: 'https://langford.ca/rfps/',
+    itemSelector: '#jobTable tbody tr',
+    organization: 'City of Langford',
+    localBuyer: true,
+    fetchDetails: true,
+  }),
+  source('sidney', 'Town of Sidney — bidding opportunities', 'html_list', 'Sidney’s own bidding-opportunities table.', {
+    url: 'https://www.sidney.ca/government/bidding-opportunities/',
+    itemSelector: '.facetwp-template .site-component-row',
+    organization: 'Town of Sidney',
+    localBuyer: true,
+    fetchDetails: true,
+  }),
+  source('metchosin', 'District of Metchosin — requests for proposals', 'html_list', 'Metchosin publishes current tender notices in its News & Notices section.', {
+    url: 'https://www.metchosin.ca/community/news',
+    linkPattern: '^/government-bylaws/news-alerts/(?:request|invitation|rfp|rft|tender)[^/?#]+',
+    organization: 'District of Metchosin',
+    localBuyer: true,
+    fetchDetails: true,
+  }),
+  source('colwood', 'City of Colwood — tenders and RFPs', 'html_list', 'Turned off: Colwood publishes its active notices on BC Bid, whose robots.txt disallows all automated reading and whose listing uses a browser check. Follow Colwood’s BC Bid notifications or check the city’s tenders page by hand.', {
+    url: 'https://www.colwood.ca/local-government/tenders-requests-proposals',
+    organization: 'City of Colwood',
+    localBuyer: true,
+    defaultSubmission: 'bcbid',
+    fetchDetails: false,
+  }, false),
+  source('view-royal', 'Town of View Royal — tenders and RFPs', 'html_list', 'Turned off: View Royal publishes current opportunities on BC Bid, whose robots.txt disallows all automated reading and whose listing uses a browser check. Follow View Royal’s BC Bid notifications or check the town’s tenders page by hand.', {
+    url: 'https://www.viewroyal.ca/EN/main/business/tenders-and-rfps.html',
+    organization: 'Town of View Royal',
+    localBuyer: true,
+    defaultSubmission: 'bcbid',
+    fetchDetails: false,
+  }, false),
+  source('oakbay', 'District of Oak Bay — tenders', 'html_list', 'Oak Bay’s tenders page (oakbay.ca now forwards to www.oakbay.ca). Oak Bay posts its documents on BC Bid, so this page is often empty.', {
     url: 'https://www.oakbay.ca/municipal-hall/tenders-grants/tenders',
+    linkPattern: '^/municipal-hall/tenders-grants/tenders/[^/?#]+',
     organization: 'District of Oak Bay',
     localBuyer: true,
     defaultSubmission: 'bcbid',
