@@ -574,6 +574,12 @@ function toRecipient(row: RecipientRow): Recipient {
   };
 }
 
+/** A source config in its canonical form (schema key order and defaults), for comparing two configs. */
+function canonicalConfig(value: unknown): string {
+  const parsed = sourceConfigSchema.safeParse(typeof value === 'string' ? parseJson<unknown>(value, {}) : value);
+  return JSON.stringify(parsed.success ? parsed.data : sourceConfigSchema.parse({}));
+}
+
 function toRecord(row: OppRow): OpportunityRecord {
   return {
     ...toOpportunity(row),
@@ -849,25 +855,57 @@ export function createStore(db: Database): Store {
       db.tx(() => {
         for (const d of defaults) {
           const at = nowIso(now);
+          const config = canonicalConfig(d.config);
+          const existing = db.get<SourceRow>('SELECT * FROM sources WHERE id = :id', { id: d.id });
+          if (!existing) {
+            db.run(
+              `INSERT INTO sources (id, name, kind, enabled, builtin, notes, config, default_config, created_at, updated_at)
+               VALUES (:id, :name, :kind, :enabled, 1, :notes, :config, :config, :at, :at)`,
+              {
+                id: d.id,
+                name: d.name,
+                kind: d.kind,
+                // "Ships off" only sets the first state, so a source the user turned
+                // on stays on across restarts; "forced off" (a site that refuses
+                // automated reading) is switched off again every time.
+                enabled: d.enabled === false || d.forceOff ? 0 : 1,
+                notes: d.notes,
+                config,
+                at,
+              },
+            );
+            continue;
+          }
+          // A source the user added keeps everything, even if its id matches.
+          if (!bool(existing.builtin)) continue;
+          const stored = canonicalConfig(existing.config);
+          // Before v2 the seeded default was not saved. A row never edited through
+          // the app (updated_at still equals created_at), or one that already
+          // matches the new default, is taken as untouched; anything else is
+          // treated as the user's own settings.
+          const untouched =
+            existing.default_config !== null
+              ? stored === canonicalConfig(existing.default_config)
+              : existing.updated_at === existing.created_at || stored === config;
           db.run(
-            `INSERT INTO sources (id, name, kind, enabled, builtin, notes, config, created_at, updated_at)
-             VALUES (:id, :name, :kind, :enabled, 1, :notes, :config, :at, :at)
-             ON CONFLICT(id) DO UPDATE SET
-               notes = excluded.notes,
-               enabled = CASE WHEN :forceOff = 1 THEN 0 ELSE sources.enabled END
-             WHERE sources.builtin = 1`,
+            `UPDATE sources SET
+               notes = :notes,
+               enabled = CASE WHEN :forceOff = 1 THEN 0 ELSE enabled END,
+               name = CASE WHEN :replace = 1 THEN :name ELSE name END,
+               config = CASE WHEN :replace = 1 THEN :config ELSE config END,
+               state = CASE WHEN :replace = 1 AND :moved = 1 THEN '{}' ELSE state END,
+               layout_warning = CASE WHEN :replace = 1 AND :moved = 1 THEN '' ELSE layout_warning END,
+               default_config = :config
+             WHERE id = :id`,
             {
               id: d.id,
-              name: d.name,
-              kind: d.kind,
-              // "Ships off" only sets the first state, so a source the user turned
-              // on stays on across restarts; "forced off" (a site that refuses
-              // automated reading) is switched off again every time.
-              enabled: d.enabled === false || d.forceOff ? 0 : 1,
-              forceOff: d.forceOff ? 1 : 0,
               notes: d.notes,
-              config: JSON.stringify(d.config),
-              at,
+              forceOff: d.forceOff ? 1 : 0,
+              replace: untouched ? 1 : 0,
+              // A new address makes saved paging state and an old layout warning meaningless.
+              moved: stored !== config ? 1 : 0,
+              name: d.name,
+              config,
             },
           );
         }

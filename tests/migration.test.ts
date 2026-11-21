@@ -247,6 +247,89 @@ function automationFreeFilter() {
   return { view: 'all' as const, q: '', sourceId: '', closingWithinDays: null, minScore: null, service: null, place: '' };
 }
 
+describe('COV-11: built-in source settings reach existing installs', () => {
+  const config = (url: string): SourceConfig => sourceConfigSchema.parse({ url });
+  const builtin = (url: string, extra: { enabled?: boolean; forceOff?: boolean; name?: string } = {}) => ({
+    id: 'oakbay',
+    name: extra.name ?? 'Oak Bay',
+    kind: 'html_list' as const,
+    notes: 'note',
+    config: config(url),
+    ...(extra.enabled !== undefined ? { enabled: extra.enabled } : {}),
+    ...(extra.forceOff ? { forceOff: true } : {}),
+  });
+
+  it('gives an untouched built-in source the new address and name', () => {
+    const store = memoryStore();
+    store.seedSources([builtin('https://old.example/bids', { enabled: false })], NOW);
+    store.setSourceState('oakbay', { etag: 'x' });
+    store.seedSources([builtin('https://new.example/bids', { enabled: false, name: 'Oak Bay (new)' })], LATER);
+    const s = store.getSource('oakbay')!;
+    expect(s.config.url).toBe('https://new.example/bids');
+    expect(s.name).toBe('Oak Bay (new)');
+    expect(s.enabled).toBe(false);
+    expect(store.getSourceState('oakbay')).toEqual({});
+  });
+
+  it('keeps the config of a built-in source the user edited, and its on/off choice', () => {
+    const store = memoryStore();
+    store.seedSources([builtin('https://old.example/bids', { enabled: false })], NOW);
+    store.updateSource('oakbay', { enabled: true, config: config('https://mine.example/bids') }, LATER);
+    store.seedSources([builtin('https://new.example/bids', { enabled: false })], LATER);
+    const s = store.getSource('oakbay')!;
+    expect(s.config.url).toBe('https://mine.example/bids');
+    expect(s.enabled).toBe(true);
+    // A later fix still does not overwrite it.
+    store.seedSources([builtin('https://newer.example/bids', { enabled: false })], LATER);
+    expect(store.getSource('oakbay')!.config.url).toBe('https://mine.example/bids');
+  });
+
+  it('turning a source on does not stop fixes reaching it', () => {
+    const store = memoryStore();
+    store.seedSources([builtin('https://old.example/bids', { enabled: false })], NOW);
+    store.updateSource('oakbay', { enabled: true }, LATER);
+    store.seedSources([builtin('https://new.example/bids', { enabled: false })], LATER);
+    expect(store.getSource('oakbay')).toMatchObject({ enabled: true, config: { url: 'https://new.example/bids' } });
+  });
+
+  it('keeps the forced-off rules', () => {
+    const store = memoryStore();
+    store.seedSources([builtin('https://old.example/bids')], NOW);
+    expect(store.getSource('oakbay')!.enabled).toBe(true);
+    store.seedSources([builtin('https://old.example/bids', { forceOff: true })], NOW);
+    expect(store.getSource('oakbay')!.enabled).toBe(false);
+    store.updateSource('oakbay', { enabled: true }, LATER);
+    store.seedSources([builtin('https://old.example/bids', { forceOff: true })], LATER);
+    expect(store.getSource('oakbay')!.enabled).toBe(false);
+  });
+
+  it('never touches a user-added source', () => {
+    const store = memoryStore();
+    store.insertSource({ id: 'oakbay', name: 'Mine', kind: 'rss', enabled: true, builtin: false, notes: '', config: config('https://mine.example/feed') }, NOW);
+    store.seedSources([builtin('https://new.example/bids', { forceOff: true })], LATER);
+    expect(store.getSource('oakbay')).toMatchObject({ name: 'Mine', enabled: true, notes: '', config: { url: 'https://mine.example/feed' } });
+  });
+
+  it('upgrades a v1 row: never edited gets the fix, edited keeps its config', () => {
+    const path = tempDb();
+    const old = openDatabase(path, { upTo: 2 });
+    const insert = (id: string, updated: string) =>
+      old.run(
+        `INSERT INTO sources (id, name, kind, enabled, builtin, notes, config, created_at, updated_at)
+         VALUES (:id, 'Old', 'html_list', 1, 1, '', :config, :created, :updated)`,
+        { id, config: JSON.stringify(config('https://old.example/bids')), created: NOW.toISOString(), updated: updated },
+      );
+    insert('a', NOW.toISOString());
+    insert('b', LATER.toISOString());
+    old.close();
+    const store = createStore(openDatabase(path));
+    store.seedSources([{ ...builtin('https://new.example/bids'), id: 'a' }, { ...builtin('https://new.example/bids'), id: 'b' }], LATER);
+    expect(store.getSource('a')!.config.url).toBe('https://new.example/bids');
+    expect(store.getSource('b')!.config.url).toBe('https://old.example/bids');
+    store.close();
+  });
+});
+
 describe('v2 settings', () => {
   it('validates the app address', () => {
     const parse = (appUrl: string) => automationSchema.safeParse({ appUrl });

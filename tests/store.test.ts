@@ -390,11 +390,11 @@ describe('sources, runs, events, sessions, settings rows', () => {
     expect(store.getSource('c')).toMatchObject({ consecutiveFailures: 0, lastOkAt: '2026-06-15T21:00:00Z', lastItemCount: 4 });
 
     // A built-in that now refuses automated reading (forced off): new installs
-    // get it off, existing ones are switched off with the new note, and its
-    // address is kept.
+    // get it off, existing ones are switched off with the new note, and (as it
+    // was never edited) its address follows the new default (COV-11).
     store.seedSources([{ id: 'c', name: 'C', kind: 'rss', notes: 'Turned off: robots.txt.', config: sourceConfigSchema.parse({ url: 'https://new.example/feed' }), enabled: false, forceOff: true }, { id: 'd', name: 'D', kind: 'rss', notes: 'Off.', config: sourceConfigSchema.parse({}), enabled: false }], now);
     expect(store.getSource('c')).toMatchObject({ enabled: false, notes: 'Turned off: robots.txt.' });
-    expect(store.getSource('c')?.config.url).not.toBe('https://new.example/feed');
+    expect(store.getSource('c')?.config.url).toBe('https://new.example/feed');
     expect(store.getSource('d')).toMatchObject({ builtin: true, enabled: false });
     expect(store.getSource('a')?.name).toBe('Source A');
 
