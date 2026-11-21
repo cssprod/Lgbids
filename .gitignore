@@ -13,3 +13,8 @@ lgbids-prototype-*.zip
 
 # Local Netlify CLI state (site link, build cache)
 .netlify/
+
+# Playwright e2e output, demo data and reports (playwright.config.ts)
+.e2e/
+test-results/
+playwright-report/

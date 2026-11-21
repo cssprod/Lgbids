@@ -14,5 +14,7 @@
     "verbatimModuleSyntax": true,
     "noEmit": true
   },
-  "include": ["src/server", "src/shared", "tests", "scripts", "vitest.config.ts"]
+  "include": ["src/server", "src/shared", "tests", "scripts", "vitest.config.ts"],
+  // Web tests need DOM and vite/client types: they have their own tests/web/tsconfig.json.
+  "exclude": ["tests/web"]
 }

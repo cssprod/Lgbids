@@ -26,5 +26,7 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      # Matching quality: prints precision and recall, fails on a pinned row or a drop below baseline.json.
+      - run: npm run eval -- --check
       - run: npm run build
       - run: npm run build:prototype
