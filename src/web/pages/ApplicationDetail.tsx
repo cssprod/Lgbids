@@ -4,6 +4,8 @@ import { api } from '../api.js';
 import type { Application, ApplicationChannel, ApplicationStatus, ApplicationUpdate, LibraryDocument } from '../../shared/schemas.js';
 import { DOCUMENT_KIND_LABELS, SUBMISSION_METHOD_LABELS } from '../../shared/schemas.js';
 import { useAction, useDocumentTitle, useFormat, useResource, useUnsavedWarning } from '../hooks.js';
+import { AwardSection } from '../components/opportunity/AwardSection.js';
+import { ChangeBanner } from '../components/opportunity/ChangeBanner.js';
 import { ApplicationChip } from '../components/status.js';
 import { ConfirmDialog, Dialog } from '../components/Dialog.js';
 import { BackLink, Callout, Check, ErrorBox, ExternalLink, Field, Live, Loading, NumberInput, PlainText, Section } from '../components/ui.js';
@@ -207,6 +209,7 @@ export function ApplicationDetailPage() {
           ) : null}
         </div>
       </header>
+      {o ? <ChangeBanner opportunity={o} onSeen={() => res.reload()} /> : null}
 
       {a.error || sendError ? (
         <div className="callout callout-bad" role="alert">
@@ -311,6 +314,7 @@ export function ApplicationDetailPage() {
                   Withdrawn
                 </button>
               </div>
+              {o ? <AwardSection opportunity={o} application={a} onChange={res.reload} /> : null}
             </>
           ) : null}
         </Section>

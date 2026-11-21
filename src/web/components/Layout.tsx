@@ -46,6 +46,7 @@ const NAV: { heading: string; items: NavItem[] }[] = [
     items: [
       { to: '/profile', label: 'Company profile', icon: 'building' },
       { to: '/documents', label: 'Documents', icon: 'file' },
+      { to: '/insights', label: 'Insights', icon: 'chart' },
     ],
   },
   {

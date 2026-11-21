@@ -9,7 +9,8 @@ export const manual: Connector = {
   kind: 'manual',
   // Only ever "what is new", so an empty run says nothing about the source working.
   incremental: true,
-  async list() {
+  async list(_source, ctx) {
+    ctx.note('Bids you add by hand are kept here, so there is nothing to read.');
     return { items: [] };
   },
 };

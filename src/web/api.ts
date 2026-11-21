@@ -4,6 +4,30 @@
  * ApiError with that sentence, so screens can show it as is.
  */
 
+import type { ActionResult, AlertImportResult, OkResult, PasteAlertResult } from '../shared/api.js';
+import type {
+  Award,
+  AwardInput,
+  CoverageRow,
+  FeedbackInput,
+  FeedbackRecord,
+  InsightsDays,
+  ManualOpportunityInput,
+  MissedBidInput,
+  Opportunity,
+  OpportunityFilterInput,
+  PasteAlertInput,
+  Recipient,
+  RecipientInput,
+  RecipientPatch,
+  ResultsInsights,
+  SavedSearch,
+  SavedSearchInput,
+  SavedSearchPatch,
+  ScoringInsights,
+  StatusInfo,
+} from '../shared/schemas.js';
+
 export class ApiError extends Error {
   readonly status: number;
   constructor(message: string, status: number) {
@@ -105,3 +129,64 @@ export function errorMessage(err: unknown): string {
   if (err instanceof Error && err.message) return err.message;
   return 'Something went wrong. Please try again.';
 }
+
+// ---------------------------------------------------------------------------
+// v2 routes (see src/shared/api.ts). One function per route, so pages and
+// components never spell out a path or a body shape themselves.
+// ---------------------------------------------------------------------------
+
+/** Query string for the opportunity list and its CSV; defaults and empty values are left out. */
+export function opportunityQuery(filter: Partial<OpportunityFilterInput> & { limit?: number; offset?: number }): string {
+  const q = new URLSearchParams();
+  for (const [key, value] of Object.entries(filter)) {
+    if (value === null || value === undefined || value === '') continue;
+    q.set(key, String(value));
+  }
+  return q.toString();
+}
+
+const opp = (id: number, rest = '') => `/api/opportunities/${id}${rest}`;
+
+// Watching a bid
+export const setAlertsMuted = (id: number, muted: boolean) => api.post<Opportunity>(opp(id, '/alerts'), { muted });
+export const markChangesSeen = (id: number) => api.post<Opportunity>(opp(id, '/changes/seen'));
+
+// Feedback on scores
+export const saveFeedback = (id: number, input: FeedbackInput) => api.put<FeedbackRecord>(opp(id, '/feedback'), input);
+export const deleteFeedback = (id: number) => api.del<OkResult>(opp(id, '/feedback'));
+export const reportMissedBid = (input: MissedBidInput) => api.post<FeedbackRecord>('/api/feedback/missed', input);
+export const listFeedback = () => api.get<FeedbackRecord[]>('/api/feedback');
+export const FEEDBACK_CSV_URL = '/api/feedback.csv';
+export const FEEDBACK_CORPUS_URL = '/api/feedback/corpus.jsonl';
+
+// Insights
+export const getScoringInsights = (days: InsightsDays) => api.get<ScoringInsights>(`/api/insights/scoring?days=${days}`);
+export const getResultsInsights = () => api.get<ResultsInsights>('/api/insights/results');
+
+// Awards
+export const saveAward = (id: number, input: AwardInput) => api.put<Award>(opp(id, '/award'), input);
+export const deleteAward = (id: number) => api.del<OkResult>(opp(id, '/award'));
+
+// Saved searches
+export const listSavedSearches = () => api.get<SavedSearch[]>('/api/saved-searches');
+export const createSavedSearch = (input: SavedSearchInput) => api.post<SavedSearch>('/api/saved-searches', input);
+export const updateSavedSearch = (id: number, patch: SavedSearchPatch) => api.patch<SavedSearch>(`/api/saved-searches/${id}`, patch);
+export const deleteSavedSearch = (id: number) => api.del<OkResult>(`/api/saved-searches/${id}`);
+
+// Coverage
+export const getCoverage = () => api.get<CoverageRow[]>('/api/coverage');
+
+// Bids added by hand
+export const addManualOpportunity = (input: ManualOpportunityInput) => api.post<Opportunity>('/api/opportunities/manual', input);
+export const pasteAlert = (input: PasteAlertInput) => api.post<PasteAlertResult>('/api/opportunities/paste-alert', input);
+export const importAlertFile = (form: FormData) => api.upload<AlertImportResult>('/api/alerts/import', form);
+
+// Alert recipients
+export const listRecipients = () => api.get<Recipient[]>('/api/recipients');
+export const createRecipient = (input: RecipientInput) => api.post<Recipient>('/api/recipients', input);
+export const updateRecipient = (id: number, patch: RecipientPatch) => api.patch<Recipient>(`/api/recipients/${id}`, patch);
+export const deleteRecipient = (id: number) => api.del<OkResult>(`/api/recipients/${id}`);
+export const testRecipient = (id: number) => api.post<ActionResult>(`/api/recipients/${id}/test`);
+
+// Status
+export const getStatus = () => api.get<StatusInfo>('/api/status');

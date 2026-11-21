@@ -17,7 +17,6 @@ import type {
   ProfileResponse,
   RunState,
   SessionInfo,
-  SourceTest,
 } from '../shared/api.js';
 import type {
   Analysis,
@@ -30,18 +29,20 @@ import type {
   Profile,
   RegionSettings,
   RunRecord,
-  SourceInput,
   SourceRecord,
 } from '../shared/schemas.js';
-import { automationSchema, profileSchema, sourceConfigSchema } from '../shared/schemas.js';
+import { automationSchema, profileSchema } from '../shared/schemas.js';
 import { opportunitiesCsv, opportunitiesCsvFilename } from '../shared/csv.js';
 import type { MockResponse } from './api.js';
 import { formatDate, formatDateTime } from './format.js';
+import { alerts } from './mock/alerts.js';
+import { awards } from './mock/awards.js';
+import { DAY, fail, HOUR, iso, now, ok, type MockContext, type MockModule, type MockState, type MockV2State } from './mock/context.js';
+import { feedback } from './mock/feedback.js';
+import { manual } from './mock/manual.js';
+import { searches } from './mock/searches.js';
+import { initialSources, sources as sourceRoutes } from './mock/sources.js';
 
-const HOUR = 3_600_000;
-const DAY = 24 * HOUR;
-const now = Date.now();
-const iso = (offsetMs: number) => new Date(now + offsetMs).toISOString();
 /** End of a local day N days from now, as stored for date-only closings. */
 function endOfDay(days: number): string {
   const d = new Date(now + days * DAY);
@@ -423,74 +424,7 @@ function ymd(days: number): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-function source(p: Partial<SourceRecord> & Pick<SourceRecord, 'id' | 'name' | 'kind'>): SourceRecord {
-  return {
-    enabled: true,
-    builtin: true,
-    notes: '',
-    config: sourceConfigSchema.parse({ url: `https://${p.id}.example/bids` }),
-    lastRunAt: iso(-2 * HOUR),
-    lastOkAt: iso(-2 * HOUR),
-    lastStatus: 'ok',
-    lastMessage: '',
-    lastItemCount: 12,
-    consecutiveFailures: 0,
-    layoutWarning: '',
-    ...p,
-  };
-}
-
-const BONFIRE_OFF =
-  'Turned off: Bonfire portals ask automated tools not to read them (their robots.txt disallows everything), so Lgbids leaves them alone. To hear about new bids, register a free vendor account on the portal and follow this buyer; Bonfire then e-mails you new opportunities.';
-const CANADABUYS_OFF =
-  'Turned off: canadabuys.canada.ca asks automated tools other than search engines not to read it (robots.txt), so Lgbids leaves it alone.';
-function unchecked(about: string): string {
-  return `${about} Not yet checked against the live site, so it ships turned off. Press “Test” to see whether it reads correctly, then turn it on.`;
-}
-const off = { enabled: false, lastStatus: 'never' as const, lastRunAt: null, lastOkAt: null, lastItemCount: null };
-
-// Mirrors DEFAULT_SOURCES in src/server/sources/registry.ts (beta set-up after the live check).
-let sources: SourceRecord[] = [
-  source({
-    id: 'email-alerts',
-    name: 'Bid alert e-mails (BC Bid and Bonfire)',
-    kind: 'email_alerts',
-    notes: 'BC Bid and Bonfire e-mail you about new opportunities; Lgbids reads those alert e-mails from your inbox (read-only) or from .eml files you import here, and never opens the sites themselves. Set up the inbox under Settings → Bid alert inbox.',
-    lastItemCount: 9,
-    lastMessage: '9 alert e-mails read; 4 notices look relevant.',
-  }),
-  source({ id: 'saanich-rss', name: 'District of Saanich — bid opportunities feed', kind: 'rss', notes: 'Saanich’s own website feed. It includes smaller quotation requests that are not posted on BC Bid.', lastItemCount: 10 }),
-  source({ id: 'esquimalt', name: 'Township of Esquimalt — bids & tenders', kind: 'html_list', notes: 'Esquimalt’s own bids page.', lastItemCount: 17 }),
-  source({
-    id: 'oakbay',
-    name: 'District of Oak Bay — tenders',
-    kind: 'html_list',
-    notes: 'Oak Bay’s tenders page. Oak Bay posts its documents on BC Bid, so this page is often empty.',
-    lastStatus: 'empty',
-    lastItemCount: 0,
-    lastMessage: 'Nothing is listed right now. That is normal when the buyer has nothing open.',
-  }),
-  source({ id: 'canadabuys-bcbid', name: 'BC Bid notices (via CanadaBuys)', kind: 'canadabuys_search', notes: `${CANADABUYS_OFF} BC Bid itself puts a browser check in front of its listing. Turn on BC Bid’s own e-mail notifications for landscaping categories instead.`, ...off }),
-  source({ id: 'canadabuys-federal', name: 'Government of Canada tenders (open data)', kind: 'canadabuys_csv', notes: `${CANADABUYS_OFF} Set up a saved search with e-mail alerts on CanadaBuys to hear about federal work in the region.`, ...off }),
-  source({ id: 'bonfire-victoria', name: 'City of Victoria — bid portal', kind: 'bonfire', notes: BONFIRE_OFF, ...off }),
-  source({ id: 'bonfire-saanich', name: 'District of Saanich — procurement portal', kind: 'bonfire', notes: BONFIRE_OFF, ...off }),
-  source({ id: 'bonfire-centralsaanich', name: 'District of Central Saanich — procurement portal', kind: 'bonfire', notes: BONFIRE_OFF, ...off }),
-  source({ id: 'bonfire-northsaanich', name: 'District of North Saanich — procurement portal', kind: 'bonfire', notes: BONFIRE_OFF, ...off }),
-  source({ id: 'bonfire-uvic', name: 'University of Victoria — procurement portal', kind: 'bonfire', notes: BONFIRE_OFF, ...off }),
-  source({ id: 'crd', name: 'Capital Regional District — current opportunities', kind: 'html_list', notes: 'Turned off: the CRD’s old bid site (bid.crd.ca) now answers “not found” for every page, and its replacement on crd.ca could not be checked yet. Look at the CRD’s current opportunities on crd.ca until this source is updated.', ...off }),
-  source({ id: 'sooke', name: 'District of Sooke — bid and tender opportunities', kind: 'html_list', notes: unchecked('Sooke’s own bids page.'), ...off }),
-  source({ id: 'langford', name: 'City of Langford — requests for proposals', kind: 'html_list', notes: unchecked('Langford’s own RFP page.'), ...off }),
-  source({ id: 'colwood', name: 'City of Colwood — tenders and requests for proposals', kind: 'html_list', notes: unchecked('Colwood’s own tenders page.'), ...off }),
-  source({ id: 'viewroyal', name: 'Town of View Royal — tenders and RFPs', kind: 'html_list', notes: unchecked('View Royal’s own tenders page.'), ...off }),
-  source({
-    id: 'sidney',
-    name: 'Town of Sidney — bidding opportunities',
-    kind: 'html_list',
-    notes: unchecked('Sidney’s own bids page. Sidney takes bids through its bids&tenders portal, which needs a vendor login, so Lgbids prepares the package and you upload it there.'),
-    ...off,
-  }),
-  source({ id: 'civicinfo-bc', name: 'CivicInfo BC — local government bids', kind: 'html_list', notes: 'Turned off: CivicInfo BC puts a Cloudflare browser check in front of its bid listing, so it cannot be read automatically. Check civicinfo.bc.ca/bids in your browser.', ...off }),
-];
+let sources: SourceRecord[] = initialSources();
 
 let automation: AutomationSettings = automationSchema.parse({ notifyEmail: 'office@garryoak.example' });
 let region: RegionSettings = {
@@ -562,8 +496,6 @@ if (EMPTY) {
 // ---------------------------------------------------------------------------
 
 let nextId = 1000;
-const ok = (body: unknown): MockResponse => ({ status: 200, body });
-const fail = (status: number, error: string): MockResponse => ({ status, body: { error } });
 const withOpp = (a: Application): Application => ({ ...a, opportunity: opportunities.find((o) => o.id === a.opportunityId) });
 
 function profileMissing(): string[] {
@@ -655,59 +587,46 @@ function dashboard(): DashboardResponse {
   };
 }
 
-function sampleTest(input: { name: string; kind?: SourceRecord['kind']; config: { url: string } }): SourceTest {
-  const url = input.config.url || 'https://example.example/bids';
-  const robots = { url: `${url.replace(/\/$/, '')}/robots.txt`, status: 200, bytes: 312, ms: 220 };
-  const failed = (status: SourceTest['status'], message: string, request: SourceTest['requests'][number]): SourceTest => ({
-    status,
-    message,
-    ms: 1830,
-    count: 0,
-    sample: [],
-    requests: [robots, request],
-  });
-  if (input.kind === 'bonfire' || input.kind === 'canadabuys_csv' || input.kind === 'canadabuys_search') {
-    return { ...failed('blocked', 'The site’s robots.txt asks automated tools not to read it, so Lgbids did not open the listing.', robots), requests: [robots] };
-  }
-  if (input.name.startsWith('CivicInfo')) {
-    return failed('blocked', 'The site answered with a browser check (403). Lgbids cannot read it automatically.', { url, status: 403, bytes: 5120, ms: 1610, error: 'Browser check page' });
-  }
-  if (input.name.startsWith('Capital Regional')) {
-    return failed('error', 'The page answered “not found” (404). The site has probably moved.', { url, status: 404, bytes: 1024, ms: 410, error: 'Not found' });
-  }
-  if (input.kind === 'email_alerts') {
-    return {
-      status: 'ok',
-      message: 'Read 9 alert e-mails from BC Bid and Bonfire; 3 notices shown below.',
-      ms: 940,
-      count: 9,
-      sample: [
-        { title: 'Cemetery Grounds Maintenance', url: '', organization: 'Sample District of Metchosin', closesAt: iso(DAY), closingRaw: '', referenceNumber: '' },
-        { title: 'ITT PRK-26-07 – Sports Field Mowing and Turf Maintenance', url: '', organization: 'Sample City of Langford', closesAt: iso(12 * DAY), closingRaw: '', referenceNumber: 'PRK-26-07' },
-        { title: 'Washroom Building Renovation', url: '', organization: 'Sample Town of Sidney', closesAt: iso(9 * DAY), closingRaw: '', referenceNumber: 'ENG 26-03' },
-      ],
-      requests: [],
-    };
-  }
-  return {
-    status: 'ok',
-    message: 'Read 1 page and found 3 notices.',
-    ms: 2412,
-    count: 3,
-    sample: [
-      { title: 'RFQ 26-140 – Boulevard and Median Landscape Maintenance', url: 'https://bids.example/notice/101', organization: 'Sample District of Saanich', closesAt: iso(3 * DAY), closingRaw: '', referenceNumber: 'RFQ 26-140' },
-      { title: 'Tree Pruning – Various Parks', url: 'https://bids.example/notice/77', organization: 'Sample District of Saanich', closesAt: null, closingRaw: 'Early December', referenceNumber: '' },
-      { title: 'Washroom Building Renovation', url: 'https://bids.example/notice/78', organization: '', closesAt: iso(9 * DAY), closingRaw: '', referenceNumber: 'ENG 26-03' },
-    ],
-    requests: [robots, { url, status: 200, bytes: 48_220, ms: 1490 }],
-  };
-}
-
 // ---------------------------------------------------------------------------
 // Router
 // ---------------------------------------------------------------------------
 
 type Body = Record<string, unknown>;
+
+let v2: MockV2State = { changes: [], feedback: [], awards: [], savedSearches: [], recipients: [] };
+
+/** Live view of the core state for the mock modules (getters, so reassignments here are seen there). */
+const state: MockState = {
+  get opportunities() {
+    return opportunities;
+  },
+  set opportunities(value) {
+    opportunities = value;
+  },
+  get applications() {
+    return applications;
+  },
+  set applications(value) {
+    applications = value;
+  },
+  get sources() {
+    return sources;
+  },
+  set sources(value) {
+    sources = value;
+  },
+  get v2() {
+    return v2;
+  },
+  set v2(value) {
+    v2 = value;
+  },
+};
+
+const ctx: MockContext = { state, newId: () => nextId++, updateApp: (id, fn) => updateApp(id, fn), recompute: (a) => recompute(a) };
+
+/** v2 and moved routes, tried in order before the core routes. */
+const MODULES: MockModule[] = [sourceRoutes, awards, alerts, feedback, searches, manual];
 
 async function route(method: string, fullPath: string, rawBody: unknown): Promise<MockResponse> {
   await new Promise((r) => setTimeout(r, 120 + Math.random() * 180));
@@ -731,6 +650,14 @@ async function route(method: string, fullPath: string, rawBody: unknown): Promis
   if (authRequired && !authenticated) return fail(401, 'Please sign in.');
 
   if (path === '/api/dashboard') return ok(dashboard());
+
+  for (const handle of MODULES) {
+    const res = await handle(ctx, { method, path, q, body, rawBody });
+    if (res) return res;
+  }
+  if (path === '/api/status' || path === '/api/recipients' || /^\/api\/recipients\/\d+(\/test)?$/.test(path)) {
+    return fail(501, 'Not built yet.');
+  }
 
   // Opportunities
   if (path === '/api/opportunities' && method === 'GET') {
@@ -807,9 +734,6 @@ async function route(method: string, fullPath: string, rawBody: unknown): Promis
       submittedVia: String(body.via ?? ''),
       submissionRef: String(body.ref ?? ''),
     }));
-  }
-  if ((r = m(/^\/api\/applications\/(\d+)\/status$/))) {
-    return updateApp(Number(r[1]), (x) => recompute({ ...x, status: body.status as ApplicationStatus }));
   }
   if ((r = m(/^\/api\/applications\/(\d+)\/files$/))) {
     const file = rawBody instanceof FormData ? rawBody.get('file') : null;
@@ -889,34 +813,6 @@ async function route(method: string, fullPath: string, rawBody: unknown): Promis
       email = { ...email, ...(rest as Partial<EmailSettingsView>), hasPassword: email.hasPassword || !!pass, verifiedAt: null };
     }
     return ok(email);
-  }
-
-  // Sources
-  if (path === '/api/sources/test') return ok(sampleTest(body as unknown as SourceInput));
-  if (path === '/api/sources' && method === 'POST') {
-    const input = body as unknown as SourceInput;
-    const s = source({ id: `custom-${nextId++}`, name: input.name, kind: input.kind, builtin: false, notes: input.notes, config: input.config, lastStatus: 'never', lastRunAt: null, lastOkAt: null, lastItemCount: null, enabled: input.enabled });
-    sources.push(s);
-    return ok(s);
-  }
-  if (path === '/api/sources') return ok(sources);
-  if ((r = m(/^\/api\/sources\/([\w-]+)\/test$/))) {
-    const s = sources.find((x) => x.id === r![1]);
-    if (!s) return fail(404, 'That source no longer exists.');
-    const result = sampleTest(s);
-    if (result.status === 'ok' && result.count > 0) s.layoutWarning = '';
-    return ok(result);
-  }
-  if ((r = m(/^\/api\/sources\/([\w-]+)$/))) {
-    const i = sources.findIndex((x) => x.id === r![1]);
-    if (i < 0) return fail(404, 'That source no longer exists.');
-    if (method === 'DELETE') {
-      if (sources[i]!.builtin) return fail(409, 'Built-in sources cannot be deleted. Turn it off instead.');
-      sources.splice(i, 1);
-      return ok({ ok: true });
-    }
-    sources[i] = { ...sources[i]!, ...(body as Partial<SourceRecord>) };
-    return ok(sources[i]);
   }
 
   // Documents
@@ -1055,7 +951,7 @@ interface Snapshot {
 
 function save(): void {
   if (!PERSIST) return;
-  const state = { profile, opportunities, applications, documents, sources, automation, region, alertInbox, push, email, runs, events, nextId };
+  const state = { profile, opportunities, applications, documents, sources, automation, region, alertInbox, push, email, runs, events, nextId, v2 };
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ savedAt: Date.now(), state } satisfies Snapshot));
   } catch {
@@ -1099,6 +995,7 @@ function restore(): void {
   runs = st.runs ?? runs;
   events = st.events ?? events;
   nextId = st.nextId ?? nextId;
+  v2 = { ...v2, ...((st.v2 as Partial<MockV2State> | undefined) ?? {}) };
 }
 restore();
 

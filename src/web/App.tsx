@@ -19,6 +19,7 @@ const DocumentsPage = lazy(() => import('./pages/Documents.js').then((m) => ({ d
 const SourcesPage = lazy(() => import('./pages/Sources.js').then((m) => ({ default: m.SourcesPage })));
 const SettingsPage = lazy(() => import('./pages/Settings.js').then((m) => ({ default: m.SettingsPage })));
 const ActivityPage = lazy(() => import('./pages/Activity.js').then((m) => ({ default: m.ActivityPage })));
+const InsightsPage = lazy(() => import('./pages/Insights.js').then((m) => ({ default: m.InsightsPage })));
 const HelpPage = lazy(() => import('./pages/Help.js').then((m) => ({ default: m.HelpPage })));
 
 /** Shows its content only if loading takes longer than a moment, so fast loads do not flash a spinner. */
@@ -103,6 +104,7 @@ export function App() {
             <Route path="/applications/:id" element={<ApplicationDetailPage />} />
             <Route path="/profile" element={<ProfilePage />} />
             <Route path="/documents" element={<DocumentsPage />} />
+            <Route path="/insights" element={<InsightsPage />} />
             <Route path="/sources" element={<SourcesPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/activity" element={<ActivityPage />} />

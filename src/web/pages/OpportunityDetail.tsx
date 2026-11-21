@@ -7,6 +7,10 @@ import { ApplicationChip, DecisionChip, ReasonList, ScoreBadge } from '../compon
 import { Icon } from '../components/Icon.js';
 import { Term } from '../components/Popover.js';
 import { BackLink, Callout, ErrorBox, ExternalLink, Live, Loading, PlainText, Section } from '../components/ui.js';
+import { AlertsToggle } from '../components/opportunity/AlertsToggle.js';
+import { AwardSection } from '../components/opportunity/AwardSection.js';
+import { ChangesSection } from '../components/opportunity/ChangesSection.js';
+import { FeedbackButtons } from '../components/opportunity/FeedbackButtons.js';
 
 function RequirementRow({ r }: { r: Requirement }) {
   const [cls, symbol, text] =
@@ -118,9 +122,11 @@ export function OpportunityDetailPage() {
         ) : null}
       </div>
       <Live message={action.message} />
+      <AlertsToggle opportunity={o} onChange={res.setData} />
 
       <div className="detail-grid">
         <div className="detail-main">
+          <ChangesSection opportunity={o} onChange={res.setData} />
           <Section title="Why this score">
             {a ? <ReasonList reasons={a.reasons} /> : <p className="muted">This notice has not been scored yet.</p>}
             {a && a.services.length > 0 ? (
@@ -128,7 +134,10 @@ export function OpportunityDetailPage() {
                 <strong>Work involved:</strong> {a.services.map((s) => SERVICE_LABELS[s]).join(', ')}
               </p>
             ) : null}
+            <FeedbackButtons opportunity={o} onChange={res.setData} />
           </Section>
+
+          <AwardSection opportunity={o} onChange={res.reload} />
 
           <Section title="Requirements">
             {a && a.requirements.length > 0 ? (

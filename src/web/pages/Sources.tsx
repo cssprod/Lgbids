@@ -7,6 +7,7 @@ import { useAction, useDocumentTitle, useFormat, useResource } from '../hooks.js
 import { ConfirmDialog } from '../components/Dialog.js';
 import { SourceChip } from '../components/status.js';
 import { Callout, Check, Empty, ErrorBox, ExternalLink, Live, Loading, PageHeader } from '../components/ui.js';
+import { CoverageSection } from '../components/sources/CoverageSection.js';
 import { formatBytes, formatDuration, plural } from '../format.js';
 
 export function SourcesPage() {
@@ -64,6 +65,7 @@ export function SourcesPage() {
               </ul>
             </details>
           ) : null}
+          <CoverageSection />
         </>
       ) : null}
     </>

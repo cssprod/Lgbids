@@ -7,6 +7,7 @@ import type { AutomationMode, RunRecord } from '../../shared/schemas.js';
 import { useAction, useDocumentTitle, useFormat, useInterval, useResource } from '../hooks.js';
 import { ApplicationChip, SourceChip, TRIGGER_TEXT } from '../components/status.js';
 import { Callout, Empty, ErrorBox, Live, PageHeader, Section, SkeletonList } from '../components/ui.js';
+import { AwaitingResult } from '../components/dashboard/AwaitingResult.js';
 import { plural } from '../format.js';
 import { Icon } from '../components/Icon.js';
 
@@ -360,6 +361,8 @@ export function DashboardPage({ onTimeZone }: { onTimeZone: (tz: string) => void
 
       </>
       ) : null}
+
+      <AwaitingResult count={d.counts.awaitingResult} />
 
       <Section title="Where bids come from" actions={<Link to="/sources" className="small">Manage sources</Link>}>
         {alertSource ? (

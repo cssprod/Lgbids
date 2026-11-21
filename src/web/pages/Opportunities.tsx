@@ -5,6 +5,9 @@ import type { OpportunityList, OpportunityViewName } from '../../shared/api.js';
 import type { Opportunity, SourceRecord } from '../../shared/schemas.js';
 import { NOTICE_TYPE_LABELS, SUBMISSION_METHOD_LABELS } from '../../shared/schemas.js';
 import { isNewSince, lastVisit, useDocumentTitle, useFormat, useResource } from '../hooks.js';
+import { ManualAddDialog } from '../components/ManualAddDialog.js';
+import { ChangedChip } from '../components/opportunity/ChangedChip.js';
+import { ReportMissedLink } from '../components/opportunity/ReportMissedLink.js';
 import { ApplicationChip, DecisionChip, ScoreWithReasons } from '../components/status.js';
 import { Term } from '../components/Popover.js';
 import { Chip, Empty, ErrorBox, PageHeader, SkeletonList } from '../components/ui.js';
@@ -143,6 +146,7 @@ export function OpportunitiesPage() {
           </a>
         }
       />
+      <ManualAddDialog onAdded={() => setNonce((n) => n + 1)} />
       <div className="toolbar">
         <nav aria-label="Filter opportunities" className="tabs">
           {VIEWS.map((v) => (
@@ -234,6 +238,7 @@ export function OpportunitiesPage() {
           ) : null}
         </div>
       ) : null}
+      <ReportMissedLink />
     </>
   );
 }
@@ -291,6 +296,7 @@ function OpportunityRow({ o, isNew, onChanged }: { o: Opportunity; isNew: boolea
               New
             </Chip>
           ) : null}
+          <ChangedChip opportunity={o} since={lastVisit()} />
           <DecisionChip decision={o.decision} userDecision={o.userDecision} />
           {o.application ? <ApplicationChip status={o.application.status} /> : null}
           <span className="how">
