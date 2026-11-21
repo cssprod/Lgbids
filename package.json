@@ -17,12 +17,18 @@
     "build:prototype": "node scripts/prototype.mjs",
     "start": "node dist/server/index.js",
     "app": "node scripts/launch.mjs",
-    "typecheck": "tsc -p tsconfig.json && tsc -p src/web/tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json && tsc -p src/web/tsconfig.json && tsc -p tests/web/tsconfig.json && tsc -p e2e/tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
     "check-sources": "tsx src/server/cli/checkSources.ts",
     "run-once": "tsx src/server/cli/runOnce.ts",
-    "demo": "tsx src/server/cli/demo.ts"
+    "demo": "tsx src/server/cli/demo.ts",
+    "eval": "tsx scripts/eval-matching.ts",
+    "check:bundles": "node scripts/check-bundles.mjs",
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "playwright test",
+    "test:e2e:demo": "playwright test --project=demo",
+    "test:e2e:prototype": "playwright test --project=prototype"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.5",
