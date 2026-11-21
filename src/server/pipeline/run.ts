@@ -523,7 +523,21 @@ export function createPipeline(deps: AppDeps): Pipeline {
         stat.status = outcome.status;
         stat.message = messages.filter(Boolean).join(' ');
         stat.found = outcome.items.length;
-        store.recordSourceRun(source.id, { status: outcome.status, message: stat.message, itemCount: outcome.unchanged ? source.lastItemCount : outcome.items.length }, now);
+        const health = store.recordSourceRun(
+          source.id,
+          {
+            status: outcome.status,
+            message: stat.message,
+            itemCount: outcome.unchanged ? source.lastItemCount : outcome.items.length,
+            unchanged: outcome.unchanged,
+            incremental: connectorFor(source.kind).incremental === true,
+          },
+          now,
+        );
+        if (health.raised) {
+          stat.layoutWarning = health.layoutWarning;
+          event('warn', 'source', `${source.name}: ${health.layoutWarning}`, { runId });
+        }
       } catch (error) {
         stat.status = 'error';
         stat.message = `Reading this source failed unexpectedly: ${errorText(error)}`;

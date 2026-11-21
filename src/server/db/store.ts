@@ -35,6 +35,7 @@ import type {
 } from '../contracts.js';
 import { organizationKey } from '../matching/geo.js';
 import { extractReference, referenceKey, titleKey } from '../matching/notice.js';
+import { nextLayoutHealth } from '../sources/health.js';
 import type { RawOpportunity } from '../sources/types.js';
 import { nowIso } from '../util/dates.js';
 import { sha1 } from '../util/text.js';
@@ -70,6 +71,8 @@ interface SourceRow {
   last_message: string;
   last_item_count: number | null;
   consecutive_failures: number;
+  layout_warning: string;
+  last_ok_item_count: number | null;
 }
 
 /** The columns a listing or a notice page can change. */
@@ -324,6 +327,7 @@ function toSource(row: SourceRow): SourceRecord {
     lastMessage: row.last_message,
     lastItemCount: row.last_item_count,
     consecutiveFailures: row.consecutive_failures,
+    layoutWarning: row.layout_warning ?? '',
   };
 }
 
@@ -611,11 +615,13 @@ export function createStore(db: Database): Store {
         notes: patch.notes ?? existing.notes,
         config: patch.config ?? existing.config,
       };
-      // A new address or pattern makes any saved ETag or paging state meaningless.
+      // A new address or pattern makes any saved ETag or paging state, and a
+      // warning about the old page's layout, meaningless.
       const configChanged = patch.config !== undefined && JSON.stringify(patch.config) !== JSON.stringify(existing.config);
       db.run(
         `UPDATE sources SET name = :name, enabled = :enabled, notes = :notes, config = :config,
-           state = CASE WHEN :reset = 1 THEN '{}' ELSE state END, updated_at = :at
+           state = CASE WHEN :reset = 1 THEN '{}' ELSE state END,
+           layout_warning = CASE WHEN :reset = 1 THEN '' ELSE layout_warning END, updated_at = :at
          WHERE id = :id`,
         { ...next, config: JSON.stringify(next.config), reset: configChanged, at: nowIso(now), id },
       );
@@ -636,9 +642,21 @@ export function createStore(db: Database): Store {
              VALUES (:id, :name, :kind, :enabled, 1, :notes, :config, :at, :at)
              ON CONFLICT(id) DO UPDATE SET
                notes = excluded.notes,
-               enabled = CASE WHEN excluded.enabled = 0 THEN 0 ELSE sources.enabled END
+               enabled = CASE WHEN :forceOff = 1 THEN 0 ELSE sources.enabled END
              WHERE sources.builtin = 1`,
-            { id: d.id, name: d.name, kind: d.kind, enabled: d.enabled === false ? 0 : 1, notes: d.notes, config: JSON.stringify(d.config), at },
+            {
+              id: d.id,
+              name: d.name,
+              kind: d.kind,
+              // "Ships off" only sets the first state, so a source the user turned
+              // on stays on across restarts; "forced off" (a site that refuses
+              // automated reading) is switched off again every time.
+              enabled: d.enabled === false || d.forceOff ? 0 : 1,
+              forceOff: d.forceOff ? 1 : 0,
+              notes: d.notes,
+              config: JSON.stringify(d.config),
+              at,
+            },
           );
         }
       });
@@ -648,14 +666,26 @@ export function createStore(db: Database): Store {
     recordSourceRun(id, result, now) {
       const at = nowIso(now);
       const ok = result.status === 'ok' || result.status === 'empty';
+      const before = db.get<{ layout_warning: string; last_ok_item_count: number | null }>(
+        'SELECT layout_warning, last_ok_item_count FROM sources WHERE id = :id',
+        { id },
+      );
+      const health = nextLayoutHealth({ okItemCount: before?.last_ok_item_count ?? null, warning: before?.layout_warning ?? '' }, result);
       db.run(
         `UPDATE sources SET last_run_at = :at, last_status = :status, last_message = :message,
            last_item_count = :count,
            last_ok_at = CASE WHEN :ok = 1 THEN :at ELSE last_ok_at END,
+           last_ok_item_count = CASE WHEN :ok = 1 THEN :count ELSE last_ok_item_count END,
+           layout_warning = :warning,
            consecutive_failures = CASE WHEN :ok = 1 THEN 0 ELSE consecutive_failures + 1 END
          WHERE id = :id`,
-        { at, status: result.status, message: result.message, count: result.itemCount, ok, id },
+        { at, status: result.status, message: result.message, count: result.itemCount, ok, warning: health.warning, id },
       );
+      return { layoutWarning: health.warning, raised: health.raised };
+    },
+
+    clearLayoutWarning(id) {
+      db.run("UPDATE sources SET layout_warning = '' WHERE id = :id", { id });
     },
 
     getSourceState(id) {

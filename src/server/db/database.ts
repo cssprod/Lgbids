@@ -262,6 +262,11 @@ const MIGRATIONS: string[] = [
     expires_at TEXT NOT NULL
   );
   `,
+  // 2: "layout may have changed" warning per source, and the count from its last successful read.
+  `
+  ALTER TABLE sources ADD COLUMN layout_warning TEXT NOT NULL DEFAULT '';
+  ALTER TABLE sources ADD COLUMN last_ok_item_count INTEGER;
+  `,
 ];
 
 /** Open the database file and bring its schema up to date. */

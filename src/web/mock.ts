@@ -7,6 +7,8 @@
  */
 import type {
   AlertInboxView,
+  PushSettingsView,
+  TelegramChatResult,
   ActionResult,
   DashboardResponse,
   EmailSettingsView,
@@ -32,7 +34,9 @@ import type {
   SourceRecord,
 } from '../shared/schemas.js';
 import { automationSchema, profileSchema, sourceConfigSchema } from '../shared/schemas.js';
+import { opportunitiesCsv, opportunitiesCsvFilename } from '../shared/csv.js';
 import type { MockResponse } from './api.js';
+import { formatDate, formatDateTime } from './format.js';
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
@@ -427,6 +431,7 @@ function source(p: Partial<SourceRecord> & Pick<SourceRecord, 'id' | 'name' | 'k
     lastMessage: '',
     lastItemCount: 12,
     consecutiveFailures: 0,
+    layoutWarning: '',
     ...p,
   };
 }
@@ -435,6 +440,9 @@ const BONFIRE_OFF =
   'Turned off: Bonfire portals ask automated tools not to read them (their robots.txt disallows everything), so Lgbids leaves them alone. To hear about new bids, register a free vendor account on the portal and follow this buyer; Bonfire then e-mails you new opportunities.';
 const CANADABUYS_OFF =
   'Turned off: canadabuys.canada.ca asks automated tools other than search engines not to read it (robots.txt), so Lgbids leaves it alone.';
+function unchecked(about: string): string {
+  return `${about} Not yet checked against the live site, so it ships turned off. Press “Test” to see whether it reads correctly, then turn it on.`;
+}
 const off = { enabled: false, lastStatus: 'never' as const, lastRunAt: null, lastOkAt: null, lastItemCount: null };
 
 // Mirrors DEFAULT_SOURCES in src/server/sources/registry.ts (beta set-up after the live check).
@@ -466,6 +474,17 @@ let sources: SourceRecord[] = [
   source({ id: 'bonfire-northsaanich', name: 'District of North Saanich — procurement portal', kind: 'bonfire', notes: BONFIRE_OFF, ...off }),
   source({ id: 'bonfire-uvic', name: 'University of Victoria — procurement portal', kind: 'bonfire', notes: BONFIRE_OFF, ...off }),
   source({ id: 'crd', name: 'Capital Regional District — current opportunities', kind: 'html_list', notes: 'Turned off: the CRD’s old bid site (bid.crd.ca) now answers “not found” for every page, and its replacement on crd.ca could not be checked yet. Look at the CRD’s current opportunities on crd.ca until this source is updated.', ...off }),
+  source({ id: 'sooke', name: 'District of Sooke — bid and tender opportunities', kind: 'html_list', notes: unchecked('Sooke’s own bids page.'), ...off }),
+  source({ id: 'langford', name: 'City of Langford — requests for proposals', kind: 'html_list', notes: unchecked('Langford’s own RFP page.'), ...off }),
+  source({ id: 'colwood', name: 'City of Colwood — tenders and requests for proposals', kind: 'html_list', notes: unchecked('Colwood’s own tenders page.'), ...off }),
+  source({ id: 'viewroyal', name: 'Town of View Royal — tenders and RFPs', kind: 'html_list', notes: unchecked('View Royal’s own tenders page.'), ...off }),
+  source({
+    id: 'sidney',
+    name: 'Town of Sidney — bidding opportunities',
+    kind: 'html_list',
+    notes: unchecked('Sidney’s own bids page. Sidney takes bids through its bids&tenders portal, which needs a vendor login, so Lgbids prepares the package and you upload it there.'),
+    ...off,
+  }),
   source({ id: 'civicinfo-bc', name: 'CivicInfo BC — local government bids', kind: 'html_list', notes: 'Turned off: CivicInfo BC puts a Cloudflare browser check in front of its bid listing, so it cannot be read automatically. Check civicinfo.bc.ca/bids in your browser.', ...off }),
 ];
 
@@ -477,6 +496,7 @@ let region: RegionSettings = {
 };
 const defaultRegion = structuredClone(region);
 let alertInbox: AlertInboxView = { host: 'imap.gmail.com', port: 993, secure: true, user: '', folder: 'INBOX', lookbackDays: 30, verifiedAt: null, hasPassword: false };
+let push: PushSettingsView = { provider: 'off', telegramChatId: '', ntfyServer: 'https://ntfy.sh', ntfyTopic: '', verifiedAt: null, hasTelegramToken: false, hasNtfyToken: false };
 let email: EmailSettingsView = {
   host: 'smtp.example.com',
   port: 587,
@@ -559,6 +579,24 @@ function viewOf(o: Opportunity): OpportunityViewName[] {
   else if (o.decision === 'review') v.push('review');
   else if (o.decision === 'unsuitable') v.push('unsuitable');
   return v;
+}
+
+/** The list filters, as the server applies them; the CSV download takes the same ones. */
+function filterOpportunities(q: URLSearchParams): { items: Opportunity[]; counts: Record<OpportunityViewName, number> } {
+  const view = (q.get('view') ?? 'suitable') as OpportunityViewName;
+  const text = (q.get('q') ?? '').toLowerCase();
+  const sourceId = q.get('sourceId') ?? '';
+  const within = Number(q.get('closingWithinDays') ?? 0);
+  const match = (o: Opportunity) =>
+    (!text || `${o.title} ${o.organization} ${o.referenceNumber}`.toLowerCase().includes(text)) &&
+    (!sourceId || o.sourceId === sourceId) &&
+    (!within || (o.closesAt !== null && new Date(o.closesAt).getTime() <= Date.now() + within * DAY));
+  const counts = { suitable: 0, review: 0, unsuitable: 0, closed: 0, dismissed: 0, all: 0 } as Record<OpportunityViewName, number>;
+  for (const o of opportunities.filter(match)) for (const v of viewOf(o)) counts[v]++;
+  const items = opportunities
+    .filter((o) => match(o) && viewOf(o).includes(view))
+    .sort((a, b) => (b.suitabilityScore ?? 0) - (a.suitabilityScore ?? 0));
+  return { items, counts };
 }
 
 function recompute(a: Application): Application {
@@ -689,16 +727,9 @@ async function route(method: string, fullPath: string, rawBody: unknown): Promis
 
   // Opportunities
   if (path === '/api/opportunities' && method === 'GET') {
-    const view = (q.get('view') ?? 'suitable') as OpportunityViewName;
-    const text = (q.get('q') ?? '').toLowerCase();
     const limit = Number(q.get('limit') ?? 50);
     const offset = Number(q.get('offset') ?? 0);
-    const match = (o: Opportunity) => !text || `${o.title} ${o.organization} ${o.referenceNumber}`.toLowerCase().includes(text);
-    const counts = { suitable: 0, review: 0, unsuitable: 0, closed: 0, dismissed: 0, all: 0 } as Record<OpportunityViewName, number>;
-    for (const o of opportunities.filter(match)) for (const v of viewOf(o)) counts[v]++;
-    const items = opportunities
-      .filter((o) => match(o) && viewOf(o).includes(view))
-      .sort((a, b) => (b.suitabilityScore ?? 0) - (a.suitabilityScore ?? 0));
+    const { items, counts } = filterOpportunities(q);
     return ok({ items: items.slice(offset, offset + limit), total: items.length, counts } satisfies OpportunityList);
   }
   if ((r = m(/^\/api\/opportunities\/(\d+)$/))) {
@@ -818,6 +849,28 @@ async function route(method: string, fullPath: string, rawBody: unknown): Promis
     }
     return ok(alertInbox);
   }
+  // Phone alerts: the prototype keeps the settings but never contacts Telegram or ntfy.
+  if (path === '/api/settings/push/test') {
+    push = { ...push, verifiedAt: new Date().toISOString() };
+    return ok({ ok: true, message: 'This is the prototype, so no alert was actually sent. In the real app a test alert would now arrive on your phone.' } satisfies ActionResult);
+  }
+  if (path === '/api/settings/push/telegram-chat') {
+    push = { ...push, telegramChatId: '123456789', verifiedAt: null };
+    return ok({ ok: true, chatId: '123456789', message: 'Found the chat with you and saved it (a sample chat id in the prototype). Now send a test alert.' } satisfies TelegramChatResult);
+  }
+  if (path === '/api/settings/push') {
+    if (method === 'PUT') {
+      const { telegramToken, ntfyToken, removeNtfyToken, ...rest } = body as Body & { telegramToken?: string; ntfyToken?: string; removeNtfyToken?: boolean };
+      push = {
+        ...push,
+        ...(rest as Partial<PushSettingsView>),
+        hasTelegramToken: push.hasTelegramToken || !!telegramToken,
+        hasNtfyToken: !removeNtfyToken && (push.hasNtfyToken || !!ntfyToken),
+        verifiedAt: null,
+      };
+    }
+    return ok(push);
+  }
   if (path === '/api/alerts/import') return ok({ ok: true, message: 'The e-mail was imported. It is read on the next check.' } satisfies ActionResult);
   if (path === '/api/settings/email/test') {
     email = { ...email, verifiedAt: new Date().toISOString() };
@@ -842,7 +895,10 @@ async function route(method: string, fullPath: string, rawBody: unknown): Promis
   if (path === '/api/sources') return ok(sources);
   if ((r = m(/^\/api\/sources\/([\w-]+)\/test$/))) {
     const s = sources.find((x) => x.id === r![1]);
-    return s ? ok(sampleTest(s)) : fail(404, 'That source no longer exists.');
+    if (!s) return fail(404, 'That source no longer exists.');
+    const result = sampleTest(s);
+    if (result.status === 'ok' && result.count > 0) s.layoutWarning = '';
+    return ok(result);
   }
   if ((r = m(/^\/api\/sources\/([\w-]+)$/))) {
     const i = sources.findIndex((x) => x.id === r![1]);
@@ -992,7 +1048,7 @@ interface Snapshot {
 
 function save(): void {
   if (!PERSIST) return;
-  const state = { profile, opportunities, applications, documents, sources, automation, region, alertInbox, email, runs, events, nextId };
+  const state = { profile, opportunities, applications, documents, sources, automation, region, alertInbox, push, email, runs, events, nextId };
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ savedAt: Date.now(), state } satisfies Snapshot));
   } catch {
@@ -1031,6 +1087,7 @@ function restore(): void {
   automation = st.automation ?? automation;
   region = st.region ?? region;
   alertInbox = st.alertInbox ?? alertInbox;
+  push = st.push ?? push;
   email = st.email ?? email;
   runs = st.runs ?? runs;
   events = st.events ?? events;
@@ -1150,6 +1207,15 @@ export async function mockDownload(href: string): Promise<MockDownload | null> {
     const id = Number(url.searchParams.get('id'));
     const items = id ? opportunities.filter((o) => o.id === id) : opportunities.filter((o) => viewOf(o).includes('suitable'));
     return { blob: new Blob([calendar(items)], { type: 'text/calendar' }), filename: id ? `bid-${id}.ics` : 'bid-closing-dates.ics' };
+  }
+  if (path === '/api/opportunities.csv') {
+    const zone = 'America/Vancouver';
+    const text = opportunitiesCsv(filterOpportunities(url.searchParams).items, {
+      closes: (o) => (o.closesAtPrecision === 'date' ? formatDate(o.closesAt, zone) : formatDateTime(o.closesAt, zone)),
+      firstSeen: (o) => formatDateTime(o.firstSeenAt, zone),
+    });
+    const day = new Intl.DateTimeFormat('en-CA', { timeZone: zone }).format(new Date());
+    return { blob: new Blob([text], { type: 'text/csv;charset=utf-8' }), filename: opportunitiesCsvFilename(day) };
   }
   if ((r = /^\/api\/applications\/(\d+)\/package\.pdf$/.exec(path))) {
     const a = applications.find((x) => x.id === Number(r![1]));

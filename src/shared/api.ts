@@ -1,4 +1,4 @@
-import type { AlertInboxSettings, Application, Dashboard, EmailSettings, Opportunity, Profile, RunRecord, SourceStatus } from './schemas.js';
+import type { AlertInboxSettings, Application, Dashboard, EmailSettings, Opportunity, Profile, PushSettings, RunRecord, SourceStatus } from './schemas.js';
 
 /**
  * The HTTP API between the web UI and the server. Types only.
@@ -13,6 +13,7 @@ import type { AlertInboxSettings, Application, Dashboard, EmailSettings, Opportu
  * GET    /api/dashboard                       -> DashboardResponse
  *
  * GET    /api/opportunities?view&q&sourceId&closingWithinDays&limit&offset -> OpportunityList
+ * GET    /api/opportunities.csv?view&q&sourceId&closingWithinDays -> text/csv (UTF-8 with BOM, every match, attachment)
  * GET    /api/opportunities/:id               -> Opportunity
  * POST   /api/opportunities/:id/decision {decision: 'pursue'|'dismissed'|null} -> Opportunity
  *          ('pursue' also drafts the application)
@@ -43,6 +44,10 @@ import type { AlertInboxSettings, Application, Dashboard, EmailSettings, Opportu
  * GET    /api/settings/alert-inbox            -> AlertInboxView
  * PUT    /api/settings/alert-inbox (AlertInboxSettings; empty pass keeps the saved one) -> AlertInboxView
  * POST   /api/settings/alert-inbox/test       -> ActionResult
+ * GET    /api/settings/push                   -> PushSettingsView
+ * PUT    /api/settings/push    PushSettingsInput -> PushSettingsView
+ * POST   /api/settings/push/test              -> ActionResult   (sends a test alert with the saved settings)
+ * POST   /api/settings/push/telegram-chat     -> TelegramChatResult (finds and saves the chat that last messaged the bot)
  * POST   /api/alerts/import     multipart: one .eml file -> ActionResult
  *
  * GET    /api/sources                         -> SourceRecord[]
@@ -98,6 +103,17 @@ export type EmailSettingsView = Omit<EmailSettings, 'pass'> & {
 };
 
 export type AlertInboxView = Omit<AlertInboxSettings, 'pass'> & { hasPassword: boolean };
+
+/** Push settings without the secrets; the booleans say whether one is saved. */
+export type PushSettingsView = Omit<PushSettings, 'telegramToken' | 'ntfyToken'> & { hasTelegramToken: boolean; hasNtfyToken: boolean };
+
+/** PUT /api/settings/push body: empty tokens keep the saved ones; removeNtfyToken forgets it. */
+export type PushSettingsInput = Omit<PushSettings, 'verifiedAt'> & { removeNtfyToken?: boolean };
+
+export interface TelegramChatResult extends ActionResult {
+  /** The chat that was found and saved, when ok. */
+  chatId?: string;
+}
 
 export interface ActionResult {
   ok: boolean;

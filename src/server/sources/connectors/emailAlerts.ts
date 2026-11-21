@@ -37,6 +37,8 @@ async function importedFiles(dir: string): Promise<{ name: string; path: string 
 
 export const emailAlerts: Connector = {
   kind: 'email_alerts',
+  // Only alert e-mails newer than the saved position are returned.
+  incremental: true,
 
   async list(_source: SourceRecord, ctx: ConnectorContext): Promise<ListResult> {
     const alerts = ctx.alerts;

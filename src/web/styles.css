@@ -157,6 +157,8 @@ svg {
 code {
   font-family: var(--mono);
   font-size: 0.9em;
+  /* Long URLs in setup steps must wrap instead of widening the page on phones. */
+  overflow-wrap: anywhere;
 }
 
 :focus-visible {

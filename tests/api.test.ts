@@ -748,6 +748,54 @@ describe('opportunities', () => {
   });
 });
 
+describe('opportunities spreadsheet', () => {
+  it('downloads every match of the current filters as an Excel-friendly CSV', async () => {
+    const { app, deps } = await harness();
+    seedOpportunity(deps, { title: 'Boulevard mowing, phase 2', closesAt: at(24 * 3) });
+    seedOpportunity(deps, { title: '=HYPERLINK("https://evil.example")', closesAt: at(24 * 12) });
+    seedOpportunity(deps, { title: 'Snow clearing', decision: 'unsuitable' });
+
+    const res = await app.inject({ method: 'GET', url: '/api/opportunities.csv?view=suitable' });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-type']).toBe('text/csv; charset=utf-8');
+    // NOW is 1 PM on June 15 in Victoria.
+    expect(res.headers['content-disposition']).toBe('attachment; filename="lgbids-opportunities-2026-06-15.csv"');
+    expect(res.rawPayload.subarray(0, 3)).toEqual(Buffer.from([0xef, 0xbb, 0xbf]));
+    const lines = res.body.replace(/^\uFEFF/, '').trimEnd().split('\r\n');
+    expect(lines[0]).toBe('Title,Buyer,Source,Reference,Type,Decision,Score,Closes,Submission,Link,First seen');
+    expect(lines).toHaveLength(3);
+    expect(res.body).toContain('"Boulevard mowing, phase 2",District of Saanich,Test source,RFQ 26-1,');
+    expect(res.body).toContain(`"'=HYPERLINK(""https://evil.example"")"`);
+    expect(res.body).not.toContain('Snow clearing');
+
+    // The same filters as the list on screen.
+    const week = await app.inject({ method: 'GET', url: '/api/opportunities.csv?view=suitable&closingWithinDays=7&q=boulevard' });
+    expect(week.body.trimEnd().split('\r\n')).toHaveLength(2);
+    const other = await app.inject({ method: 'GET', url: '/api/opportunities.csv?view=all&sourceId=nowhere' });
+    expect(other.body.trimEnd().split('\r\n')).toHaveLength(1);
+    expect((await app.inject({ method: 'GET', url: '/api/opportunities.csv?view=nonsense' })).statusCode).toBe(400);
+  });
+
+  it('needs sign-in like the rest of the API', async () => {
+    const { app } = await harness({ appPassword: 'secret' });
+    expect((await app.inject({ method: 'GET', url: '/api/opportunities.csv' })).statusCode).toBe(401);
+  });
+});
+
+describe('source layout warning', () => {
+  it('is returned with the source and cleared by a test that lists notices', async () => {
+    const { app, deps } = await harness();
+    deps.store.recordSourceRun(SOURCE_ID, { status: 'ok', message: '', itemCount: 6 }, NOW);
+    const raised = deps.store.recordSourceRun(SOURCE_ID, { status: 'empty', message: 'Nothing is listed right now.', itemCount: 0 }, NOW);
+    expect(raised.raised).toBe(true);
+    const listed = (await app.inject({ method: 'GET', url: '/api/sources' })).json() as SourceRecord[];
+    expect(listed.find((s) => s.id === SOURCE_ID)!.layoutWarning).toMatch(/listed 6 notices last time — its layout may have changed/);
+
+    expect((await app.inject({ method: 'POST', url: `/api/sources/${SOURCE_ID}/test` })).statusCode).toBe(200);
+    expect(deps.store.getSource(SOURCE_ID)!.layoutWarning).toBe('');
+  });
+});
+
 describe('runs, events and calendar', () => {
   it('starts a run without waiting and refuses a second one', async () => {
     const { app, pipeline } = await harness();

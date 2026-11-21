@@ -26,16 +26,37 @@ export interface DefaultSource {
   kind: SourceKind;
   notes: string;
   config: SourceConfig;
-  /** False for a site that refuses automated reading; it ships turned off. */
+  /** False: a new install starts with it turned off, and the user may turn it on. */
   enabled?: boolean;
+  /**
+   * True for a site that refuses automated reading (robots.txt, a browser
+   * check) or no longer answers. It is switched off again at every start-up,
+   * so an upgrade cannot leave it running.
+   */
+  forceOff?: boolean;
 }
 
-function source(id: string, name: string, kind: SourceKind, notes: string, config: Partial<SourceConfig>, enabled = true): DefaultSource {
-  return { id, name, kind, notes, config: sourceConfigSchema.parse(config), enabled };
+/**
+ * `start`: 'on' (the default); 'off' ships turned off but stays on once the
+ * user turns it on; 'blocked' is kept off at every start-up.
+ */
+function source(
+  id: string,
+  name: string,
+  kind: SourceKind,
+  notes: string,
+  config: Partial<SourceConfig>,
+  start: 'on' | 'off' | 'blocked' = 'on',
+): DefaultSource {
+  return { id, name, kind, notes, config: sourceConfigSchema.parse(config), enabled: start === 'on', forceOff: start === 'blocked' };
 }
 
 const BONFIRE_OFF =
   'Turned off: Bonfire portals ask automated tools not to read them (their robots.txt disallows everything), so Lgbids leaves them alone. To hear about new bids, register a free vendor account on the portal and follow this buyer; Bonfire then e-mails you new opportunities.';
+/** Note for a built-in page that could not be checked from the development environment. */
+function unchecked(about: string): string {
+  return `${about} Not yet checked against the live site, so it ships turned off. Press “Test” to see whether it reads correctly, then turn it on.`;
+}
 const CANADABUYS_OFF =
   'Turned off: canadabuys.canada.ca asks automated tools other than search engines not to read it (robots.txt), so Lgbids leaves it alone.';
 
@@ -51,8 +72,11 @@ const CANADABUYS_OFF =
  * site no longer answers, and Oak Bay's page could not be reached from the
  * development environment (see each source's note).
  *
- * Greater Victoria bodies that are not listed separately (Langford, Colwood,
- * View Royal, Sidney, Sooke, Metchosin, Highlands, the school districts,
+ * Sooke, Langford, Colwood, View Royal and Sidney (added 2026-11-21) ship
+ * turned off until "Test" shows their own pages read correctly.
+ *
+ * Greater Victoria bodies that are not listed separately (Metchosin,
+ * Highlands, the school districts,
  * Camosun, Royal Roads, BC Transit, BC Housing ...) post on BC Bid, and are
  * picked up through the "BC Bid notices" source.
  */
@@ -63,7 +87,7 @@ export const DEFAULT_SOURCES: DefaultSource[] = [
     'email_alerts',
     'BC Bid and Bonfire e-mail you about new opportunities; Lgbids reads those alert e-mails from your inbox (read-only) or from .eml files you import here, and never opens the sites themselves. Set up the inbox under Settings → Bid alert inbox.',
     { fetchDetails: false, bcOnly: true },
-    false,
+    'off',
   ),
   source(
     'canadabuys-bcbid',
@@ -71,7 +95,7 @@ export const DEFAULT_SOURCES: DefaultSource[] = [
     'canadabuys_search',
     `${CANADABUYS_OFF} BC Bid itself puts a browser check in front of its listing. Most Greater Victoria municipalities, school districts and public bodies post on BC Bid: turn on BC Bid's own e-mail notifications for landscaping categories to hear about them.`,
     { url: CANADABUYS_SEARCH_URL, bcOnly: true, timeZone: 'America/Toronto', fetchDetails: true },
-    false,
+    'blocked',
   ),
   source(
     'canadabuys-federal',
@@ -79,7 +103,7 @@ export const DEFAULT_SOURCES: DefaultSource[] = [
     'canadabuys_csv',
     `${CANADABUYS_OFF} Federal work in the region (CFB Esquimalt, Parks Canada, federal buildings) is posted there: set up a saved search with e-mail alerts on CanadaBuys to hear about it.`,
     { url: CANADABUYS_OPEN_CSV, timeZone: 'America/Toronto', fetchDetails: false },
-    false,
+    'blocked',
   ),
   source(
     'bonfire-victoria',
@@ -93,7 +117,7 @@ export const DEFAULT_SOURCES: DefaultSource[] = [
     defaultSubmission: 'bonfire',
     fetchDetails: false,
     },
-    false,
+    'blocked',
   ),
   source(
     'bonfire-saanich',
@@ -107,7 +131,7 @@ export const DEFAULT_SOURCES: DefaultSource[] = [
     defaultSubmission: 'bonfire',
     fetchDetails: false,
     },
-    false,
+    'blocked',
   ),
   source('saanich-rss', 'District of Saanich — bid opportunities feed', 'rss', 'Saanich’s own website feed. It includes smaller quotation requests that are not posted on BC Bid.', {
     url: 'https://www.saanich.ca/EN/main/business/selling-to-saanich/bid-opportunities/data/tenders.rss',
@@ -128,7 +152,7 @@ export const DEFAULT_SOURCES: DefaultSource[] = [
     defaultSubmission: 'bonfire',
     fetchDetails: false,
     },
-    false,
+    'blocked',
   ),
   source(
     'bonfire-northsaanich',
@@ -142,7 +166,7 @@ export const DEFAULT_SOURCES: DefaultSource[] = [
     defaultSubmission: 'bonfire',
     fetchDetails: false,
     },
-    false,
+    'blocked',
   ),
   source(
     'bonfire-uvic',
@@ -156,7 +180,7 @@ export const DEFAULT_SOURCES: DefaultSource[] = [
     defaultSubmission: 'bonfire',
     fetchDetails: false,
     },
-    false,
+    'blocked',
   ),
   source(
     'crd',
@@ -170,7 +194,7 @@ export const DEFAULT_SOURCES: DefaultSource[] = [
     localBuyer: true,
     fetchDetails: true,
     },
-    false,
+    'blocked',
   ),
   source('esquimalt', 'Township of Esquimalt — bids & tenders', 'html_list', 'Esquimalt’s own bids page.', {
     url: 'https://www.esquimalt.ca/business-development/bids-tenders',
@@ -186,13 +210,56 @@ export const DEFAULT_SOURCES: DefaultSource[] = [
     defaultSubmission: 'bcbid',
     fetchDetails: true,
   }),
+  // The western communities and Sidney post smaller jobs on their own sites
+  // as well as on BC Bid. Not yet checked against the live pages, so they
+  // ship turned off; "Test" shows whether each one reads correctly.
+  source('sooke', 'District of Sooke — bid and tender opportunities', 'html_list', unchecked('Sooke’s own bids page.'), {
+    url: 'https://sooke.ca/municipal-hall/bid-and-tender-opportunities/',
+    organization: 'District of Sooke',
+    localBuyer: true,
+    fetchDetails: true,
+  }, 'off'),
+  source('langford', 'City of Langford — requests for proposals', 'html_list', unchecked('Langford’s own RFP page.'), {
+    url: 'https://langford.ca/rfps/',
+    organization: 'City of Langford',
+    localBuyer: true,
+    fetchDetails: true,
+  }, 'off'),
+  source('colwood', 'City of Colwood — tenders and requests for proposals', 'html_list', unchecked('Colwood’s own tenders page.'), {
+    url: 'https://www.colwood.ca/local-government/tenders-requests-proposals',
+    organization: 'City of Colwood',
+    localBuyer: true,
+    fetchDetails: true,
+  }, 'off'),
+  source('viewroyal', 'Town of View Royal — tenders and RFPs', 'html_list', unchecked('View Royal’s own tenders page.'), {
+    url: 'https://www.viewroyal.ca/EN/main/business/tenders-and-rfps.html',
+    organization: 'Town of View Royal',
+    localBuyer: true,
+    fetchDetails: true,
+  }, 'off'),
+  source(
+    'sidney',
+    'Town of Sidney — bidding opportunities',
+    'html_list',
+    unchecked(
+      'Sidney’s own bids page. Sidney takes bids through its bids&tenders portal, which needs a vendor login, so Lgbids prepares the package and you upload it there.',
+    ),
+    {
+      url: 'https://www.sidney.ca/government/bidding-opportunities/',
+      organization: 'Town of Sidney',
+      localBuyer: true,
+      defaultSubmission: 'bidsandtenders',
+      fetchDetails: true,
+    },
+    'off',
+  ),
   source(
     'civicinfo-bc',
     'CivicInfo BC — local government bids',
     'html_list',
     'Turned off: CivicInfo BC puts a Cloudflare browser check in front of its bid listing, so it cannot be read automatically. Smaller Greater Victoria municipalities post there; check civicinfo.bc.ca/bids in your browser.',
     { url: 'https://www.civicinfo.bc.ca/bids', pageParam: 'pn', pageStart: 1, maxPages: 5, bcOnly: true, fetchDetails: true },
-    false,
+    'blocked',
   ),
 ];
 
@@ -205,13 +272,16 @@ export async function listSource(record: SourceRecord, ctx: ConnectorContext): P
   const notes: string[] = [];
   const context: ConnectorContext = { ...ctx, note: (message) => notes.push(message) };
   try {
-    const result = await connectorFor(record.kind).list(record, context);
+    const connector = connectorFor(record.kind);
+    const result = await connector.list(record, context);
     const message = notes.join(' ');
     if (result.unchanged) {
       return { status: 'ok', message: message || 'No change since the last run.', items: [], unchanged: true, state: result.state, ms: Date.now() - started };
     }
     if (result.items.length === 0) {
-      return { status: 'empty', message: [message, EMPTY_HINT].filter(Boolean).join(' '), items: [], unchanged: false, state: result.state, ms: Date.now() - started };
+      // "The page has changed" does not apply to a source that only returns what is new.
+      const hint = connector.incremental ? '' : EMPTY_HINT;
+      return { status: 'empty', message: [message, hint].filter(Boolean).join(' '), items: [], unchanged: false, state: result.state, ms: Date.now() - started };
     }
     return { status: 'ok', message, items: result.items, unchanged: false, state: result.state, ms: Date.now() - started };
   } catch (error) {

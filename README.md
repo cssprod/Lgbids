@@ -48,6 +48,44 @@ On the Sources page you can turn each source on or off and test it, and each tur
 
 The app identifies itself, respects each site's robots.txt, and spaces its requests out.
 
+## Run it on your computer
+
+The easiest way: install [Node.js](https://nodejs.org) (the LTS version, 22.13 or newer), download this folder, and double-click the launcher for your system:
+
+| System | Double-click | Notes |
+| --- | --- | --- |
+| Windows | `Start Lgbids.bat` | |
+| macOS | `Start Lgbids.command` | The first time, macOS may say it cannot open it: Control-click it, choose **Open**, then **Open** again. |
+| Linux | `start-lgbids.sh` | Or run `./start-lgbids.sh` in a terminal. |
+
+From a terminal, `npm run app` does the same.
+
+**On the first start** the launcher installs what the app needs (this needs the internet and takes a minute or two), builds it, starts it and opens http://127.0.0.1:3000 in your browser. Later starts take a few seconds; after an update it reinstalls and rebuilds only when something changed. Keep the window open while you use the app: closing it, or pressing Ctrl+C in it, stops Lgbids. Starting it while it is already running just opens the browser.
+
+**Your data** (database, uploaded documents, settings including the mail password) lives in the `data` folder inside the Lgbids folder. Back it up and keep it private. To change where it lives, or the port, put `DATA_DIR=...` or `PORT=...` lines in a `.env` file next to the launchers (see the table under *Settings by environment variable*); `LGBIDS_NO_BROWSER=1` stops it opening the browser.
+
+**Keep it running.** Lgbids only checks for bids and sends alerts while it is running and the computer is awake. To start it when you log in (add `--no-browser` where you can, so no browser window pops up each time):
+
+- **Windows**: Task Scheduler → *Create Basic Task* → trigger *When I log on* → action *Start a program*: pick `Start Lgbids.bat`, add the argument `--no-browser`, and set *Start in* to the Lgbids folder.
+- **macOS**: System Settings → General → Login Items → **+** → choose `Start Lgbids.command`.
+- **Linux**: save this as `~/.config/systemd/user/lgbids.service` (change the folder, and the node path to what `command -v node` prints), then run `systemctl --user enable --now lgbids` (and `loginctl enable-linger` to keep it running after you log out):
+
+```ini
+[Service]
+WorkingDirectory=%h/Lgbids
+ExecStart=/usr/bin/node scripts/launch.mjs --no-browser
+KillMode=mixed
+Restart=on-failure
+[Install]
+WantedBy=default.target
+```
+
+**What it can and cannot reach.** Saanich and Esquimalt are read directly. BC Bid and Bonfire bids come in only through the alert e-mails those sites send you (turn them on in your BC Bid and Bonfire accounts, then set up **Settings → Bid alert inbox**); the app never logs in to those portals or opens the links in the alerts. See *Sources* above for every source and its status.
+
+### Phone alerts
+
+To hear about new suitable bids and close deadlines on your phone, turn them on under **Settings → Phone alerts**; the page walks you through it. Alerts go out from the app on your computer, so they only arrive while it is running.
+
 ## Getting started
 
 Requires [Node.js](https://nodejs.org) 22.13 or newer (use the latest 22.x: closing times depend on up-to-date time zone data).
@@ -129,5 +167,7 @@ npm test             # unit and integration tests
 npm run typecheck
 npm run check-sources
 ```
+
+Every push and pull request runs the type check, the tests and both builds on GitHub Actions (`.github/workflows/ci.yml`).
 
 Code layout: `src/server/sources` (readers), `src/server/matching` (scoring), `src/server/applications` (drafting), `src/server/pipeline` (the scheduled run), `src/server/routes` (API), `src/web` (UI), `src/server/demo` (sample sites).

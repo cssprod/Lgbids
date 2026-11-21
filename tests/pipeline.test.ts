@@ -463,6 +463,39 @@ describe('run control and sources', () => {
     expect(rebuilt.checklist.find((c) => c.key === 'site_meeting')!.done).toBe(true);
   });
 
+  it('warns once when a site that listed notices suddenly lists none', async () => {
+    const env = makeEnv({ smtp: true, automation: { notifyEmail: 'robin@garryoak.example' } });
+    const pipeline = createPipeline(env.deps);
+    await pipeline.run('manual');
+    const before = env.store.getSource('esquimalt')!;
+    expect(before.lastItemCount).toBeGreaterThan(0);
+    expect(before.layoutWarning).toBe('');
+
+    // A redesign: the page still loads, but the rows are no longer where the reader looks.
+    env.store.updateSource('esquimalt', { config: { ...before.config, linkPattern: '^/nothing-here/' } }, NOW);
+    env.sent.length = 0;
+    const second = await pipeline.run('manual');
+    const stat = second.stats!.sources.find((s) => s.sourceId === 'esquimalt')!;
+    expect(stat.status).toBe('empty');
+    expect(stat.layoutWarning).toContain(`listed ${before.lastItemCount} notices last time`);
+    expect(env.store.getSource('esquimalt')!.layoutWarning).toMatch(/layout may have changed/);
+    expect(env.sent).toHaveLength(1);
+    expect(env.sent[0]!.subject).toContain('1 source to check');
+    expect(env.sent[0]!.text).toContain(`• Esquimalt: This site returned no notices this time`);
+    // Other sources that stayed empty or kept listing are not flagged.
+    expect(second.stats!.sources.filter((s) => s.layoutWarning)).toHaveLength(1);
+
+    // Still empty next run: the warning stays, but is not e-mailed again.
+    const third = await pipeline.run('manual');
+    expect(third.stats!.sources.some((s) => s.layoutWarning)).toBe(false);
+    expect(env.store.getSource('esquimalt')!.layoutWarning).not.toBe('');
+
+    // Notices back: the warning clears.
+    env.store.updateSource('esquimalt', { config: before.config }, NOW);
+    await pipeline.run('manual');
+    expect(env.store.getSource('esquimalt')!.layoutWarning).toBe('');
+  });
+
   it('e-mails one digest per run when there is something new', async () => {
     const env = makeEnv({ smtp: true, automation: { notifyEmail: 'robin@garryoak.example' } });
     const pipeline = createPipeline(env.deps);
@@ -603,6 +636,23 @@ describe('bid alert e-mails', () => {
     expect(readdirSync(env.deps.alertImportDir)).toEqual(['read']);
     await pipeline.run('manual');
     expect(mailbox.calls).toEqual([null, { uidValidity: '7', lastUid: 10 }]);
+  });
+
+  it('an empty run after a batch of alerts is normal, not a layout warning', async () => {
+    const mailbox = fakeMailbox([[bcbid], []]);
+    const env = makeEnv({ noSamples: true, extraSources: [alertSource], mailbox });
+    env.deps.settings.setAlertInbox({ user: 'bids@garryoak.example', pass: 'app-password' });
+    const pipeline = createPipeline(env.deps);
+    const first = await pipeline.run('manual');
+    expect(first.stats!.sources[0]).toMatchObject({ status: 'ok', found: 1 });
+
+    const second = await pipeline.run('manual');
+    const stat = second.stats!.sources[0]!;
+    expect(stat).toMatchObject({ status: 'empty', found: 0 });
+    expect(stat.layoutWarning).toBeUndefined();
+    expect(stat.message).not.toMatch(/page has changed/);
+    expect(env.store.getSource('email-alerts')!.layoutWarning).toBe('');
+    expect(env.store.listEvents(100).some((e) => e.level === 'warn' && /layout may have changed/.test(e.message))).toBe(false);
   });
 
   it('a Test reads without moving files or advancing the inbox', async () => {

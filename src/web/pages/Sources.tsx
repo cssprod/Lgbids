@@ -6,7 +6,7 @@ import { SOURCE_KIND_LABELS } from '../../shared/schemas.js';
 import { useAction, useDocumentTitle, useFormat, useResource } from '../hooks.js';
 import { ConfirmDialog } from '../components/Dialog.js';
 import { SourceChip } from '../components/status.js';
-import { Check, Empty, ErrorBox, ExternalLink, Live, Loading, PageHeader } from '../components/ui.js';
+import { Callout, Check, Empty, ErrorBox, ExternalLink, Live, Loading, PageHeader } from '../components/ui.js';
 import { formatBytes, formatDuration, plural } from '../format.js';
 
 export function SourcesPage() {
@@ -89,6 +89,8 @@ function SourceCard({ s, onChange, onDeleted }: { s: SourceRecord; onChange: (s:
     setResult(null);
     const r = await test.run(() => api.post<SourceTest>(`/api/sources/${s.id}/test`));
     if (r) setResult(r);
+    // The server clears the layout warning once a test lists notices again.
+    if (r && s.layoutWarning && r.status === 'ok' && r.count > 0) onChange({ ...s, layoutWarning: '' });
   }
 
   async function remove() {
@@ -126,6 +128,11 @@ function SourceCard({ s, onChange, onDeleted }: { s: SourceRecord; onChange: (s:
           {s.consecutiveFailures > 1 ? ` · failed ${s.consecutiveFailures} times in a row` : ''}
         </span>
       </div>
+      {s.layoutWarning && s.enabled ? (
+        <Callout tone="warn" title="The site may have changed">
+          <p className="small">{s.layoutWarning}</p>
+        </Callout>
+      ) : null}
       {s.lastMessage ? <p className={`small ${failing ? 'text-bad' : 'muted'}`}>{s.lastMessage}</p> : null}
       {failing && s.lastOkAt ? <p className="small muted">Last worked {fmt.dateTime(s.lastOkAt)}.</p> : null}
       {s.notes ? <p className="small">{s.notes}</p> : null}

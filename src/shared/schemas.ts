@@ -261,6 +261,69 @@ export const alertInboxSchema = z.object({
 });
 export type AlertInboxSettings = z.infer<typeof alertInboxSchema>;
 
+/** Phone push alerts after each check. */
+export const PUSH_PROVIDERS = ['off', 'telegram', 'ntfy'] as const;
+export type PushProvider = (typeof PUSH_PROVIDERS)[number];
+
+export const DEFAULT_NTFY_SERVER = 'https://ntfy.sh';
+
+/**
+ * Why an ntfy server address cannot be used, or null when it can. Only https,
+ * except plain http to this computer (a self-hosted ntfy on the same machine).
+ */
+export function ntfyServerProblem(value: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(value.trim());
+  } catch {
+    return 'This is not a web address. It should look like https://ntfy.sh.';
+  }
+  const local = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
+  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && local)) {
+    return 'Use an address that starts with https:// (plain http:// only works for a server on this computer).';
+  }
+  if (url.username || url.password) return 'Leave the user name and password out of the address; use the access token field instead.';
+  if (url.search || url.hash) return 'Use the server address only, without ? or # parts.';
+  return null;
+}
+
+export const pushSettingsSchema = z.object({
+  provider: z.enum(PUSH_PROVIDERS).default('off'),
+  /** Telegram bot token from BotFather. Never returned by the API. */
+  telegramToken: z
+    .string()
+    .trim()
+    .max(200)
+    .regex(/^(\d{5,16}:[A-Za-z0-9_-]{30,80})?$/, 'This does not look like a bot token from BotFather (numbers, a colon, then letters).')
+    .default(''),
+  /** A private chat id (digits), a group id (minus sign and digits) or a public @channel name. */
+  telegramChatId: z
+    .string()
+    .trim()
+    .max(40)
+    .regex(/^(-?\d{1,20}|@[A-Za-z][A-Za-z0-9_]{4,31})?$/, 'A chat id is a number (groups start with a minus sign) or an @channel name.')
+    .default(''),
+  ntfyServer: z
+    .string()
+    .trim()
+    .max(200)
+    .superRefine((v, ctx) => {
+      const problem = v === '' ? null : ntfyServerProblem(v);
+      if (problem) ctx.addIssue({ code: 'custom', message: problem });
+    })
+    .default(DEFAULT_NTFY_SERVER),
+  ntfyTopic: z
+    .string()
+    .trim()
+    .max(64)
+    .regex(/^[A-Za-z0-9_-]*$/, 'A topic name can only use letters, digits, - and _.')
+    .default(''),
+  /** Optional ntfy access token for a protected topic. Never returned by the API. */
+  ntfyToken: z.string().trim().max(200).regex(/^[\x21-\x7e]*$/, 'The access token cannot contain spaces.').default(''),
+  verifiedAt: z.string().nullable().default(null),
+});
+export type PushSettings = z.infer<typeof pushSettingsSchema>;
+
 export const regionSchema = z.object({
   /** Place names that count as inside the service area. */
   places: z.array(z.string().trim().min(2).max(80)).max(400).default([]),
@@ -329,6 +392,8 @@ export interface SourceRecord {
   lastMessage: string;
   lastItemCount: number | null;
   consecutiveFailures: number;
+  /** "Layout may have changed" warning (a full sentence), or '' when the source looks healthy. */
+  layoutWarning: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -552,6 +617,8 @@ export interface SourceRunStat {
   found: number;
   added: number;
   ms: number;
+  /** Set on the run that first noticed the site may have changed its layout. */
+  layoutWarning?: string;
 }
 
 export interface RunStats {

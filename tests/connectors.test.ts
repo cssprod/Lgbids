@@ -8,6 +8,7 @@ import { defaultRegion } from '../src/server/matching/geo.js';
 import { findProjects, portalBase } from '../src/server/sources/connectors/bonfire.js';
 import { indexColumns } from '../src/server/sources/connectors/canadabuysCsv.js';
 import { extractDetail, extractListing, parseFeed } from '../src/server/sources/extract.js';
+import { layoutWarningText, nextLayoutHealth } from '../src/server/sources/health.js';
 import { connectorFor, DEFAULT_SOURCES, listSource } from '../src/server/sources/registry.js';
 import type { ConnectorContext, RawOpportunity } from '../src/server/sources/types.js';
 
@@ -33,6 +34,7 @@ function source(kind: SourceKind, config: Partial<SourceConfig>, name = 'Test so
     lastMessage: '',
     lastItemCount: null,
     consecutiveFailures: 0,
+    layoutWarning: '',
   };
 }
 
@@ -454,5 +456,58 @@ describe('default sources', () => {
       expect(connectorFor(s.kind).kind).toBe(s.kind);
       if (s.config.linkPattern) expect(() => new RegExp(s.config.linkPattern)).not.toThrow();
     }
+  });
+
+  it('ship the unchecked western-community pages turned off, with a note saying how to check them', () => {
+    for (const id of ['sooke', 'langford', 'colwood', 'viewroyal', 'sidney']) {
+      const s = DEFAULT_SOURCES.find((x) => x.id === id)!;
+      expect(s, id).toBeDefined();
+      // Off on a new install, but not forced off: once turned on it stays on.
+      expect(s).toMatchObject({ kind: 'html_list', enabled: false, forceOff: false, config: { localBuyer: true, fetchDetails: true } });
+      expect(s.config.organization).not.toBe('');
+      expect(s.notes).toContain('Test');
+      // Not grouped with the sites that refuse automated reading.
+      expect(s.notes.startsWith('Turned off')).toBe(false);
+    }
+    expect(DEFAULT_SOURCES.find((x) => x.id === 'sidney')!.config.defaultSubmission).toBe('bidsandtenders');
+  });
+
+  it('force off only the sites that refuse automated reading or no longer answer', () => {
+    const forced = DEFAULT_SOURCES.filter((s) => s.forceOff).map((s) => s.id).sort();
+    expect(forced).toEqual(
+      ['bonfire-centralsaanich', 'bonfire-northsaanich', 'bonfire-saanich', 'bonfire-uvic', 'bonfire-victoria', 'canadabuys-bcbid', 'canadabuys-federal', 'civicinfo-bc', 'crd'].sort(),
+    );
+    for (const s of DEFAULT_SOURCES.filter((x) => x.forceOff)) expect(s.enabled, s.id).toBe(false);
+    // The alert inbox is the only way BC Bid and Bonfire bids arrive: once set up it must stay on.
+    expect(DEFAULT_SOURCES.find((x) => x.id === 'email-alerts')).toMatchObject({ enabled: false, forceOff: false });
+  });
+});
+
+describe('layout health', () => {
+  const clean = { okItemCount: null, warning: '' };
+  it('never warns for a source that only returns what is new (the alert inbox)', () => {
+    expect(nextLayoutHealth({ okItemCount: 5, warning: '' }, { status: 'empty', itemCount: 0, incremental: true })).toEqual({ warning: '', raised: false });
+    // An old warning left from before is cleared.
+    expect(nextLayoutHealth({ okItemCount: 5, warning: layoutWarningText(5) }, { status: 'empty', itemCount: 0, incremental: true }).warning).toBe('');
+  });
+  it('warns when a site that listed notices lists none without an error', () => {
+    const after = nextLayoutHealth({ okItemCount: 12, warning: '' }, { status: 'empty', itemCount: 0 });
+    expect(after.raised).toBe(true);
+    expect(after.warning).toBe(layoutWarningText(12));
+    expect(after.warning).toMatch(/^This site returned no notices this time but listed 12 notices last time — its layout may have changed\./);
+    expect(layoutWarningText(1)).toContain('listed 1 notice last time');
+  });
+  it('stays quiet for sites that were already empty, errors and "not modified"', () => {
+    expect(nextLayoutHealth({ okItemCount: 0, warning: '' }, { status: 'empty', itemCount: 0 })).toEqual({ warning: '', raised: false });
+    expect(nextLayoutHealth(clean, { status: 'empty', itemCount: 0 })).toEqual({ warning: '', raised: false });
+    expect(nextLayoutHealth({ okItemCount: 5, warning: '' }, { status: 'error', itemCount: null })).toEqual({ warning: '', raised: false });
+    expect(nextLayoutHealth({ okItemCount: 5, warning: '' }, { status: 'blocked', itemCount: null })).toEqual({ warning: '', raised: false });
+    expect(nextLayoutHealth({ okItemCount: 5, warning: '' }, { status: 'ok', itemCount: 5, unchanged: true })).toEqual({ warning: '', raised: false });
+  });
+  it('keeps the warning until notices come back, and raises it only once', () => {
+    const w = layoutWarningText(3);
+    expect(nextLayoutHealth({ okItemCount: 0, warning: w }, { status: 'empty', itemCount: 0 })).toEqual({ warning: w, raised: false });
+    expect(nextLayoutHealth({ okItemCount: 0, warning: w }, { status: 'error', itemCount: null })).toEqual({ warning: w, raised: false });
+    expect(nextLayoutHealth({ okItemCount: 0, warning: w }, { status: 'ok', itemCount: 2 })).toEqual({ warning: '', raised: false });
   });
 });

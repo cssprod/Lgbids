@@ -1,0 +1,4 @@
+# The Windows launcher must keep CRLF line endings; the Mac and Linux ones must keep LF.
+*.bat text eol=crlf
+*.command text eol=lf
+*.sh text eol=lf

@@ -1,8 +1,9 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { OpportunityList, OpportunityViewName } from '../../shared/api.js';
 import type { Opportunity } from '../../shared/schemas.js';
 import type { OpportunityView } from '../contracts.js';
+import { opportunitiesCsvName, opportunitiesCsvText } from '../util/csv.js';
 import { ApiError, idParam, intQuery, notFound, opportunityDto, parseBody, query, type RouteContext } from './util.js';
 
 const VIEWS: OpportunityViewName[] = ['suitable', 'review', 'unsuitable', 'closed', 'dismissed', 'all'];
@@ -23,23 +24,44 @@ export function registerOpportunities(app: FastifyInstance, ctx: RouteContext): 
     return opp;
   }
 
-  app.get('/api/opportunities', async (req): Promise<OpportunityList> => {
+  /** The filters the list accepts; the CSV export takes the same ones. */
+  function filterFrom(req: FastifyRequest) {
     const q = query(req);
     const view = (q.view ?? 'all') as OpportunityView;
     if (!VIEWS.includes(view)) throw new ApiError(400, `“${q.view}” is not a list of opportunities. Use one of: ${VIEWS.join(', ')}.`);
+    return {
+      view,
+      q: q.q?.trim().slice(0, 200) || undefined,
+      sourceId: q.sourceId || undefined,
+      closingWithinDays: q.closingWithinDays ? intQuery(q.closingWithinDays, 7, 1, 365) : undefined,
+      limit: intQuery(q.limit, 50, 1, 500),
+      offset: intQuery(q.offset, 0, 0, 1_000_000),
+    };
+  }
+
+  app.get('/api/opportunities', async (req): Promise<OpportunityList> => {
+    const filter = filterFrom(req);
     const at = now();
-    const { items, total } = store.listOpportunities(
-      {
-        view,
-        q: q.q?.trim().slice(0, 200) || undefined,
-        sourceId: q.sourceId || undefined,
-        closingWithinDays: q.closingWithinDays ? intQuery(q.closingWithinDays, 7, 1, 365) : undefined,
-        limit: intQuery(q.limit, 50, 1, 500),
-        offset: intQuery(q.offset, 0, 0, 1_000_000),
-      },
-      at,
-    );
+    const { items, total } = store.listOpportunities(filter, at);
     return { items: items.map(opportunityDto), total, counts: store.countOpportunities(at) };
+  });
+
+  // Everything that matches the filters (not just one page), for a spreadsheet.
+  app.get('/api/opportunities.csv', async (req, reply) => {
+    const filter = filterFrom(req);
+    const at = now();
+    const items: Opportunity[] = [];
+    for (let offset = 0; offset < 20_000; offset += 500) {
+      const page = store.listOpportunities({ ...filter, limit: 500, offset }, at);
+      items.push(...page.items.map(opportunityDto));
+      if (page.items.length < 500) break;
+    }
+    const zone = ctx.deps.config.timeZone;
+    return reply
+      .header('content-type', 'text/csv; charset=utf-8')
+      .header('content-disposition', `attachment; filename="${opportunitiesCsvName(at, zone)}"`)
+      .header('cache-control', 'private, no-store')
+      .send(opportunitiesCsvText(items, zone));
   });
 
   app.get('/api/opportunities/:id', async (req) => detail(idParam(req, 'opportunity')));

@@ -40,7 +40,7 @@ export function createDeps(config: AppConfig, overrides: Partial<AppDeps> = {}):
   if (!config.demo) store.seedSources(DEFAULT_SOURCES, now());
   store.failStaleRuns(now());
 
-  return { config, store, settings, files, mailerFactory, httpFactory, alertMailboxFactory, alertImportDir, now };
+  return { config, store, settings, files, mailerFactory, httpFactory, alertMailboxFactory, alertImportDir, now, ...(overrides.pushFetch ? { pushFetch: overrides.pushFetch } : {}) };
 }
 
 export function isLoopback(host: string): boolean {

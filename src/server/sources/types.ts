@@ -68,6 +68,12 @@ export interface ListResult {
 
 export interface Connector {
   kind: SourceKind;
+  /**
+   * True when `list` returns only what is new since the last run (the alert
+   * inbox), not the whole listing, so an empty run says nothing about the
+   * reader still working.
+   */
+  incremental?: boolean;
   /** Read the source's current listing. */
   list(source: SourceRecord, ctx: ConnectorContext): Promise<ListResult>;
   /** Read one notice's own page for the full description, dates and documents. */

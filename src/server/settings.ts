@@ -4,11 +4,14 @@ import {
   automationSchema,
   emailSettingsSchema,
   profileSchema,
+  pushSettingsSchema,
   regionSchema,
+  DEFAULT_NTFY_SERVER,
   type AlertInboxSettings,
   type AutomationSettings,
   type EmailSettings,
   type Profile,
+  type PushSettings,
   type RegionSettings,
 } from '../shared/schemas.js';
 import type { SettingsService, Store } from './contracts.js';
@@ -22,7 +25,7 @@ import { defaultRegion } from './matching/geo.js';
 /** The built-in source that reads the alert inbox (see sources/registry.ts). */
 export const ALERT_SOURCE_ID = 'email-alerts';
 
-const KEYS = { profile: 'profile', automation: 'automation', email: 'email', region: 'region', alertInbox: 'alertInbox' } as const;
+const KEYS = { profile: 'profile', automation: 'automation', email: 'email', region: 'region', alertInbox: 'alertInbox', push: 'push' } as const;
 
 /** SMTP settings that can come from the environment, so a server can be configured without the UI. */
 const EMAIL_ENV: { field: keyof EmailSettings; name: string }[] = [
@@ -181,6 +184,28 @@ export function createSettings(store: Store, env: NodeJS.ProcessEnv = process.en
     markAlertInboxVerified(at) {
       const existing = read(KEYS.alertInbox, alertInboxSchema);
       store.setSetting(KEYS.alertInbox, { ...existing, verifiedAt: at.toISOString() }, now());
+    },
+
+    getPush() {
+      return read(KEYS.push, pushSettingsSchema);
+    },
+
+    setPush(value, opts = {}) {
+      const incoming = pushSettingsSchema.parse(value);
+      const existing = read(KEYS.push, pushSettingsSchema);
+      const next: PushSettings = { ...incoming, ntfyServer: (incoming.ntfyServer || DEFAULT_NTFY_SERVER).replace(/\/+$/, '') };
+      if (next.telegramToken === '') next.telegramToken = existing.telegramToken;
+      // A token saved for one ntfy server is never sent to another one.
+      if (next.ntfyToken === '' && !opts.removeNtfyToken && next.ntfyServer === existing.ntfyServer) next.ntfyToken = existing.ntfyToken;
+      const fields = ['provider', 'telegramToken', 'telegramChatId', 'ntfyServer', 'ntfyTopic', 'ntfyToken'] as const;
+      next.verifiedAt = fields.some((f) => next[f] !== existing[f]) ? null : existing.verifiedAt;
+      store.setSetting(KEYS.push, next, now());
+      return next;
+    },
+
+    markPushVerified(at) {
+      const existing = read(KEYS.push, pushSettingsSchema);
+      store.setSetting(KEYS.push, { ...existing, verifiedAt: at.toISOString() }, now());
     },
 
     resetRegion() {

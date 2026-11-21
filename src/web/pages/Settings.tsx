@@ -1,8 +1,8 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { api } from '../api.js';
-import type { ActionResult, AlertInboxView, EmailSettingsView } from '../../shared/api.js';
-import type { AutomationMode, AutomationSettings, EmailSettings, NoticeType, RegionSettings } from '../../shared/schemas.js';
-import { AUTOMATION_MODES, AUTOMATION_MODE_LABELS, NOTICE_TYPES, NOTICE_TYPE_LABELS } from '../../shared/schemas.js';
+import type { ActionResult, AlertInboxView, EmailSettingsView, PushSettingsInput, PushSettingsView, TelegramChatResult } from '../../shared/api.js';
+import type { AutomationMode, AutomationSettings, EmailSettings, NoticeType, PushProvider, RegionSettings } from '../../shared/schemas.js';
+import { AUTOMATION_MODES, AUTOMATION_MODE_LABELS, DEFAULT_NTFY_SERVER, NOTICE_TYPES, NOTICE_TYPE_LABELS, ntfyServerProblem } from '../../shared/schemas.js';
 import { emailProblem } from '../format.js';
 import { getTheme, setTheme, type ThemeChoice } from '../theme.js';
 import { useAction, useDocumentTitle, useFormat, useResource, useUnsavedWarning } from '../hooks.js';
@@ -28,12 +28,14 @@ export function SettingsPage() {
         <a href="#automation">Automation</a>
         <a href="#email">Outgoing e-mail</a>
         <a href="#alerts">Bid alert inbox</a>
+        <a href="#push">Phone alerts</a>
         <a href="#area">Service area (advanced)</a>
         <a href="#appearance">Appearance</a>
       </nav>
       <AutomationForm />
       <EmailForm />
       <AlertInboxForm />
+      <PushForm />
       <RegionForm />
       <AppearanceForm />
     </>
@@ -482,6 +484,220 @@ function AlertInboxForm() {
           {test.busy ? 'Connecting…' : 'Test connection'}
         </button>
         {dirty ? <p className="small text-warn">Save before testing.</p> : null}
+        <Live message={save.message} />
+        <Live message={test.message} />
+      </div>
+    </form>
+  );
+}
+
+type PushDraft = Omit<PushSettingsInput, 'removeNtfyToken'> & { removeNtfyToken: boolean };
+
+const PUSH_OPTIONS: { value: PushProvider; label: string; hint: string }[] = [
+  { value: 'off', label: 'Off', hint: 'No phone alerts. The summary e-mail still works.' },
+  { value: 'telegram', label: 'Telegram', hint: 'Free. Alerts arrive as messages from your own Telegram bot.' },
+  { value: 'ntfy', label: 'ntfy', hint: 'Free, and no account needed. Install the ntfy app and pick a private topic name.' },
+];
+
+/** A long random topic name: on ntfy.sh anyone who knows the name can read the alerts. */
+function randomTopic(): string {
+  const letters = 'abcdefghijkmnpqrstuvwxyz23456789';
+  const bytes = crypto.getRandomValues(new Uint8Array(18));
+  return `lgbids-${Array.from(bytes, (b) => letters[b % letters.length]).join('')}`;
+}
+
+function pushDraft(view: PushSettingsView): PushDraft {
+  const { hasTelegramToken: _t, hasNtfyToken: _n, verifiedAt: _v, ...rest } = view;
+  return { ...rest, telegramToken: '', ntfyToken: '', removeNtfyToken: false };
+}
+
+function PushForm() {
+  const fmt = useFormat();
+  const res = useResource<PushSettingsView>('/api/settings/push');
+  const [v, setV] = useState<PushDraft | null>(null);
+  const save = useAction();
+  const test = useAction();
+  const findChat = useAction();
+
+  useEffect(() => {
+    if (res.data) setV(pushDraft(res.data));
+  }, [res.data]);
+
+  if (res.loading && !v) return <Loading />;
+  if (res.error && !v) return <ErrorBox message={res.error} onRetry={res.reload} />;
+  if (!v || !res.data) return null;
+
+  const view = res.data;
+  const dirty = JSON.stringify(v) !== JSON.stringify(pushDraft(view));
+  const set = <K extends keyof PushDraft>(k: K, val: PushDraft[K]) => setV({ ...v, [k]: val });
+  const configured =
+    view.provider === 'telegram' ? view.hasTelegramToken && !!view.telegramChatId : view.provider === 'ntfy' ? !!view.ntfyTopic : false;
+  const serverProblem = v.ntfyServer.trim() ? ntfyServerProblem(v.ntfyServer) : null;
+
+  function choose(provider: PushProvider) {
+    setV({ ...v!, provider, ntfyTopic: provider === 'ntfy' && !v!.ntfyTopic ? randomTopic() : v!.ntfyTopic });
+  }
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    const r = await save.run(() => api.put<PushSettingsView>('/api/settings/push', v), 'Phone alert settings saved.');
+    if (r) res.setData(r);
+  }
+
+  async function runTest() {
+    const r = await test.run(() => api.post<ActionResult>('/api/settings/push/test'));
+    if (r) {
+      test.setMessage({ ok: r.ok, text: r.message });
+      if (r.ok) res.reload();
+    }
+  }
+
+  async function lookUpChat() {
+    const r = await findChat.run(() => api.post<TelegramChatResult>('/api/settings/push/telegram-chat'));
+    if (r) {
+      findChat.setMessage({ ok: r.ok, text: r.message });
+      if (r.ok) res.reload();
+    }
+  }
+
+  return (
+    <form className="card form-card" id="push" aria-labelledby="push-title" onSubmit={submit}>
+      <div className="card-head">
+        <h2 id="push-title">Phone alerts</h2>
+      </div>
+      <p className="muted">
+        Get a short alert on your phone after each check that finds new suitable bids, with the closing dates and links. It is sent as well as the
+        summary e-mail, and also works without it.
+      </p>
+      {view.provider !== 'off' && view.verifiedAt ? (
+        <Callout tone="good" title={`A test alert went through on ${fmt.dateTime(view.verifiedAt)}.`} />
+      ) : configured ? (
+        <Callout tone="warn" title="Not tested yet.">
+          <p>Press “Send test alert” to check it reaches your phone.</p>
+        </Callout>
+      ) : null}
+      <fieldset className="mode-cards">
+        <legend>Send phone alerts with</legend>
+        {PUSH_OPTIONS.map((o) => (
+          <label key={o.value} className={`mode-card ${v.provider === o.value ? 'selected' : ''}`}>
+            <input type="radio" name="push-provider" value={o.value} checked={v.provider === o.value} onChange={() => choose(o.value)} />
+            <span className="mode-card-text">
+              <strong>{o.label}</strong>
+              <span className="hint">{o.hint}</span>
+            </span>
+          </label>
+        ))}
+      </fieldset>
+
+      {v.provider === 'telegram' ? (
+        <>
+          <details className="advanced" open={!configured}>
+            <summary>How to set up Telegram (about 5 minutes)</summary>
+            <ol className="setup-steps">
+              <li>
+                In Telegram, open a chat with <strong>@BotFather</strong>, send <code>/newbot</code> and follow the steps. It gives you a bot token.
+              </li>
+              <li>Paste the token below and save.</li>
+              <li>Open your new bot in Telegram, press Start and send it any message.</li>
+              <li>
+                Press “Find my chat id”. Or look it up yourself: open <code>https://api.telegram.org/bot&lt;token&gt;/getUpdates</code> with your token
+                and copy the number after <code>"chat":{'{'}"id":</code>.
+              </li>
+            </ol>
+          </details>
+          <div className="grid-2">
+            <Field
+              label="Bot token"
+              hint={view.hasTelegramToken ? 'A token is saved. Leave this empty to keep it, or paste a new one.' : 'From BotFather, for example 123456789:AA…'}
+            >
+              <input
+                type="password"
+                autoComplete="off"
+                spellCheck={false}
+                value={v.telegramToken}
+                placeholder={view.hasTelegramToken ? 'Saved' : ''}
+                onChange={(e) => set('telegramToken', e.target.value)}
+              />
+            </Field>
+            <Field label="Chat id" hint="A number. Group chats start with a minus sign.">
+              <input type="text" autoComplete="off" spellCheck={false} value={v.telegramChatId} onChange={(e) => set('telegramChatId', e.target.value)} />
+            </Field>
+          </div>
+          <div className="inline-row">
+            <button type="button" className="btn btn-secondary" onClick={lookUpChat} disabled={findChat.busy || dirty || !view.hasTelegramToken}>
+              {findChat.busy ? 'Looking…' : 'Find my chat id'}
+            </button>
+            {!view.hasTelegramToken ? <p className="small muted">Save the bot token first.</p> : null}
+          </div>
+          <Live message={findChat.message} />
+        </>
+      ) : null}
+
+      {v.provider === 'ntfy' ? (
+        <>
+          <details className="advanced" open={!configured}>
+            <summary>How to set up ntfy (about 2 minutes)</summary>
+            <ol className="setup-steps">
+              <li>Install the free ntfy app on your phone (Android or iPhone).</li>
+              <li>
+                In the app, press + and subscribe to the topic name below. No account is needed. Anyone who knows the name can read the alerts, so
+                keep it long and random.
+              </li>
+              <li>Save, then send a test alert.</li>
+            </ol>
+          </details>
+          <div className="grid-2">
+            <Field label="Topic name" hint="Letters, digits, - and _ only.">
+              <input type="text" autoComplete="off" spellCheck={false} value={v.ntfyTopic} onChange={(e) => set('ntfyTopic', e.target.value)} />
+            </Field>
+            <div className="inline-row align-end">
+              <button type="button" className="btn btn-secondary" onClick={() => set('ntfyTopic', randomTopic())}>
+                Make a new random name
+              </button>
+            </div>
+          </div>
+          <details className="advanced">
+            <summary>Your own ntfy server (advanced)</summary>
+            <div className="grid-2">
+              <Field label="Server address" hint={`Leave as ${DEFAULT_NTFY_SERVER} unless you run your own ntfy server.`} error={serverProblem ?? undefined}>
+                <input type="url" spellCheck={false} value={v.ntfyServer} onChange={(e) => set('ntfyServer', e.target.value)} />
+              </Field>
+              <Field
+                label="Access token"
+                optional
+                hint={view.hasNtfyToken ? 'A token is saved. Leave this empty to keep it.' : 'Only for a protected topic. It starts with tk_.'}
+              >
+                <input
+                  type="password"
+                  autoComplete="off"
+                  spellCheck={false}
+                  value={v.ntfyToken}
+                  placeholder={view.hasNtfyToken ? 'Saved' : ''}
+                  onChange={(e) => set('ntfyToken', e.target.value)}
+                />
+              </Field>
+            </div>
+            {view.hasNtfyToken ? (
+              <Check label="Forget the saved access token" checked={v.removeNtfyToken} onChange={(b) => set('removeNtfyToken', b)} />
+            ) : null}
+          </details>
+        </>
+      ) : null}
+
+      <div className="form-footer">
+        <button type="submit" className="btn btn-primary" disabled={save.busy || !dirty || !!serverProblem}>
+          {save.busy ? 'Saving…' : 'Save phone alerts'}
+        </button>
+        <button type="button" className="btn btn-secondary" onClick={runTest} disabled={test.busy || dirty || !configured}>
+          {test.busy ? 'Sending…' : 'Send test alert'}
+        </button>
+        {dirty ? (
+          <p className="small text-warn">Save before testing.</p>
+        ) : !configured ? (
+          <p className="small muted">
+            {view.provider === 'off' ? 'Choose Telegram or ntfy and save to send a test alert.' : 'Fill in the fields above and save to send a test alert.'}
+          </p>
+        ) : null}
         <Live message={save.message} />
         <Live message={test.message} />
       </div>

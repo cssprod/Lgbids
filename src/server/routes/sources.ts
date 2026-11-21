@@ -109,7 +109,13 @@ export function registerSources(app: FastifyInstance, ctx: RouteContext): void {
     return { ok: true };
   });
 
-  app.post('/api/sources/:id/test', async (req): Promise<SourceTest> => pipeline.testSource(load(stringParam(req, 'id'))));
+  app.post('/api/sources/:id/test', async (req): Promise<SourceTest> => {
+    const source = load(stringParam(req, 'id'));
+    const result = await pipeline.testSource(source);
+    // Notices read again: the "layout may have changed" warning no longer applies.
+    if (source.layoutWarning && result.status === 'ok' && result.count > 0) store.clearLayoutWarning(source.id);
+    return result;
+  });
 
   app.post('/api/sources/test', async (req): Promise<SourceTest> => {
     const input = parseBody(sourceInputSchema, req.body);
@@ -129,6 +135,7 @@ export function registerSources(app: FastifyInstance, ctx: RouteContext): void {
       lastMessage: '',
       lastItemCount: null,
       consecutiveFailures: 0,
+      layoutWarning: '',
     };
     return pipeline.testSource(record);
   });

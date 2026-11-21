@@ -117,6 +117,15 @@ export function OpportunitiesPage() {
     }
   }
 
+  // The export takes the same filters as the list on screen.
+  const csvQuery = (() => {
+    const qs = new URLSearchParams({ view });
+    if (q) qs.set('q', q);
+    if (closing) qs.set('closingWithinDays', closing);
+    if (sourceId) qs.set('sourceId', sourceId);
+    return qs.toString();
+  })();
+
   function setView(v: OpportunityViewName) {
     const next = new URLSearchParams(params);
     next.set('view', v);
@@ -125,7 +134,15 @@ export function OpportunitiesPage() {
 
   return (
     <>
-      <PageHeader title="Opportunities" intro={<p>Bids found on your sources, scored for your company.</p>} />
+      <PageHeader
+        title="Opportunities"
+        intro={<p>Bids found on your sources, scored for your company.</p>}
+        actions={
+          <a className="btn btn-secondary" href={`/api/opportunities.csv?${csvQuery}`} download title="Download this list, with the current filters, as a spreadsheet file.">
+            <Icon name="download" size={16} /> Download CSV
+          </a>
+        }
+      />
       <div className="toolbar">
         <nav aria-label="Filter opportunities" className="tabs">
           {VIEWS.map((v) => (

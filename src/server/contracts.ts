@@ -16,6 +16,7 @@ import type {
   NoticeType,
   Opportunity,
   Profile,
+  PushSettings,
   RegionSettings,
   RunRecord,
   RunStats,
@@ -159,12 +160,20 @@ export interface Store {
   updateSource(id: string, patch: Partial<Pick<SourceRecord, 'name' | 'enabled' | 'notes' | 'config'>>, now: Date): SourceRecord | undefined;
   deleteSource(id: string): boolean;
   /**
-   * Insert any default source that is not there yet. For built-in sources
-   * already there, refresh the note, and turn off one that now ships off
-   * (a site that refuses automated reading); addresses and settings are kept.
+   * Insert any default source that is not there yet (`enabled: false` starts
+   * it off). For built-in sources already there, refresh the note, and turn
+   * off one marked `forceOff` (a site that refuses automated reading); the
+   * user's on/off choice for every other source, addresses and settings are kept.
    */
-  seedSources(defaults: { id: string; name: string; kind: SourceKind; notes: string; config: SourceConfig; enabled?: boolean }[], now: Date): void;
-  recordSourceRun(id: string, result: { status: SourceStatus; message: string; itemCount: number | null }, now: Date): void;
+  seedSources(defaults: { id: string; name: string; kind: SourceKind; notes: string; config: SourceConfig; enabled?: boolean; forceOff?: boolean }[], now: Date): void;
+  /** Also keeps the "layout may have changed" warning up to date; `raised` is true on the run that first set it. */
+  recordSourceRun(
+    id: string,
+    result: { status: SourceStatus; message: string; itemCount: number | null; unchanged?: boolean; incremental?: boolean },
+    now: Date,
+  ): { layoutWarning: string; raised: boolean };
+  /** A "Test" that listed notices shows the reader still works. */
+  clearLayoutWarning(id: string): void;
   getSourceState(id: string): Record<string, unknown>;
   setSourceState(id: string, state: Record<string, unknown>): void;
   clearSourceStates(): void;
@@ -259,6 +268,11 @@ export interface SettingsService {
   setAlertInbox(value: unknown): AlertInboxSettings;
   /** Record a successful connection test. */
   markAlertInboxVerified(at: Date): void;
+  getPush(): PushSettings;
+  /** Empty tokens keep the saved ones; a new ntfy server forgets the ntfy token; changes clear `verifiedAt`. */
+  setPush(value: unknown, opts?: { removeNtfyToken?: boolean }): PushSettings;
+  /** Record a test alert that went through. */
+  markPushVerified(at: Date): void;
   resetRegion(): RegionSettings;
 }
 
@@ -309,6 +323,9 @@ export interface Mailer {
 
 export type MailerFactory = (settings: EmailSettings) => Mailer;
 
+/** The part of fetch that phone push alerts use, so tests can stand in for the network. */
+export type FetchLike = (url: string, init: RequestInit) => Promise<Response>;
+
 // ---------------------------------------------------------------------------
 // Pipeline
 // ---------------------------------------------------------------------------
@@ -325,6 +342,8 @@ export interface AppDeps {
   alertMailboxFactory: (inbox: AlertInboxSettings) => AlertMailbox;
   /** Folder for imported alert .eml files. */
   alertImportDir: string;
+  /** fetch used for phone push alerts (Telegram, ntfy); replaced by a fake in tests. Defaults to the global fetch. */
+  pushFetch?: FetchLike;
   now: () => Date;
 }
 

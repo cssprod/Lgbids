@@ -16,6 +16,7 @@
     "build:web": "vite build && node scripts/compress.mjs dist/web",
     "build:prototype": "node scripts/prototype.mjs",
     "start": "node dist/server/index.js",
+    "app": "node scripts/launch.mjs",
     "typecheck": "tsc -p tsconfig.json && tsc -p src/web/tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",

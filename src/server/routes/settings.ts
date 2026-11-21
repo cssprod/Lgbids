@@ -1,8 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import type { ActionResult, AlertInboxView, EmailSettingsView, ProfileResponse } from '../../shared/api.js';
-import { alertInboxSchema, automationSchema, emailSettingsSchema, profileSchema, regionSchema, type AlertInboxSettings, type EmailSettings } from '../../shared/schemas.js';
+import type { ActionResult, AlertInboxView, EmailSettingsView, ProfileResponse, PushSettingsView, TelegramChatResult } from '../../shared/api.js';
+import { alertInboxSchema, automationSchema, emailSettingsSchema, profileSchema, pushSettingsSchema, regionSchema, type AlertInboxSettings, type EmailSettings, type PushSettings } from '../../shared/schemas.js';
 import { profileGaps } from '../applications/draft.js';
+import { findTelegramChat, PushError, pushProblem, sendPush } from '../pipeline/push.js';
 import { ALERT_SOURCE_ID, emailFromEnvironment } from '../settings.js';
 import { emailConfigured } from '../submission/email.js';
 import { nowIso } from '../util/dates.js';
@@ -21,8 +22,19 @@ function inboxView(inbox: AlertInboxSettings): AlertInboxView {
   return { ...rest, hasPassword: pass !== '' };
 }
 
+function pushView(push: PushSettings): PushSettingsView {
+  const { telegramToken, ntfyToken, ...rest } = push;
+  return { ...rest, hasTelegramToken: telegramToken !== '', hasNtfyToken: ntfyToken !== '' };
+}
+
+const pushInputSchema = pushSettingsSchema.omit({ verifiedAt: true }).extend({ removeNtfyToken: z.boolean().default(false) });
+
+/** Only our own sentences reach the screen; other errors could carry an address with a token in it. */
+const pushFailure = (err: unknown): string => (err instanceof PushError ? err.message : 'The alert could not be sent. Try again in a minute.');
+
 export function registerSettings(app: FastifyInstance, ctx: RouteContext): void {
-  const { settings, store, now, mailerFactory, alertMailboxFactory } = ctx.deps;
+  const { deps } = ctx;
+  const { settings, store, now, mailerFactory, alertMailboxFactory } = deps;
   const { scheduler } = ctx;
 
   const profileResponse = (): ProfileResponse => {
@@ -82,6 +94,42 @@ export function registerSettings(app: FastifyInstance, ctx: RouteContext): void 
     } catch (err) {
       req.log.warn({ err }, 'alert inbox test failed');
       return { ok: false, message: err instanceof Error && err.message ? err.message : 'The mailbox could not be opened.' };
+    }
+  });
+
+  app.get('/api/settings/push', async () => pushView(settings.getPush()));
+  app.put('/api/settings/push', async (req) => {
+    const { removeNtfyToken, ...value } = parseBody(pushInputSchema, req.body);
+    return pushView(settings.setPush({ ...value, verifiedAt: null }, { removeNtfyToken }));
+  });
+  app.post('/api/settings/push/test', async (req): Promise<ActionResult> => {
+    const push = settings.getPush();
+    const problem = pushProblem(push);
+    if (problem) return { ok: false, message: problem };
+    try {
+      await sendPush(
+        push,
+        { title: 'Lgbids test alert — phone alerts are working.', lines: ['You will get a short alert like this when a check finds new suitable bids.'] },
+        deps.pushFetch,
+      );
+    } catch (err) {
+      req.log.warn({ provider: push.provider }, 'push test failed');
+      return { ok: false, message: pushFailure(err) };
+    }
+    settings.markPushVerified(now());
+    return { ok: true, message: 'A test alert was sent. Check that it arrived on your phone.' };
+  });
+  app.post('/api/settings/push/telegram-chat', async (req): Promise<TelegramChatResult> => {
+    const push = settings.getPush();
+    if (!push.telegramToken) return { ok: false, message: 'Paste the bot token from BotFather and save it first.' };
+    try {
+      const chat = await findTelegramChat(push.telegramToken, deps.pushFetch);
+      if (!chat) return { ok: false, message: 'Nobody has written to the bot in the last day. Open your bot in Telegram, send it any message, then try again.' };
+      settings.setPush({ ...push, telegramChatId: chat.id });
+      return { ok: true, chatId: chat.id, message: `Found the chat with ${chat.name} and saved it. Now send a test alert.` };
+    } catch (err) {
+      req.log.warn('telegram chat lookup failed');
+      return { ok: false, message: pushFailure(err) };
     }
   });
 

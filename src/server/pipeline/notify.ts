@@ -3,6 +3,7 @@ import type { AppDeps, OpportunityRecord } from '../contracts.js';
 import { emailConfigured } from '../submission/email.js';
 import { formatLocal, nowIso } from '../util/dates.js';
 import { isEmail } from '../util/text.js';
+import { PushError, pushConfigured, sendPush, type PushLine } from './push.js';
 
 /**
  * The summary e-mail after a run: new suitable opportunities, drafts that
@@ -41,7 +42,11 @@ export async function sendDigest(deps: AppDeps, run: RunRecord): Promise<boolean
     const automation = settings.getAutomation();
     const email = settings.getEmail();
     const to = automation.notifyEmail.trim();
-    if (!automation.notifyOnNew || !isEmail(to) || !emailConfigured(email)) return false;
+    // The e-mail and the phone alert are separate choices; either one is enough to go on.
+    const push = settings.getPush();
+    const emailOn = automation.notifyOnNew && isEmail(to) && emailConfigured(email);
+    const pushOn = pushConfigured(push);
+    if (!emailOn && !pushOn) return false;
     const now = deps.now();
 
     // New suitable opportunities nobody has been told about yet.
@@ -77,7 +82,10 @@ export async function sendDigest(deps: AppDeps, run: RunRecord): Promise<boolean
           })
         : [];
 
-    if (fresh.length + needsInput.length + readyToApprove.length + autoSent.length + closingSoon.length === 0) return false;
+    // Sites that listed notices before and none this run: told once, on the run that noticed.
+    const changedSites = (run.stats?.sources ?? []).filter((s) => s.layoutWarning);
+
+    if (fresh.length + needsInput.length + readyToApprove.length + autoSent.length + closingSoon.length + changedSites.length === 0) return false;
 
     const summary: string[] = [];
     if (fresh.length) summary.push(plural(fresh.length, 'new opportunity', 'new opportunities'));
@@ -85,6 +93,7 @@ export async function sendDigest(deps: AppDeps, run: RunRecord): Promise<boolean
     if (needsInput.length) summary.push(`${needsInput.length} ${needsInput.length === 1 ? 'needs' : 'need'} your input`);
     if (readyToApprove.length) summary.push(`${readyToApprove.length} ready to approve`);
     if (closingSoon.length) summary.push(`${closingSoon.length} closing soon`);
+    if (changedSites.length) summary.push(`${plural(changedSites.length, 'source', 'sources')} to check`);
     const subject = `Lgbids: ${summary.join(', ')}`;
 
     const sections: string[] = ['Here is what the latest check of the bid sites found.'];
@@ -103,15 +112,22 @@ export async function sendDigest(deps: AppDeps, run: RunRecord): Promise<boolean
     if (closingSoon.length) {
       sections.push(`Closing soon and not yet submitted:\n\n${closingSoon.map((a) => appLine(a, zone, `\n  ${a.status === 'ready' ? 'ready to send' : 'needs your input'}`)).join('\n\n')}`);
     }
+    if (changedSites.length) sections.push(`Sources to check:\n\n${changedSites.map((s) => `• ${s.name}: ${s.layoutWarning}`).join('\n')}`);
     sections.push('Open Lgbids to review them. You can change or switch off these e-mails in Settings.');
 
-    try {
-      await deps.mailerFactory(email).send({ to: [to], cc: [], bcc: [], subject, text: `${sections.join('\n\n')}\n`, attachments: [] });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      store.addEvent({ level: 'warn', kind: 'notify', message: `The summary e-mail to ${to} could not be sent: ${message}`, opportunityId: null, applicationId: null, runId: run.id }, now);
-      return false;
+    let emailSent = false;
+    if (emailOn) {
+      try {
+        await deps.mailerFactory(email).send({ to: [to], cc: [], bcc: [], subject, text: `${sections.join('\n\n')}\n`, attachments: [] });
+        emailSent = true;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        store.addEvent({ level: 'warn', kind: 'notify', message: `The summary e-mail to ${to} could not be sent: ${message}`, opportunityId: null, applicationId: null, runId: run.id }, now);
+      }
     }
+    // A short phone version of the same news; a failure is logged and never fails the run.
+    const pushSent = pushOn && (await pushDigest(deps, run, { subject, fresh, autoSent, needsInput, readyToApprove, closingSoon }));
+    if (!emailSent && !pushSent) return false;
 
     store.markNotified(
       fresh.map((o) => o.id),
@@ -124,7 +140,9 @@ export async function sendDigest(deps: AppDeps, run: RunRecord): Promise<boolean
         now,
       );
     }
-    store.addEvent({ level: 'info', kind: 'notify', message: `Sent the summary e-mail to ${to}: ${summary.join(', ')}.`, opportunityId: null, applicationId: null, runId: run.id }, now);
+    if (emailSent) {
+      store.addEvent({ level: 'info', kind: 'notify', message: `Sent the summary e-mail to ${to}: ${summary.join(', ')}.`, opportunityId: null, applicationId: null, runId: run.id }, now);
+    }
     return true;
   } catch (error) {
     try {
@@ -133,6 +151,55 @@ export async function sendDigest(deps: AppDeps, run: RunRecord): Promise<boolean
     } catch {
       // Nothing more can be done; the run itself is unaffected.
     }
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Phone alert (Telegram or ntfy): the digest in a few lines
+// ---------------------------------------------------------------------------
+
+const PUSH_NOTICES = 5;
+const PUSH_REMINDERS = 3;
+const PROVIDER_NAME = { telegram: 'Telegram', ntfy: 'ntfy', off: 'phone' } as const;
+
+interface DigestNews {
+  subject: string;
+  fresh: OpportunityRecord[];
+  autoSent: Application[];
+  needsInput: Application[];
+  readyToApprove: Application[];
+  closingSoon: Application[];
+}
+
+/** Send the short version of the digest; true when it went through. Failures become a warning in the activity log. */
+async function pushDigest(deps: AppDeps, run: RunRecord, news: DigestNews): Promise<boolean> {
+  const { store } = deps;
+  const zone = deps.config.timeZone;
+  const now = deps.now();
+  const push = deps.settings.getPush();
+  const via = PROVIDER_NAME[push.provider];
+  const lines: PushLine[] = [];
+  for (const opp of news.fresh.slice(0, PUSH_NOTICES)) {
+    lines.push({ text: `${opp.title}${opp.organization ? ` — ${opp.organization}` : ''}, ${closes(opp, zone)}.`, url: opp.url });
+  }
+  if (news.fresh.length > PUSH_NOTICES) lines.push(`${plural(news.fresh.length - PUSH_NOTICES, 'more new opportunity is', 'more new opportunities are')} in Lgbids.`);
+  if (news.autoSent.length) lines.push(`${plural(news.autoSent.length, 'submission was', 'submissions were')} sent automatically.`);
+  if (news.needsInput.length) lines.push(`${plural(news.needsInput.length, 'new draft needs', 'new drafts need')} your input.`);
+  if (news.readyToApprove.length) lines.push(`${plural(news.readyToApprove.length, 'new draft is', 'new drafts are')} ready to approve and send.`);
+  for (const app of news.closingSoon.slice(0, PUSH_REMINDERS)) {
+    lines.push(`Closing soon, not yet submitted: ${app.opportunity?.title ?? 'Untitled notice'}, ${closes(app.opportunity, zone)}.`);
+  }
+  if (news.closingSoon.length > PUSH_REMINDERS) lines.push(`${plural(news.closingSoon.length - PUSH_REMINDERS, 'more submission closes', 'more submissions close')} soon.`);
+
+  try {
+    await sendPush(push, { title: news.subject, lines }, deps.pushFetch);
+    store.addEvent({ level: 'info', kind: 'notify', message: `Sent a phone alert through ${via}.`, opportunityId: null, applicationId: null, runId: run.id }, now);
+    return true;
+  } catch (error) {
+    // Only our own sentences are repeated; anything else could carry an address with a token in it.
+    const reason = error instanceof PushError ? error.message : 'Something went wrong while sending it.';
+    store.addEvent({ level: 'warn', kind: 'notify', message: `The phone alert through ${via} could not be sent. ${reason}`, opportunityId: null, applicationId: null, runId: run.id }, now);
     return false;
   }
 }
