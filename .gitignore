@@ -10,3 +10,6 @@ coverage/
 
 # Netlify drag-and-drop package (npm run build:prototype, then zip dist/prototype)
 lgbids-prototype-*.zip
+
+# Local Netlify CLI state (site link, build cache)
+.netlify/
