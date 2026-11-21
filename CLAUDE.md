@@ -58,6 +58,7 @@ See docs/PLAN.md (phases 1–5). Older list below is superseded.
 - [ ] README (setup, deploy, honest limits), Dockerfile, final commit + push.
 
 ## Conventions
+- Token efficiency (user rule, 2026-11-21): always choose the cheapest approach that keeps quality. Do small tasks inline; use workflows only for real multi-lane work, with few agents (scout/build lanes + one verify; skip separate critic/fix agents unless the change is risky), tight prompts, read-only scouts returning structured data, `budget` guards on every loop, and no re-reading of files already summarised.
 - Pure logic in `matching/` and `util/`, no I/O; connectors never throw out of `listSource`.
 - DB columns snake_case, API/DTO camelCase; JSON columns stored as text.
 - Comments explain why, in plain language; user-facing strings are full sentences.
