@@ -28,7 +28,9 @@
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
     "test:e2e:demo": "playwright test --project=demo",
-    "test:e2e:prototype": "playwright test --project=prototype"
+    "test:e2e:prototype": "playwright test --project=prototype",
+    "verify": "npm run typecheck && vitest run && vitest run --sequence.shuffle && npm run build && npm run build:prototype && npm run check:bundles",
+    "verify:full": "npm run verify && npm run test:coverage && npm run test:e2e"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.5",

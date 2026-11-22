@@ -165,9 +165,10 @@ export async function buildApp(deps: AppDeps, pipeline: Pipeline, scheduler: Sch
   app.setNotFoundHandler((req, reply) => {
     // Client-side routes (/opportunities/12 ...) all load the single page app.
     if (hasIndex && (req.method === 'GET' || req.method === 'HEAD') && !isApiPath(req.url)) {
-      return reply.header('cache-control', 'no-cache').sendFile('index.html');
+      reply.header('cache-control', 'no-cache').sendFile('index.html');
+      return;
     }
-    return reply.code(404).send({ error: 'There is nothing at this address.' });
+    reply.code(404).send({ error: 'There is nothing at this address.' });
   });
 
   return app;
