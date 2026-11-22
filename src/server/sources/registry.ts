@@ -90,7 +90,7 @@ export const DEFAULT_SOURCES: DefaultSource[] = [
     'email-alerts',
     'Bid alert e-mails (BC Bid and Bonfire)',
     'email_alerts',
-    'BC Bid and Bonfire e-mail you about new opportunities; Lgbids reads those alert e-mails from your inbox (read-only) or from .eml files you import here, and never opens the sites themselves. Set up the inbox under Settings → Bid alert inbox.',
+    'BC Bid, Bonfire, CanadaBuys, bids&tenders, MERX and Biddingo e-mail you about new opportunities; Lgbids reads those alert e-mails from your inbox (read-only) or from .eml files you import here, and never opens the sites themselves. Set up the inbox under Settings → Bid alert inbox.',
     { fetchDetails: false, bcOnly: true },
     'off',
   ),
@@ -113,7 +113,7 @@ export const DEFAULT_SOURCES: DefaultSource[] = [
     'canadabuys-federal',
     'Government of Canada tenders (open data)',
     'canadabuys_csv',
-    `${CANADABUYS_OFF} Federal work in the region (CFB Esquimalt, Parks Canada, federal buildings) is posted there: set up a saved search with e-mail alerts on CanadaBuys to hear about it.`,
+    `${CANADABUYS_OFF} Federal work in the region (CFB Esquimalt, Parks Canada, federal buildings) is posted there: set up a saved search with e-mail alerts on CanadaBuys; Lgbids reads those CanadaBuys alert e-mails through the “Bid alert e-mails” source.`,
     { url: CANADABUYS_OPEN_CSV, timeZone: 'America/Toronto', fetchDetails: false },
     'blocked',
   ),
@@ -215,13 +215,13 @@ export const DEFAULT_SOURCES: DefaultSource[] = [
     localBuyer: true,
     fetchDetails: true,
   }),
-  source('oakbay', 'District of Oak Bay — tenders', 'html_list', 'Oak Bay’s tenders page (oakbay.ca now forwards to www.oakbay.ca; not yet checked against the live page). Oak Bay posts its documents on BC Bid, so this page is often empty.', {
+  source('oakbay', 'District of Oak Bay — tenders', 'html_list', unchecked('Oak Bay’s tenders page (oakbay.ca now forwards to www.oakbay.ca). Oak Bay posts its documents on BC Bid, so this page is often empty.'), {
     url: 'https://www.oakbay.ca/municipal-hall/tenders-grants/tenders',
     organization: 'District of Oak Bay',
     localBuyer: true,
     defaultSubmission: 'bcbid',
     fetchDetails: true,
-  }),
+  }, 'off'),
   // The western communities and Sidney post smaller jobs on their own sites
   // as well as on BC Bid. Not yet checked against the live pages, so they
   // ship turned off; "Test" shows whether each one reads correctly.
@@ -254,7 +254,7 @@ export const DEFAULT_SOURCES: DefaultSource[] = [
     'Town of Sidney — bidding opportunities',
     'html_list',
     unchecked(
-      'Sidney’s own bids page. Sidney takes bids through its bids&tenders portal, which needs a vendor login, so Lgbids prepares the package and you upload it there.',
+      'Sidney’s own bids page. Sidney takes bids through its bids&tenders portal, which needs a vendor login, so Lgbids prepares the package and you upload it there. Follow Sidney on bids&tenders to get its alert e-mails, which Lgbids reads through the “Bid alert e-mails” source.',
     ),
     {
       url: 'https://www.sidney.ca/government/bidding-opportunities/',
