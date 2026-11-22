@@ -40,7 +40,7 @@ export default defineConfig({
     {
       command: 'npm run demo',
       url: `${demoUrl}/api/health`,
-      env: { PORT: String(demoPort), HOST: '127.0.0.1', DEMO_DATA_DIR: '.e2e/data-demo', APP_PASSWORD: '' },
+      env: { PORT: String(demoPort), HOST: '127.0.0.1', DEMO_DATA_DIR: '.e2e/data-demo', DEMO_MAIL_LOG: '.e2e/mail-demo.jsonl', APP_PASSWORD: '' },
       reuseExistingServer: !ci,
       timeout: 120_000,
       stdout: 'ignore',

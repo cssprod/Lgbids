@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { join, resolve } from 'node:path';
 import type { Readable } from 'node:stream';
@@ -45,6 +45,18 @@ function subjectOf(message: string): string {
   return line ? decodeSubject(line[1]!.trim()) : '(no subject)';
 }
 
+/** Appends one JSON line per message (subject, recipients, attachment names and sizes) to the demo mail log. */
+async function logMessage(path: string, raw: Buffer, subject: string, to: string[]): Promise<void> {
+  try {
+    const { simpleParser } = await import('mailparser');
+    const mail = await simpleParser(raw);
+    const attachments = mail.attachments.map((a) => ({ filename: a.filename ?? '', contentType: a.contentType, size: a.size }));
+    appendFileSync(path, `${JSON.stringify({ subject: mail.subject ?? subject, to, attachments })}\n`);
+  } catch (err) {
+    console.log(`Demo mail log could not be written: ${(err as Error).message}`);
+  }
+}
+
 /** A local SMTP server that accepts any message, prints one line about it, and keeps nothing. */
 async function startMailSink(): Promise<MailSink> {
   let mod: typeof import('smtp-server');
@@ -54,6 +66,7 @@ async function startMailSink(): Promise<MailSink> {
     throw new Error('Demo mode needs the "smtp-server" package for its local mail sink. Run `npm install` (with dev dependencies) and try again.');
   }
   let captured = 0;
+  const logPath = process.env.DEMO_MAIL_LOG?.trim() ? resolve(process.env.DEMO_MAIL_LOG.trim()) : '';
   const server = new mod.SMTPServer({
     authOptional: true,
     // No TLS on a loopback-only sink, so the app's mailer connects without certificate trouble.
@@ -68,9 +81,14 @@ async function startMailSink(): Promise<MailSink> {
       stream.on('data', (chunk: Buffer) => chunks.push(chunk));
       stream.on('end', () => {
         captured += 1;
-        const recipients = session.envelope.rcptTo.map((r) => r.address).join(', ');
-        console.log(`Demo mail captured: ${subjectOf(Buffer.concat(chunks).toString('utf8'))} → ${recipients}`);
-        callback();
+        const raw = Buffer.concat(chunks);
+        const to = session.envelope.rcptTo.map((r) => r.address);
+        const subject = subjectOf(raw.toString('utf8'));
+        console.log(`Demo mail captured: ${subject} → ${to.join(', ')}`);
+        if (logPath) {
+          // Tests read this log to prove an attachment went out; bodies are never stored.
+          void logMessage(logPath, raw, subject, to).finally(() => callback());
+        } else callback();
       });
     },
   });
