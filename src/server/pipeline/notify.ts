@@ -7,11 +7,12 @@ import { PushError, pushConfigured, sendPush, type PushLine } from './push.js';
 import { notifyChanges, watchedChangesOfRun } from './watch.js';
 
 /**
- * The summary e-mail after a run: changes to bids the user is pursuing, new
- * suitable opportunities, drafts that need the user and submissions sent
- * automatically. Closing reminders have their own tick (reminders.ts).
- * One message per run at most, and only when there is something new, so it
- * stays worth opening.
+ * The summary e-mail after a run: new suitable opportunities, drafts that
+ * need the user and submissions sent automatically, led by changes to bids
+ * the user is pursuing when change e-mails are on. Closing reminders have
+ * their own tick (reminders.ts). One message per run at most, and only when
+ * there is something new besides changes (each change has its own alert),
+ * so it stays worth opening. No change is e-mailed twice.
  */
 
 function plural(n: number, one: string, many: string): string {
@@ -41,6 +42,17 @@ function appLine(app: Application, zone: string, extra = '', appUrl = ''): strin
 }
 
 export async function sendDigest(deps: AppDeps, run: RunRecord): Promise<boolean> {
+  // Changes listed in a summary e-mail that went out; their own alert then goes by push only.
+  const emailedChanges = new Set<number>();
+  try {
+    return await sendSummary(deps, run, emailedChanges);
+  } finally {
+    // One message per change (push, and e-mail when asked and not already in the summary); it never fails the run.
+    await notifyChanges(deps, deps.now(), emailedChanges);
+  }
+}
+
+async function sendSummary(deps: AppDeps, run: RunRecord, emailedChanges: Set<number>): Promise<boolean> {
   const { store, settings } = deps;
   const zone = deps.config.timeZone;
   try {
@@ -53,19 +65,25 @@ export async function sendDigest(deps: AppDeps, run: RunRecord): Promise<boolean
     const emailOn = isEmail(to) && emailConfigured(email);
     const pushOn = pushConfigured(push);
     const now = deps.now();
-    // This run's changes to bids the user is watching lead the summary; collected before the alerts mark them as told.
-    const changes = watchedChangesOfRun(store, run.id);
-    const changedIds = new Set(changes.map((c) => c.opp.id));
-    // One message per change (push, and e-mail when asked); it never fails the run.
-    await notifyChanges(deps, now);
+    // This run's changes to bids the user is watching; collected before the alerts mark them as told.
+    const watched = watchedChangesOfRun(store, run.id);
+    const changedIds = new Set(watched.map((c) => c.opp.id));
+    // Changes lead the summary only when "Changes to bids you pursue" is on. They
+    // never make a summary on their own: each has its own alert.
+    const changes = automation.notifyChanges && emailOn ? watched : [];
     if (!emailOn && !pushOn) return false;
 
     // New suitable opportunities nobody has been told about yet.
     const fresh: OpportunityRecord[] = [];
+    // Changed this run, so told about as a change, not again as new; marked as told with the summary.
+    const toldAsChange: number[] = [];
     for (let offset = 0; automation.notifyOnNew; offset += 500) {
       const page = store.listOpportunities({ view: 'suitable', limit: 500, offset }, now);
-      // A changed bid is told about as a change, not again as new.
-      fresh.push(...page.items.filter((o) => o.notifiedAt === null && !changedIds.has(o.id)));
+      for (const o of page.items) {
+        if (o.notifiedAt !== null) continue;
+        if (changedIds.has(o.id)) toldAsChange.push(o.id);
+        else fresh.push(o);
+      }
       if (page.items.length < 500) break;
     }
 
@@ -82,7 +100,7 @@ export async function sendDigest(deps: AppDeps, run: RunRecord): Promise<boolean
     // Sites that listed notices before and none this run: told once, on the run that noticed.
     const changedSites = (run.stats?.sources ?? []).filter((s) => s.layoutWarning);
 
-    if (changes.length + fresh.length + needsInput.length + readyToApprove.length + autoSent.length + changedSites.length === 0) return false;
+    if (fresh.length + needsInput.length + readyToApprove.length + autoSent.length + changedSites.length === 0) return false;
 
     const summary: string[] = [];
     if (changes.length) summary.push(plural(changes.length, 'change to a bid you are pursuing', 'changes to bids you are pursuing'));
@@ -122,6 +140,7 @@ export async function sendDigest(deps: AppDeps, run: RunRecord): Promise<boolean
       try {
         await deps.mailerFactory(email).send({ to: [to], cc: [], bcc: [], subject, text: `${sections.join('\n\n')}\n`, attachments: [] });
         emailSent = true;
+        for (const { change } of changes) emailedChanges.add(change.id);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         store.addEvent({ level: 'warn', kind: 'notify', message: `The summary e-mail to ${to} could not be sent: ${message}`, opportunityId: null, applicationId: null, runId: run.id }, now);
@@ -133,10 +152,7 @@ export async function sendDigest(deps: AppDeps, run: RunRecord): Promise<boolean
     const pushSent = pushOn && pushNews && (await pushDigest(deps, run, { subject, fresh, autoSent, needsInput, readyToApprove }));
     if (!emailSent && !pushSent) return false;
 
-    store.markNotified(
-      fresh.map((o) => o.id),
-      now,
-    );
+    store.markNotified([...fresh.map((o) => o.id), ...toldAsChange], now);
     if (emailSent) {
       store.addEvent({ level: 'info', kind: 'notify', message: `Sent the summary e-mail to ${to}: ${summary.join(', ')}.`, opportunityId: null, applicationId: null, runId: run.id }, now);
     }

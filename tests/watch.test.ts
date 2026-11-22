@@ -125,6 +125,59 @@ describe('change alerts (MAT-10)', () => {
     expect(text.split('Changed bid')).toHaveLength(2);
     expect(text).not.toContain('Closing soon');
   });
+
+  it('e-mails a change once: in the summary when one goes out, else on its own', async () => {
+    const { h, pushes } = await setup({ email: true });
+    const run = h.deps.store.startRun('manual', NOW);
+    const id = pursued(h, 'Changed bid');
+    seedOpportunity(h.deps, { title: 'Brand new bid' });
+    change(h, id, 'closing_moved', run.id);
+    expect(await sendDigest(h.deps, run)).toBe(true);
+    expect(h.sent.map((m) => m.subject)).toEqual(['Lgbids: 1 change to a bid you are pursuing, 1 new opportunity']);
+    // The phone still gets its own alert about the change.
+    expect(pushes.some((p) => p.includes('The closing date moved'))).toBe(true);
+    expect(h.deps.store.unnotifiedChanges()).toHaveLength(0);
+  });
+
+  it('never sends a summary for changes alone', async () => {
+    const { h } = await setup({ email: true });
+    const run = h.deps.store.startRun('manual', NOW);
+    const id = pursued(h, 'Changed bid');
+    h.deps.store.markNotified([id], NOW);
+    change(h, id, 'closing_moved', run.id);
+    expect(await sendDigest(h.deps, run)).toBe(false);
+    expect(h.sent.map((m) => m.subject)).toEqual(['Lgbids: Changed: Changed bid']);
+  });
+
+  it('leaves changes out of the summary when change e-mails are off', async () => {
+    const { h, pushes } = await setup({ email: true, notifyChanges: false });
+    const run = h.deps.store.startRun('manual', NOW);
+    const id = pursued(h, 'Changed bid');
+    seedOpportunity(h.deps, { title: 'Brand new bid' });
+    change(h, id, 'closing_moved', run.id);
+    expect(await sendDigest(h.deps, run)).toBe(true);
+    expect(h.sent).toHaveLength(1);
+    expect(h.sent[0]!.subject).toBe('Lgbids: 1 new opportunity');
+    expect(h.sent[0]!.text).not.toContain('Changed bid');
+    expect(pushes.some((p) => p.includes('The closing date moved'))).toBe(true);
+  });
+
+  it('marks a bid held back from "new" because it changed as told, so it is not new next time', async () => {
+    const { h } = await setup({ email: true });
+    const run = h.deps.store.startRun('manual', NOW);
+    const id = pursued(h, 'Changed bid');
+    seedOpportunity(h.deps, { title: 'Brand new bid' });
+    change(h, id, 'closing_moved', run.id);
+    expect(await sendDigest(h.deps, run)).toBe(true);
+    expect(h.deps.store.getOpportunity(id)!.notifiedAt).not.toBeNull();
+
+    const next = h.deps.store.startRun('manual', NOW);
+    seedOpportunity(h.deps, { title: 'Another bid' });
+    expect(await sendDigest(h.deps, next)).toBe(true);
+    const later = h.sent.at(-1)!;
+    expect(later.subject).toBe('Lgbids: 1 new opportunity');
+    expect(later.text).not.toContain('Changed bid');
+  });
 });
 
 describe('POST /api/opportunities/:id/changes/seen (MAT-15)', () => {

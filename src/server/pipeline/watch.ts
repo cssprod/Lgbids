@@ -44,10 +44,11 @@ export function watchedChangesOfRun(store: Store, runId: number): { change: Noti
 /**
  * Alert on unnotified changes to watched bids (MAT-10). Never throws.
  * Each change is told once: a push when phone alerts are set up, plus an
- * e-mail when "Changes to bids you pursue" is on. Silent kinds, muted and
- * unwatched bids are marked as told without a message, so they never pile up.
+ * e-mail when "Changes to bids you pursue" is on, unless the change was
+ * already in the summary e-mail (`inSummary`, change ids). Silent kinds, muted
+ * and unwatched bids are marked as told without a message, so they never pile up.
  */
-export async function notifyChanges(deps: AppDeps, now: Date): Promise<ChangeAlertOutcome> {
+export async function notifyChanges(deps: AppDeps, now: Date, inSummary: ReadonlySet<number> = new Set()): Promise<ChangeAlertOutcome> {
   const outcome: ChangeAlertOutcome = { sent: 0, skipped: 0 };
   const { store, settings } = deps;
   try {
@@ -67,7 +68,7 @@ export async function notifyChanges(deps: AppDeps, now: Date): Promise<ChangeAle
           lines: [`${opp.title}${buyer}: ${change.summary}`],
           url: opp.url,
           path: opp.application ? `/applications/${opp.application.id}` : `/opportunities/${opp.id}`,
-          email: automation.notifyChanges,
+          email: automation.notifyChanges && !inSummary.has(change.id),
           opportunityId: opp.id,
           applicationId: opp.application?.id ?? null,
           what: 'change alert',
