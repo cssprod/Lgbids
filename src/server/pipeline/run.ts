@@ -21,7 +21,9 @@ import type { AppDeps, ApplicationPatch, DraftContext, OpportunityRecord, Outgoi
 import type { ChangeStore } from '../db/store.js';
 import { HttpError, type HttpClient } from '../http/client.js';
 import { analyse, type AnalyseInput } from '../matching/analyse.js';
-import { mightBeRelevant } from '../matching/relevance.js';
+import { extractAward, isOwnCompany } from '../matching/award.js';
+import { classifyNoticeEvent } from '../matching/notice.js';
+import { BORDERLINE_AT, mightBeRelevant } from '../matching/relevance.js';
 import { connectorFor, DEFAULT_SOURCES, listSource } from '../sources/registry.js';
 import type { AlertContext, RawOpportunity } from '../sources/types.js';
 import { buildSubmissionMail, emailConfigured } from '../submission/email.js';
@@ -432,7 +434,10 @@ export function createPipeline(deps: AppDeps): Pipeline {
     const candidates: { id: number; raw: RawOpportunity; titleHit: boolean }[] = [];
     for (const entry of listed) {
       const row = store.getOpportunity(entry.id);
-      if (!row || row.detailFetchedAt || row.status !== 'open') continue;
+      if (!row || row.detailFetchedAt) continue;
+      // Award and result notices are never open, but their page names the winner (MAT-16).
+      const kind = classifyNoticeEvent(row.title);
+      if (row.status !== 'open' && kind !== 'award' && kind !== 'result') continue;
       // Wide listings (national, province-wide) carry mostly unrelated work;
       // only notices that could be landscaping are worth a page request.
       if (!source.config.localBuyer && !mightBeRelevant(`${row.title} ${row.description} ${row.categories.join(' ')}`)) continue;
@@ -498,6 +503,77 @@ export function createPipeline(deps: AppDeps): Pipeline {
       }
     }
     return read;
+  }
+
+  /**
+   * Link award and result notices to the bid they are about and keep what they
+   * say as a suggested award (MAT-16). The bid becomes `awarded`, so it is never
+   * drafted. Values are kept for every in-area relevant notice (D13), never
+   * shown as fact until the user confirms them, and a failure never fails the run.
+   */
+  function recordAwards(items: { id: number; raw: RawOpportunity }[], snap: Snapshot, runId: number, now: Date): void {
+    if (!hasLifecycle(store) || items.length === 0) return;
+    const configs = sourceConfigs();
+    const seen = new Set<number>();
+    for (const { id, raw } of items) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+      try {
+        const row = store.getOpportunity(id);
+        if (!row) continue;
+        const rowKind = classifyNoticeEvent(row.title, row.description);
+        // An alert about a known bid was merged into that bid's own row; otherwise the notice has a row of its own.
+        const ownRow = rowKind === 'award' || rowKind === 'result';
+        const noticeId = ownRow ? row.id : null;
+        const originalId = ownRow ? store.findAwardOriginal(row.id) : (row.duplicateOf ?? row.id);
+        const original = originalId !== null ? store.getOpportunity(originalId) : undefined;
+        const text = ownRow ? `${row.title}.\n${row.description}` : `${raw.title}.\n${raw.description ?? ''}`;
+        const found = extractAward(text, { zone });
+
+        const relevantRow = (o: OpportunityRecord): boolean => {
+          if (o.userDecision === 'pursue' || store.getApplicationByOpportunity(o.id)) return true;
+          let analysis = o.analysedAt ? o.analysis : null;
+          if (!analysis) {
+            const cfg = configs.get(o.sourceId) ?? sourceConfigSchema.parse({});
+            analysis = analyse(analyseInput(o, cfg), { profile: snap.profile, automation: snap.automation, region: snap.region, now, zone }).analysis;
+          }
+          return analysis.relevance >= BORDERLINE_AT && analysis.area !== 'no';
+        };
+        const keep = !!found && relevantRow(original ?? row);
+        const noticeEvent = raw.event ?? rowKind;
+        const award = store.recordParsedAward(
+          {
+            originalId: original?.id ?? null,
+            noticeId,
+            winner: keep ? found!.winner : '',
+            amount: keep ? found!.amount : null,
+            amountText: keep ? found!.amountText : '',
+            awardedOn: keep ? found!.awardedOn : null,
+            excerpt: keep ? found!.excerpt : '',
+            awarded: noticeEvent === 'award' || !!found?.winner,
+          },
+          now,
+        );
+        if (!original || !award || award.status !== 'suggested' || award.origin !== 'parsed' || !award.winner) continue;
+
+        // A won or lost suggestion only: the person confirms the result on the bid page.
+        const app = store.getApplicationByOpportunity(original.id);
+        const names = [snap.profile.legalName, snap.profile.tradeName].filter(Boolean);
+        const own = names.length > 0 && isOwnCompany(award.winner, names);
+        const advice = app
+          ? own
+            ? ' It matches your company name, so this looks like a win. Confirm it on the bid page.'
+            : ' It does not match your company name, so this bid was probably not won. Confirm it on the bid page.'
+          : ' It is saved as a suggestion until you confirm it.';
+        event('info', 'award_suggested', `An award notice for ${quoted(original.title)} names ${award.winner} as the winner.${advice}`, {
+          opportunityId: original.id,
+          applicationId: app?.id ?? null,
+          runId,
+        });
+      } catch (error) {
+        event('warn', 'award', `An award notice could not be recorded: ${errorText(error)}`, { opportunityId: id, runId });
+      }
+    }
   }
 
   function closingChangedEvent(id: number, runId: number): void {
@@ -569,10 +645,14 @@ export function createPipeline(deps: AppDeps): Pipeline {
         const outcome = await listSource(source, { http, now, region: snap.region, state, note: () => undefined, alerts: alertContext(true) });
         if (outcome.state) store.setSourceState(source.id, outcome.state);
         const listed: { id: number; raw: RawOpportunity }[] = [];
+        const awardItems: { id: number; raw: RawOpportunity }[] = [];
         for (const raw of outcome.items) {
           const bcSource = !!raw.bcSource || source.config.localBuyer || source.config.bcOnly;
           const result = store.upsertOpportunity(source.id, raw, bcSource, now);
           listed.push({ id: result.id, raw });
+          // New award or result notices, and award alerts about a known bid (MAT-16).
+          const kind = raw.event ?? classifyNoticeEvent(raw.title);
+          if ((kind === 'award' || kind === 'result') && (result.isNew || raw.event)) awardItems.push({ id: result.id, raw });
           if (result.isNew) {
             stat.added += 1;
             store.linkDuplicate(result.id);
@@ -582,6 +662,7 @@ export function createPipeline(deps: AppDeps): Pipeline {
         }
         const details = await readDetails(source, listed, http, snap, runId, now);
         await refetchWatched(source, http, snap, runId, now);
+        recordAwards(awardItems, snap, runId, now);
         const messages = [outcome.message];
         if (details.failed > 0) {
           messages.push(`${plural(details.failed, 'notice page', 'notice pages')} could not be read and will be tried again next run.`);
