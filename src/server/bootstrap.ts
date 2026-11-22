@@ -83,9 +83,10 @@ export function isLoopback(host: string): boolean {
  * A Node.js build with older time zone data still puts Vancouver on UTC−8 in
  * winter, which would show winter closing times an hour off.
  */
-export function timeZoneWarning(now: Date = new Date()): string | null {
+export function timeZoneWarning(now: Date = new Date(), januaryOffset?: number): string | null {
   const year = DateTime.fromJSDate(now).year + 1;
-  const offset = DateTime.fromObject({ year, month: 1, day: 15, hour: 12 }, { zone: 'America/Vancouver' }).offset;
+  // Tests pass the offset to cover both answers on any runtime.
+  const offset = januaryOffset ?? DateTime.fromObject({ year, month: 1, day: 15, hour: 12 }, { zone: 'America/Vancouver' }).offset;
   if (offset !== -480) return null;
   return [
     `Warning: this Node.js build has outdated time zone data (tz ${process.versions.tz ?? 'unknown'}).`,
