@@ -407,7 +407,7 @@ export interface AreaResult {
   /** One sentence explaining the call, for the "why" list. */
   note: string;
   /** Stable id of the branch that decided it (rule trace), e.g. `area.local_buyer`. */
-  rule?: string;
+  rule: string;
 }
 
 export function assessArea(input: AreaInput, region: RegionSettings): AreaResult {

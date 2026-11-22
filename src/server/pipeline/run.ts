@@ -18,7 +18,6 @@ import { transmittalText } from '../applications/templates.js';
 import { buildPackagePdf } from '../applications/pdf.js';
 import { packageFilename } from '../applications/templates.js';
 import type { AppDeps, ApplicationPatch, DraftContext, OpportunityRecord, OutgoingMail, Pipeline, SendResult, SourceTestResult, Store } from '../contracts.js';
-import type { ChangeStore } from '../db/store.js';
 import { HttpError, type HttpClient } from '../http/client.js';
 import { analyse, type AnalyseInput } from '../matching/analyse.js';
 import { extractAward, isOwnCompany } from '../matching/award.js';
@@ -49,17 +48,6 @@ export const MAX_DETAILS_PER_SOURCE = 40;
 export const MAX_REFETCH_PER_SOURCE = 10;
 /** A watched notice page is read again at most this often. */
 export const REFETCH_INTERVAL_MS = 12 * 3_600_000;
-
-/**
- * The lifecycle part of the store built in db/store.ts (re-reads, awards).
- * The shared Store contract does not list it yet, so it is checked for at run time.
- */
-type LifecycleStore = Pick<ChangeStore, 'watchedForRefetch' | 'findAwardOriginal' | 'recordParsedAward'>;
-
-function hasLifecycle(store: Store): store is Store & LifecycleStore {
-  const s = store as Store & Partial<LifecycleStore>;
-  return typeof s.watchedForRefetch === 'function' && typeof s.findAwardOriginal === 'function' && typeof s.recordParsedAward === 'function';
-}
 
 /** Sources switched off at every start-up because they refuse automated reading. */
 function forcedOff(source: SourceRecord): boolean {
@@ -477,7 +465,7 @@ export function createPipeline(deps: AppDeps): Pipeline {
    */
   async function refetchWatched(source: SourceRecord, http: HttpClient, snap: Snapshot, runId: number, now: Date): Promise<number> {
     const connector = connectorFor(source.kind);
-    if (!connector.detail || !source.config.fetchDetails || forcedOff(source) || !hasLifecycle(store)) return 0;
+    if (!connector.detail || !source.config.fetchDetails || forcedOff(source)) return 0;
     let read = 0;
     let due: { id: number; raw: RawOpportunity }[] = [];
     try {
@@ -512,7 +500,7 @@ export function createPipeline(deps: AppDeps): Pipeline {
    * shown as fact until the user confirms them, and a failure never fails the run.
    */
   function recordAwards(items: { id: number; raw: RawOpportunity }[], snap: Snapshot, runId: number, now: Date): void {
-    if (!hasLifecycle(store) || items.length === 0) return;
+    if (items.length === 0) return;
     const configs = sourceConfigs();
     const seen = new Set<number>();
     for (const { id, raw } of items) {

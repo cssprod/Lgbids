@@ -816,45 +816,9 @@ export function recomputeKeys(db: Database): number {
   });
 }
 
-/**
- * The store as built here: the shared contract, plus the changes each write
- * recorded (also saved in `opportunity_changes`). It is still a `Store`.
- */
-export type ChangeStore = Omit<Store, 'upsertOpportunity' | 'applyDetail'> & {
-  upsertOpportunity(sourceId: string, raw: RawOpportunity, bcSource: boolean, now: Date): UpsertResult & { changes: NoticeChange[] };
-  applyDetail(id: number, detail: Partial<RawOpportunity> | null, now: Date): { closingChanged: boolean; changes: NoticeChange[] };
-  /**
-   * Open rows of one source whose notice page was last read before `readBefore`
-   * and whose bid is watched (D12: pursued, or with an application that needs
-   * input, is ready or was submitted). Copies of a watched bid count too. Oldest read first.
-   */
-  watchedForRefetch(sourceId: string, readBefore: string, limit: number): { id: number; raw: RawOpportunity }[];
-  /**
-   * The bid an award or result notice is about: same reference or title key,
-   * the same source allowed, never another award or result notice. Canonical id, or null.
-   */
-  findAwardOriginal(noticeId: number): number | null;
-  /**
-   * Record what an award notice says. A linked original becomes `awarded`; the
-   * values are saved as a `suggested` award, never over a confirmed or hand-entered one.
-   */
-  recordParsedAward(input: ParsedAwardInput, now: Date): Award | null;
-};
-
-/** What the pipeline read from one award or result notice. */
-export interface ParsedAwardInput {
-  /** The bid it is about (canonical), when found. */
-  originalId: number | null;
-  /** The award or result notice row, when it is a row of its own. */
-  noticeId: number | null;
-  winner: string;
-  amount: number | null;
-  amountText: string;
-  awardedOn: string | null;
-  excerpt: string;
-  /** Result notices without a winner only close the bid; award notices mark it awarded. */
-  awarded: boolean;
-}
+/** The store as built here; the shared contract now carries the change and lifecycle methods. */
+export type ChangeStore = Store;
+export type { ParsedAwardInput } from '../contracts.js';
 
 /** Statuses whose application makes a bid watched (D12). */
 const WATCHED_APP_STATUSES = ['needs_input', 'ready', 'submitted'];

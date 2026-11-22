@@ -40,7 +40,7 @@ function source(kind: SourceKind, config: Partial<SourceConfig>, name = 'Test so
 
 beforeAll(async () => {
   server = await startFixtureServer(now);
-  http = new HttpClient({ userAgent: 'LgbidsTest/1.0', respectRobots: true, delayMs: 0, retries: 0 });
+  http = new HttpClient({ allowPrivate: true, delayMs: 0, retries: 0 });
   ctx = { http, now, region: defaultRegion(), state: {}, note: () => undefined };
 });
 
@@ -383,9 +383,9 @@ describe('HTTP client behaviour', () => {
     expect(outcome.message).toContain('robots.txt');
   });
 
-  it('can be told to ignore robots.txt', async () => {
-    const rude = new HttpClient({ userAgent: 'LgbidsTest/1.0', respectRobots: false, delayMs: 0, retries: 0 });
-    await expect(rude.get(`${server.url}/private/listing`)).resolves.toMatchObject({ status: 200 });
+  it('still respects robots.txt when told not to (the switch is gone)', async () => {
+    const rude = new HttpClient({ allowPrivate: true, respectRobots: false, delayMs: 0, retries: 0 });
+    await expect(rude.get(`${server.url}/private/listing`)).rejects.toMatchObject({ blocked: true });
   });
 
   it('classifies refusals and bot checks as blocked', async () => {
@@ -407,7 +407,7 @@ describe('HTTP client behaviour', () => {
   });
 
   it('spaces out requests to the same host', async () => {
-    const slow = new HttpClient({ userAgent: 'LgbidsTest/1.0', respectRobots: false, delayMs: 120, retries: 0 });
+    const slow = new HttpClient({ allowPrivate: true, delayMs: 120, retries: 0 });
     const started = Date.now();
     await Promise.all([slow.get(`${server.url}/empty/listing`), slow.get(`${server.url}/empty/listing`), slow.get(`${server.url}/empty/listing`)]);
     expect(Date.now() - started).toBeGreaterThanOrEqual(230);

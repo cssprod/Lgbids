@@ -18,6 +18,7 @@
   --warn: #8a5a00;
   --warn-soft: #fbf0d6;
   --bad: #a3271c;
+  --on-bad: #fff;
   --bad-soft: #fbe5e1;
   --info: #24507a;
   --info-soft: #e3edf7;
@@ -67,6 +68,7 @@
     --warn: #e6b450;
     --warn-soft: #3a2f17;
     --bad: #f08a7e;
+    --on-bad: #1f0d0a;
     --bad-soft: #3d1f1b;
     --info: #8ab8e8;
     --info-soft: #1b2c3d;
@@ -94,6 +96,7 @@
   --warn: #e6b450;
   --warn-soft: #3a2f17;
   --bad: #f08a7e;
+  --on-bad: #1f0d0a;
   --bad-soft: #3d1f1b;
   --info: #8ab8e8;
   --info-soft: #1b2c3d;
@@ -316,7 +319,7 @@ code {
 }
 .nav-badge-bad {
   background: var(--bad);
-  color: #fff;
+  color: var(--on-bad);
 }
 .nav-scrim {
   display: none;
@@ -622,7 +625,7 @@ main {
 }
 .btn-danger {
   background: var(--bad);
-  color: #fff;
+  color: var(--on-bad);
 }
 .btn-small {
   min-height: 32px;
@@ -2655,4 +2658,9 @@ form.login-card .btn-block {
 }
 .prototype-tasks li + li {
   margin-top: 0.5rem;
+}
+
+/* Wide tables scroll inside their box on phones instead of widening the page. */
+.table-scroll {
+  overflow-x: auto;
 }

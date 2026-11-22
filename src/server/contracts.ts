@@ -227,9 +227,10 @@ export interface Store {
   clearSourceStates(): void;
 
   // opportunities
-  upsertOpportunity(sourceId: string, raw: RawOpportunity, bcSource: boolean, now: Date): UpsertResult;
+  /** Also returns the changes the write recorded (saved in `opportunity_changes`). */
+  upsertOpportunity(sourceId: string, raw: RawOpportunity, bcSource: boolean, now: Date): UpsertResult & { changes: NoticeChange[] };
   /** Merge a notice page's details into the row (longer description wins, empty fields are filled) and stamp detail_fetched_at. */
-  applyDetail(id: number, detail: Partial<RawOpportunity> | null, now: Date): { closingChanged: boolean };
+  applyDetail(id: number, detail: Partial<RawOpportunity> | null, now: Date): { closingChanged: boolean; changes: NoticeChange[] };
   setDocumentText(id: number, text: string, now: Date): void;
   saveAnalysis(id: number, result: AnalysisSave, now: Date): void;
   /**
@@ -239,6 +240,22 @@ export interface Store {
    * Returns the canonical id when a link was made.
    */
   linkDuplicate(id: number): number | null;
+  /**
+   * Open rows of one source whose notice page was last read before `readBefore`
+   * and whose bid is watched (D12: pursued, or with an application that needs
+   * input, is ready or was submitted). Copies of a watched bid count too. Oldest read first.
+   */
+  watchedForRefetch(sourceId: string, readBefore: string, limit: number): { id: number; raw: RawOpportunity }[];
+  /**
+   * The bid an award or result notice is about: same reference or title key,
+   * the same source allowed, never another award or result notice. Canonical id, or null.
+   */
+  findAwardOriginal(noticeId: number): number | null;
+  /**
+   * Record what an award notice says. A linked original becomes `awarded`; the
+   * values are saved as a `suggested` award, never over a confirmed or hand-entered one.
+   */
+  recordParsedAward(input: ParsedAwardInput, now: Date): Award | null;
   getOpportunity(id: number): OpportunityRecord | undefined;
   /** Canonical rows only (duplicate_of IS NULL), each with its application summary. */
   listOpportunities(filter: OpportunityFilter, now: Date): { items: OpportunityRecord[]; total: number };
@@ -490,4 +507,19 @@ export interface Scheduler {
   /** Call after automation settings change. */
   reschedule(): void;
   nextRunAt(): string | null;
+}
+
+/** What the pipeline read from one award or result notice. */
+export interface ParsedAwardInput {
+  /** The bid it is about (canonical), when found. */
+  originalId: number | null;
+  /** The award or result notice row, when it is a row of its own. */
+  noticeId: number | null;
+  winner: string;
+  amount: number | null;
+  amountText: string;
+  awardedOn: string | null;
+  excerpt: string;
+  /** Result notices without a winner only close the bid; award notices mark it awarded. */
+  awarded: boolean;
 }

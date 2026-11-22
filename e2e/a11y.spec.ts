@@ -31,7 +31,7 @@ async function detailRoutes(page: Page): Promise<string[]> {
  * Dark mode: white text on the light red danger button (--bad #f08a7e) is
  * about 2.4:1; the fix belongs in src/web/styles.css (dark --bad or a dark text colour).
  */
-const KNOWN: Array<{ rule: string; target: string; scheme: 'light' | 'dark' }> = [{ rule: 'color-contrast', target: '.btn-danger', scheme: 'dark' }];
+const KNOWN: Array<{ rule: string; target: string; scheme: 'light' | 'dark' }> = [];
 
 /** Runs axe on the page as it is now and fails on serious or critical issues. */
 async function expectNoSeriousIssues(page: Page, label: string, scheme: 'light' | 'dark'): Promise<void> {

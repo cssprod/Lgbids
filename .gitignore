@@ -18,3 +18,4 @@ lgbids-prototype-*.zip
 .e2e/
 test-results/
 playwright-report/
+live-check-*/

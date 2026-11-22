@@ -30,17 +30,6 @@ export type LookupFn = (hostname: string) => Promise<{ address: string; family: 
 
 const defaultLookup: LookupFn = (hostname) => dnsLookup(hostname, { all: true, verbatim: true });
 
-/**
- * Transitional: the shared test helpers and the connector tests (owned by
- * other lanes) still talk to local fixture servers without `allowPrivate` and
- * still switch robots.txt off. Under vitest only, and only for a caller that
- * leaves `allowPrivate` unset, those old defaults apply until they pass
- * `allowPrivate: true` (contract request). Never true in the app.
- */
-function legacyTestDefaults(): boolean {
-  return process.env.VITEST === 'true';
-}
-
 export class HttpError extends Error {
   constructor(
     message: string,
@@ -155,10 +144,9 @@ export class HttpClient {
   constructor(private readonly options: HttpClientOptions) {
     this.fetchImpl = options.fetchImpl ?? fetch;
     this.userAgent = options.userAgent && /^Lgbids/i.test(options.userAgent) ? options.userAgent : USER_AGENT;
-    // Callers written for v2 always say whether private addresses are allowed.
-    const legacy = options.allowPrivate === undefined && legacyTestDefaults();
-    this.respectRobots = legacy ? options.respectRobots !== false : true;
-    this.allowPrivate = options.allowPrivate ?? legacy;
+    // robots.txt is always respected (D2); `respectRobots: false` is ignored.
+    this.respectRobots = true;
+    this.allowPrivate = options.allowPrivate ?? false;
     this.lookup = options.lookup ?? defaultLookup;
     this.robots = new RobotsCache(this.userAgent, async (url) => {
       try {

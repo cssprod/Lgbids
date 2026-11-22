@@ -62,7 +62,7 @@ describe('metric maths', () => {
       actual: full,
       wrong: (['relevant', 'decision', 'area', 'type'] as const).filter((f) => expected[f] !== full[f]),
       matchedTerms: [],
-      areaResult: { area: full.area, match: '', note: '' },
+      areaResult: { area: full.area, match: '', note: '', rule: 'area.test' },
     };
   };
   const good = { relevant: true, decision: 'suitable', area: 'yes', type: 'RFQ' } as const;

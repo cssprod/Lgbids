@@ -24,6 +24,7 @@
     "run-once": "tsx src/server/cli/runOnce.ts",
     "demo": "tsx src/server/cli/demo.ts",
     "eval": "tsx scripts/eval-matching.ts",
+    "live-check": "tsx src/server/cli/liveCheck.ts",
     "check:bundles": "node scripts/check-bundles.mjs",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
