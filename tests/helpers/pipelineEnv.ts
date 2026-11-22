@@ -133,7 +133,7 @@ export function makeEnv(opts: { profile?: boolean; smtp?: boolean; automation?: 
     settings,
     files: createFileStore(dir),
     mailerFactory,
-    httpFactory: () => new HttpClient({ userAgent: 'LgbidsTest/1.0', respectRobots: true, delayMs: 0, retries: 0 }),
+    httpFactory: () => new HttpClient({ allowPrivate: true, delayMs: 0, retries: 0 }),
     alertMailboxFactory: () => {
       if (!opts.mailbox) throw new Error('No test mailbox.');
       return opts.mailbox;

@@ -180,6 +180,8 @@ export interface TelegramChatResult extends ActionResult {
 export interface ActionResult {
   ok: boolean;
   message: string;
+  /** Alert inbox test only: alert e-mails found per sender (bcbid, bonfire, canadabuys, ...). */
+  bySender?: Partial<Record<string, number>>;
 }
 
 export interface SourceTest {

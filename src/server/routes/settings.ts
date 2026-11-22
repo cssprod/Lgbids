@@ -81,11 +81,12 @@ export function registerSettings(app: FastifyInstance, ctx: RouteContext): void 
       return { ok: false, message: 'The alert inbox is not set up yet. Enter the e-mail address and app password, then save.' };
     }
     try {
-      const { count } = await alertMailboxFactory(inbox).test({ now: now(), lookbackDays: inbox.lookbackDays });
+      const { count, bySender } = await alertMailboxFactory(inbox).test({ now: now(), lookbackDays: inbox.lookbackDays });
       settings.markAlertInboxVerified(now());
       const what = count === 1 ? '1 alert e-mail' : `${count} alert e-mails`;
       return {
         ok: true,
+        ...(bySender ? { bySender } : {}),
         message:
           count > 0
             ? `Connected. Found ${what} from BC Bid or Bonfire in “${inbox.folder}” from the last ${inbox.lookbackDays} days.`

@@ -6,7 +6,7 @@ import { DateTime } from 'luxon';
 import { buildApp } from './app.js';
 import type { AppConfig, AppDeps, Pipeline, Scheduler } from './contracts.js';
 import { openDatabase } from './db/database.js';
-import { createStore } from './db/store.js';
+import { createStore, recomputeKeys } from './db/store.js';
 import { createFileStore } from './files.js';
 import { HttpClient, USER_AGENT, type HttpClientOptions } from './http/client.js';
 import { createPipeline } from './pipeline/run.js';
@@ -26,7 +26,14 @@ export function createDeps(config: AppConfig, overrides: Partial<AppDeps> = {}):
   if (!inMemory) prepareDataDir(config.dataDir);
 
   const now = overrides.now ?? (() => new Date());
-  const store = overrides.store ?? createStore(openDatabase(inMemory ? ':memory:' : join(config.dataDir, 'lgbids.sqlite')));
+  const store =
+    overrides.store ??
+    (() => {
+      const db = openDatabase(inMemory ? ':memory:' : join(config.dataDir, 'lgbids.sqlite'));
+      // Stored reference and title keys are rewritten once when the key rules change (keys_version).
+      recomputeKeys(db);
+      return createStore(db);
+    })();
   if (!inMemory && !overrides.store) restrictDatabaseFiles(config.dataDir);
   const settings = overrides.settings ?? createSettings(store, process.env, now);
   // An in-memory database has nowhere permanent for uploads either, so they go to a throw-away folder.
