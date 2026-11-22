@@ -262,6 +262,7 @@ export const DEFAULT_ORGANIZATIONS = [
   'Sooke School District',
   'School District 62',
   'School District No 62',
+  'Sooke School District No 62',
   'Saanich School District',
   'Saanich Schools',
   'School District 63',
@@ -466,8 +467,27 @@ export function mightBeLocal(text: string, region: RegionSettings): boolean {
  * two different sites: "The Corporation of the District of Saanich" and
  * "District of Saanich" both become "saanich".
  */
+// Buyers known by several names. Checked in order: the CRD's housing
+// corporation and hospital district are separate buyers and must be tested
+// before the plain CRD names.
+const ORG_ALIASES: [RegExp, string][] = [
+  [/\bcapital region(?:al)? housing\b|\bcrhc\b/, 'crhc'],
+  [/\bcapital region(?:al)? hospital\b|\bcrhd\b/, 'crhd'],
+  [/\bcapital regional district\b|\bcrd\b/, 'crd'],
+  [/\buniversity of victoria\b|\buvic\b/, 'uvic'],
+  [/\b(?:sd|school district)\s*(?:no|number)?\s*(6[123])\b/, 'sd$1'],
+  [/\bsooke school district\b/, 'sd62'],
+  [/\bgreater victoria school district\b/, 'sd61'],
+  [/\bsaanich (?:school district|schools)\b/, 'sd63'],
+];
+
 export function organizationKey(organization: string): string {
-  const n = normalize(organization)
+  const raw = normalize(organization);
+  for (const [re, key] of ORG_ALIASES) {
+    const m = re.exec(raw);
+    if (m) return key.replace('$1', m[1] ?? '');
+  }
+  const n = raw
     .replace(/\b(?:the|corporation|corp|of|city|district|township|town|municipality|village|regional|board|education|school|no|number|and|inc|ltd|society|authority|first nation|nation)\b/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
