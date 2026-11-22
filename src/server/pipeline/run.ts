@@ -17,11 +17,14 @@ import { assessReadiness, draftApplication, mergeChecklist } from '../applicatio
 import { transmittalText } from '../applications/templates.js';
 import { buildPackagePdf } from '../applications/pdf.js';
 import { packageFilename } from '../applications/templates.js';
-import type { AppDeps, ApplicationPatch, DraftContext, OpportunityRecord, OutgoingMail, Pipeline, SendResult, SourceTestResult } from '../contracts.js';
+import type { AppDeps, ApplicationPatch, DraftContext, OpportunityRecord, OutgoingMail, Pipeline, SendResult, SourceTestResult, Store } from '../contracts.js';
+import type { ChangeStore } from '../db/store.js';
 import { HttpError, type HttpClient } from '../http/client.js';
 import { analyse, type AnalyseInput } from '../matching/analyse.js';
-import { mightBeRelevant } from '../matching/relevance.js';
-import { connectorFor, listSource } from '../sources/registry.js';
+import { extractAward, isOwnCompany } from '../matching/award.js';
+import { classifyNoticeEvent } from '../matching/notice.js';
+import { BORDERLINE_AT, mightBeRelevant } from '../matching/relevance.js';
+import { connectorFor, DEFAULT_SOURCES, listSource } from '../sources/registry.js';
 import type { AlertContext, RawOpportunity } from '../sources/types.js';
 import { buildSubmissionMail, emailConfigured } from '../submission/email.js';
 import { closingDeadline, formatLocal, nowIso } from '../util/dates.js';
@@ -41,6 +44,27 @@ import { sendDigest } from './notify.js';
 
 /** Notice pages opened per source per run, so one big listing cannot stall a run. */
 export const MAX_DETAILS_PER_SOURCE = 40;
+
+/** Watched notice pages re-read per source per run (MAT-9). */
+export const MAX_REFETCH_PER_SOURCE = 10;
+/** A watched notice page is read again at most this often. */
+export const REFETCH_INTERVAL_MS = 12 * 3_600_000;
+
+/**
+ * The lifecycle part of the store built in db/store.ts (re-reads, awards).
+ * The shared Store contract does not list it yet, so it is checked for at run time.
+ */
+type LifecycleStore = Pick<ChangeStore, 'watchedForRefetch' | 'findAwardOriginal' | 'recordParsedAward'>;
+
+function hasLifecycle(store: Store): store is Store & LifecycleStore {
+  const s = store as Store & Partial<LifecycleStore>;
+  return typeof s.watchedForRefetch === 'function' && typeof s.findAwardOriginal === 'function' && typeof s.recordParsedAward === 'function';
+}
+
+/** Sources switched off at every start-up because they refuse automated reading. */
+function forcedOff(source: SourceRecord): boolean {
+  return DEFAULT_SOURCES.some((d) => d.id === source.id && d.forceOff === true);
+}
 
 const CRASHED_WHILE_SENDING = 'The app stopped while this was being sent. Check your sent mail before sending again.';
 
@@ -410,7 +434,10 @@ export function createPipeline(deps: AppDeps): Pipeline {
     const candidates: { id: number; raw: RawOpportunity; titleHit: boolean }[] = [];
     for (const entry of listed) {
       const row = store.getOpportunity(entry.id);
-      if (!row || row.detailFetchedAt || row.status !== 'open') continue;
+      if (!row || row.detailFetchedAt) continue;
+      // Award and result notices are never open, but their page names the winner (MAT-16).
+      const kind = classifyNoticeEvent(row.title);
+      if (row.status !== 'open' && kind !== 'award' && kind !== 'result') continue;
       // Wide listings (national, province-wide) carry mostly unrelated work;
       // only notices that could be landscaping are worth a page request.
       if (!source.config.localBuyer && !mightBeRelevant(`${row.title} ${row.description} ${row.categories.join(' ')}`)) continue;
@@ -441,16 +468,125 @@ export function createPipeline(deps: AppDeps): Pipeline {
     return { read, failed };
   }
 
+  /**
+   * Read the notice pages of watched bids again, so an addendum or a moved
+   * closing posted only there is noticed (MAT-9). The change log (MAT-8) records
+   * what is new. Only through the connector's own reader and HttpClient (robots,
+   * per-host delay), never for sources that refuse automated reading, and a
+   * failure here never fails the run: the page is tried again next run.
+   */
+  async function refetchWatched(source: SourceRecord, http: HttpClient, snap: Snapshot, runId: number, now: Date): Promise<number> {
+    const connector = connectorFor(source.kind);
+    if (!connector.detail || !source.config.fetchDetails || forcedOff(source) || !hasLifecycle(store)) return 0;
+    let read = 0;
+    let due: { id: number; raw: RawOpportunity }[] = [];
+    try {
+      due = store.watchedForRefetch(source.id, nowIso(new Date(now.getTime() - REFETCH_INTERVAL_MS)), MAX_REFETCH_PER_SOURCE);
+    } catch {
+      return 0;
+    }
+    for (const { id, raw } of due) {
+      try {
+        const detail = await connector.detail(source, raw, { http, now, region: snap.region, state: {}, note: () => undefined });
+        const { closingChanged } = store.applyDetail(id, detail, now);
+        if (closingChanged) closingChangedEvent(id, runId);
+        read += 1;
+      } catch (error) {
+        // A page that is gone or refuses automated reading is not asked again for 12 hours.
+        if (error instanceof HttpError && (error.status === 404 || error.status === 410 || error.blocked)) {
+          try {
+            store.applyDetail(id, null, now);
+          } catch {
+            // Best effort: the next run asks again.
+          }
+        }
+      }
+    }
+    return read;
+  }
+
+  /**
+   * Link award and result notices to the bid they are about and keep what they
+   * say as a suggested award (MAT-16). The bid becomes `awarded`, so it is never
+   * drafted. Values are kept for every in-area relevant notice (D13), never
+   * shown as fact until the user confirms them, and a failure never fails the run.
+   */
+  function recordAwards(items: { id: number; raw: RawOpportunity }[], snap: Snapshot, runId: number, now: Date): void {
+    if (!hasLifecycle(store) || items.length === 0) return;
+    const configs = sourceConfigs();
+    const seen = new Set<number>();
+    for (const { id, raw } of items) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+      try {
+        const row = store.getOpportunity(id);
+        if (!row) continue;
+        const rowKind = classifyNoticeEvent(row.title, row.description);
+        // An alert about a known bid was merged into that bid's own row; otherwise the notice has a row of its own.
+        const ownRow = rowKind === 'award' || rowKind === 'result';
+        const noticeId = ownRow ? row.id : null;
+        const originalId = ownRow ? store.findAwardOriginal(row.id) : (row.duplicateOf ?? row.id);
+        const original = originalId !== null ? store.getOpportunity(originalId) : undefined;
+        const text = ownRow ? `${row.title}.\n${row.description}` : `${raw.title}.\n${raw.description ?? ''}`;
+        const found = extractAward(text, { zone });
+
+        const relevantRow = (o: OpportunityRecord): boolean => {
+          if (o.userDecision === 'pursue' || store.getApplicationByOpportunity(o.id)) return true;
+          let analysis = o.analysedAt ? o.analysis : null;
+          if (!analysis) {
+            const cfg = configs.get(o.sourceId) ?? sourceConfigSchema.parse({});
+            analysis = analyse(analyseInput(o, cfg), { profile: snap.profile, automation: snap.automation, region: snap.region, now, zone }).analysis;
+          }
+          return analysis.relevance >= BORDERLINE_AT && analysis.area !== 'no';
+        };
+        const keep = !!found && relevantRow(original ?? row);
+        const noticeEvent = raw.event ?? rowKind;
+        const award = store.recordParsedAward(
+          {
+            originalId: original?.id ?? null,
+            noticeId,
+            winner: keep ? found!.winner : '',
+            amount: keep ? found!.amount : null,
+            amountText: keep ? found!.amountText : '',
+            awardedOn: keep ? found!.awardedOn : null,
+            excerpt: keep ? found!.excerpt : '',
+            awarded: noticeEvent === 'award' || !!found?.winner,
+          },
+          now,
+        );
+        if (!original || !award || award.status !== 'suggested' || award.origin !== 'parsed' || !award.winner) continue;
+
+        // A won or lost suggestion only: the person confirms the result on the bid page.
+        const app = store.getApplicationByOpportunity(original.id);
+        const names = [snap.profile.legalName, snap.profile.tradeName].filter(Boolean);
+        const own = names.length > 0 && isOwnCompany(award.winner, names);
+        const advice = app
+          ? own
+            ? ' It matches your company name, so this looks like a win. Confirm it on the bid page.'
+            : ' It does not match your company name, so this bid was probably not won. Confirm it on the bid page.'
+          : ' It is saved as a suggestion until you confirm it.';
+        event('info', 'award_suggested', `An award notice for ${quoted(original.title)} names ${award.winner} as the winner.${advice}`, {
+          opportunityId: original.id,
+          applicationId: app?.id ?? null,
+          runId,
+        });
+      } catch (error) {
+        event('warn', 'award', `An award notice could not be recorded: ${errorText(error)}`, { opportunityId: id, runId });
+      }
+    }
+  }
+
   function closingChangedEvent(id: number, runId: number): void {
     const opp = store.getOpportunity(id);
     if (!opp) return;
     // Applications hang off the canonical row; a duplicate's date change matters to it too.
+    // The change is logged even with no application yet: the bid may still be pursued.
     const app = store.getApplicationByOpportunity(opp.duplicateOf ?? opp.id);
-    if (!app) return;
     const when = opp.closesAt ? `it now closes ${formatLocal(opp.closesAt, opp.closesAtPrecision, zone)}` : 'the new closing date could not be read';
-    event('warn', 'closing_changed', `The closing date changed for ${quoted(opp.title)}; ${when}. Check the submission before it goes out.`, {
+    const advice = app ? ' Check the submission before it goes out.' : '';
+    event(app ? 'warn' : 'info', 'closing_changed', `The closing date changed for ${quoted(opp.title)}; ${when}.${advice}`, {
       opportunityId: opp.id,
-      applicationId: app.id,
+      applicationId: app?.id ?? null,
       runId,
     });
   }
@@ -509,10 +645,14 @@ export function createPipeline(deps: AppDeps): Pipeline {
         const outcome = await listSource(source, { http, now, region: snap.region, state, note: () => undefined, alerts: alertContext(true) });
         if (outcome.state) store.setSourceState(source.id, outcome.state);
         const listed: { id: number; raw: RawOpportunity }[] = [];
+        const awardItems: { id: number; raw: RawOpportunity }[] = [];
         for (const raw of outcome.items) {
           const bcSource = !!raw.bcSource || source.config.localBuyer || source.config.bcOnly;
           const result = store.upsertOpportunity(source.id, raw, bcSource, now);
           listed.push({ id: result.id, raw });
+          // New award or result notices, and award alerts about a known bid (MAT-16).
+          const kind = raw.event ?? classifyNoticeEvent(raw.title);
+          if ((kind === 'award' || kind === 'result') && (result.isNew || raw.event)) awardItems.push({ id: result.id, raw });
           if (result.isNew) {
             stat.added += 1;
             store.linkDuplicate(result.id);
@@ -521,6 +661,8 @@ export function createPipeline(deps: AppDeps): Pipeline {
           }
         }
         const details = await readDetails(source, listed, http, snap, runId, now);
+        await refetchWatched(source, http, snap, runId, now);
+        recordAwards(awardItems, snap, runId, now);
         const messages = [outcome.message];
         if (details.failed > 0) {
           messages.push(`${plural(details.failed, 'notice page', 'notice pages')} could not be read and will be tried again next run.`);
