@@ -178,6 +178,47 @@ describe('change alerts (MAT-10)', () => {
     expect(later.subject).toBe('Lgbids: 1 new opportunity');
     expect(later.text).not.toContain('Changed bid');
   });
+
+  it('marks a changed bid as told even when the run had nothing else to summarise', async () => {
+    const { h } = await setup({ email: true });
+    const run = h.deps.store.startRun('manual', NOW);
+    const id = pursued(h, 'Changed bid');
+    change(h, id, 'closing_moved', run.id);
+    expect(await sendDigest(h.deps, run)).toBe(false);
+    expect(h.deps.store.getOpportunity(id)!.notifiedAt).not.toBeNull();
+
+    const next = h.deps.store.startRun('manual', NOW);
+    seedOpportunity(h.deps, { title: 'Another bid' });
+    expect(await sendDigest(h.deps, next)).toBe(true);
+    const later = h.sent.at(-1)!;
+    expect(later.subject).toBe('Lgbids: 1 new opportunity');
+    expect(later.text).not.toContain('Changed bid');
+  });
+
+  it('does not e-mail a change again when its phone alert failed after the summary listed it', async () => {
+    let pushDown = true;
+    const bodies: string[] = [];
+    const h = await harness({}, undefined, {
+      pushFetch: (async (_url: string, init: RequestInit) => {
+        if (pushDown) throw new TypeError('fetch failed');
+        bodies.push(String(init.body ?? ''));
+        return Response.json({ id: 'x' });
+      }) as FetchLike,
+    });
+    h.deps.settings.setPush({ provider: 'ntfy', ntfyServer: 'https://ntfy.example', ntfyTopic: 'lgbids-x7Kq92mPz' });
+    h.deps.settings.setEmail({ host: 'smtp.example', port: 587, secure: false, user: 'u', pass: 'p', fromName: 'Office', fromEmail: 'office@co.example' });
+    h.deps.settings.setAutomation({ ...h.deps.settings.getAutomation(), notifyEmail: 'me@co.example', notifyChanges: true });
+    const run = h.deps.store.startRun('manual', NOW);
+    const id = pursued(h, 'Changed bid');
+    seedOpportunity(h.deps, { title: 'Brand new bid' });
+    change(h, id, 'closing_moved', run.id);
+    expect(await sendDigest(h.deps, run)).toBe(true);
+
+    pushDown = false;
+    const next = h.deps.store.startRun('manual', NOW);
+    await sendDigest(h.deps, next);
+    expect(h.sent.filter((m) => m.text.includes('The closing date moved'))).toHaveLength(1);
+  });
 });
 
 describe('POST /api/opportunities/:id/changes/seen (MAT-15)', () => {

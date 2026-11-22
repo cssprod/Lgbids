@@ -75,8 +75,11 @@ export async function notifyChanges(deps: AppDeps, now: Date, inSummary: Readonl
         },
         now,
       );
-      if (channels.length === 0 && tried > 0) {
-        // Every channel failed (logged as a warning): tried again after the next check.
+      // Every channel failed (logged as a warning): tried again after the next check,
+      // unless the summary e-mail already told of it. A retry would then e-mail it a
+      // second time, since later runs no longer know it was in a summary; the phone
+      // alert is given up instead.
+      if (channels.length === 0 && tried > 0 && !inSummary.has(change.id)) {
         continue;
       }
       // With nothing set up there is no one to tell; the change stays on the bid page.

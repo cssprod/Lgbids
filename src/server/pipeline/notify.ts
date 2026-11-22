@@ -75,17 +75,23 @@ async function sendSummary(deps: AppDeps, run: RunRecord, emailedChanges: Set<nu
 
     // New suitable opportunities nobody has been told about yet.
     const fresh: OpportunityRecord[] = [];
-    // Changed this run, so told about as a change, not again as new; marked as told with the summary.
-    const toldAsChange: number[] = [];
+    // Changed this run, so told about as a change, not again as new.
+    const toldAsChange: OpportunityRecord[] = [];
     for (let offset = 0; automation.notifyOnNew; offset += 500) {
       const page = store.listOpportunities({ view: 'suitable', limit: 500, offset }, now);
       for (const o of page.items) {
         if (o.notifiedAt !== null) continue;
-        if (changedIds.has(o.id)) toldAsChange.push(o.id);
+        if (changedIds.has(o.id)) toldAsChange.push(o);
         else fresh.push(o);
       }
       if (page.items.length < 500) break;
     }
+
+    // A changed bid whose change alert goes out (by push, or by e-mail when change
+    // e-mails are on) is told now, even if no summary follows: it must not come back
+    // as new later. With neither, nobody hears of the change, so it stays new.
+    if (pushOn || (automation.notifyChanges && emailOn)) store.markNotified(toldAsChange.map((o) => o.id), now);
+    else fresh.push(...toldAsChange);
 
     // What this run did is read back from its own activity entries, which
     // is exact even when two runs fall within the same second.
@@ -152,7 +158,7 @@ async function sendSummary(deps: AppDeps, run: RunRecord, emailedChanges: Set<nu
     const pushSent = pushOn && pushNews && (await pushDigest(deps, run, { subject, fresh, autoSent, needsInput, readyToApprove }));
     if (!emailSent && !pushSent) return false;
 
-    store.markNotified([...fresh.map((o) => o.id), ...toldAsChange], now);
+    store.markNotified(fresh.map((o) => o.id), now);
     if (emailSent) {
       store.addEvent({ level: 'info', kind: 'notify', message: `Sent the summary e-mail to ${to}: ${summary.join(', ')}.`, opportunityId: null, applicationId: null, runId: run.id }, now);
     }
