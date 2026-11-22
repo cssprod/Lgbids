@@ -624,6 +624,16 @@ export interface ApplicationFile {
   mime: string;
 }
 
+/**
+ * A won or not-awarded hint read from an award notice (logged as an
+ * `award_suggested` event). Only a hint: the person confirms the result.
+ */
+export interface ResultSuggestion {
+  outcome: 'won' | 'lost';
+  winner: string;
+  message: string;
+}
+
 export interface Application {
   id: number;
   opportunityId: number;
@@ -654,6 +664,11 @@ export interface Application {
   createdAt: string;
   updatedAt: string;
   opportunity?: Opportunity;
+  /**
+   * Sent only by GET /api/applications/:id: null when there is no unconfirmed
+   * award hint. Lists and stored rows leave it out.
+   */
+  resultSuggestion?: ResultSuggestion | null;
 }
 
 export const applicationUpdateSchema = z.object({

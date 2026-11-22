@@ -4,7 +4,6 @@ import type { Application, Award, Opportunity } from '../../../shared/schemas.js
 import { useAction } from '../../hooks.js';
 import { formatMoney, formatPlainDate } from '../../format.js';
 import { ConfirmDialog, Dialog } from '../Dialog.js';
-import type { ApplicationWithResult } from '../ResultDialog.js';
 import { Callout, Field, Live, NumberInput, Section } from '../ui.js';
 
 export interface AwardSectionProps {
@@ -61,7 +60,7 @@ export function AwardSection({ opportunity, application, onChange }: AwardSectio
   if (!award && opportunity.status === 'open' && !hasResult) return null;
 
   const own = application?.priceTotal ?? null;
-  const hint = (application as ApplicationWithResult | null | undefined)?.resultSuggestion ?? null;
+  const hint = application?.resultSuggestion ?? null;
 
   async function confirm(a: Award) {
     const saved = await action.run(() => saveAward(opportunity.id, { winner: a.winner, amount: a.amount, awardedOn: a.awardedOn, notes: a.notes }), 'The result was confirmed.');

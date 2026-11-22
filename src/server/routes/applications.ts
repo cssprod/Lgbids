@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { APPLICATION_STATUSES, applicationUpdateSchema, type Application, type ApplicationStatus } from '../../shared/schemas.js';
+import { APPLICATION_STATUSES, applicationUpdateSchema, type Application, type ApplicationStatus, type ResultSuggestion } from '../../shared/schemas.js';
 import type { ApplicationPatch } from '../contracts.js';
 import { isOwnCompany } from '../matching/award.js';
 import { closingDeadline, nowIso } from '../util/dates.js';
@@ -31,18 +31,6 @@ function checkAddresses(field: string, value: string | undefined): void {
   const bad = parts.find((p) => !isEmail(p));
   if (bad !== undefined) throw new ApiError(400, `“${bad}” in ${field} is not a valid e-mail address.`);
 }
-
-/**
- * A won or not-awarded hint from an award notice (MAT-16 logs it as an
- * `award_suggested` event). Only a hint: the person confirms the result.
- * Not in the shared Application type yet (reported as a contract request).
- */
-export interface ResultSuggestion {
-  outcome: 'won' | 'lost';
-  winner: string;
-  message: string;
-}
-export type ApplicationWithResult = Application & { resultSuggestion: ResultSuggestion | null };
 
 function appendNote(existing: string, note: string | undefined): string {
   if (!note) return existing;
@@ -77,7 +65,7 @@ export function registerApplications(app: FastifyInstance, ctx: RouteContext): v
   });
 
   /** The application with its bid's award and, while the award is unconfirmed, the won/lost hint. */
-  function withResult(application: Application): ApplicationWithResult {
+  function withResult(application: Application): Application & { resultSuggestion: ResultSuggestion | null } {
     const award = store.getAwardFor(application.opportunityId) ?? null;
     const opportunity = application.opportunity ? { ...application.opportunity, award } : application.opportunity;
     let resultSuggestion: ResultSuggestion | null = null;

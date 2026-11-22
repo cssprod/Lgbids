@@ -5,18 +5,6 @@ import { formatMoney } from '../format.js';
 import { Dialog } from './Dialog.js';
 import { Field, NumberInput } from './ui.js';
 
-/**
- * The won / not-awarded hint the server adds to an application read from an
- * award notice. Not in the shared Application type yet (contract request), so
- * it is named here and read only where the server sends it.
- */
-export interface ResultSuggestion {
-  outcome: 'won' | 'lost';
-  winner: string;
-  message: string;
-}
-export type ApplicationWithResult = Application & { resultSuggestion?: ResultSuggestion | null };
-
 export interface ResultDialogProps {
   open: boolean;
   outcome: 'won' | 'lost';
