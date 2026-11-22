@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { APPLICATION_STATUSES, applicationUpdateSchema, type Application, type ApplicationStatus } from '../../shared/schemas.js';
 import type { ApplicationPatch } from '../contracts.js';
+import { isOwnCompany } from '../matching/award.js';
 import { closingDeadline, nowIso } from '../util/dates.js';
 import { isEmail } from '../util/text.js';
 import { ApiError, idParam, notFound, parseBody, query, readUpload, sanitizeName, sendFile, type RouteContext } from './util.js';
@@ -30,6 +31,18 @@ function checkAddresses(field: string, value: string | undefined): void {
   const bad = parts.find((p) => !isEmail(p));
   if (bad !== undefined) throw new ApiError(400, `“${bad}” in ${field} is not a valid e-mail address.`);
 }
+
+/**
+ * A won or not-awarded hint from an award notice (MAT-16 logs it as an
+ * `award_suggested` event). Only a hint: the person confirms the result.
+ * Not in the shared Application type yet (reported as a contract request).
+ */
+export interface ResultSuggestion {
+  outcome: 'won' | 'lost';
+  winner: string;
+  message: string;
+}
+export type ApplicationWithResult = Application & { resultSuggestion: ResultSuggestion | null };
 
 function appendNote(existing: string, note: string | undefined): string {
   if (!note) return existing;
@@ -63,7 +76,24 @@ export function registerApplications(app: FastifyInstance, ctx: RouteContext): v
     return store.listApplications({ status: statuses as ApplicationStatus[] });
   });
 
-  app.get('/api/applications/:id', async (req) => load(idParam(req, 'application')));
+  /** The application with its bid's award and, while the award is unconfirmed, the won/lost hint. */
+  function withResult(application: Application): ApplicationWithResult {
+    const award = store.getAwardFor(application.opportunityId) ?? null;
+    const opportunity = application.opportunity ? { ...application.opportunity, award } : application.opportunity;
+    let resultSuggestion: ResultSuggestion | null = null;
+    if (award && award.status === 'suggested' && award.winner && ['submitted', 'won', 'lost'].includes(application.status)) {
+      const logged = store.listEvents(500).find((e) => e.kind === 'award_suggested' && e.applicationId === application.id);
+      if (logged) {
+        const profile = ctx.deps.settings.getProfile();
+        const names = [profile.legalName, profile.tradeName].filter(Boolean);
+        const own = names.length > 0 && isOwnCompany(award.winner, names);
+        resultSuggestion = { outcome: own ? 'won' : 'lost', winner: award.winner, message: logged.message };
+      }
+    }
+    return { ...application, opportunity, resultSuggestion };
+  }
+
+  app.get('/api/applications/:id', async (req) => withResult(load(idParam(req, 'application'))));
 
   app.patch('/api/applications/:id', async (req) => {
     const id = idParam(req, 'application');
@@ -176,7 +206,7 @@ export function registerApplications(app: FastifyInstance, ctx: RouteContext): v
       pipeline.reassess(current.id);
       event(current, 'application_reopened', `${title(current)} was reopened.`);
     }
-    return load(current.id);
+    return withResult(load(current.id));
   });
 
   app.get('/api/applications/:id/package.pdf', async (req, reply) => {

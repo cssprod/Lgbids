@@ -45,7 +45,25 @@ export interface CsvDates {
   firstSeen(o: Opportunity): string;
 }
 
-export function opportunitiesCsv(items: Opportunity[], dates: CsvDates): string {
+/**
+ * Award columns (UX-13), added after the others. "Award status" says whether
+ * the person confirmed the winner or Lgbids only read it from a notice, so a
+ * suggestion is never passed off as fact.
+ */
+export const AWARD_CSV_HEADERS = ['Winner', 'Winning price', 'Awarded on', 'Award status'];
+
+function awardCells(o: Opportunity): (string | number | null)[] {
+  const a = o.award;
+  if (!a) return ['', '', '', ''];
+  return [a.winner, a.amount, a.awardedOn ?? '', a.status === 'confirmed' ? 'Confirmed' : 'Suggested from the award notice'];
+}
+
+export interface OpportunitiesCsvOptions {
+  /** Add the award columns, read from each item's `award`. */
+  awards?: boolean;
+}
+
+export function opportunitiesCsv(items: Opportunity[], dates: CsvDates, options: OpportunitiesCsvOptions = {}): string {
   const rows = items.map((o) => [
     o.title,
     o.organization,
@@ -58,8 +76,9 @@ export function opportunitiesCsv(items: Opportunity[], dates: CsvDates): string 
     [SUBMISSION_METHOD_LABELS[o.submissionMethod] ?? o.submissionMethod, o.submissionEmail].filter(Boolean).join(' — '),
     o.url,
     dates.firstSeen(o),
+    ...(options.awards ? awardCells(o) : []),
   ]);
-  return toCsv([OPPORTUNITY_CSV_HEADERS, ...rows]);
+  return toCsv([options.awards ? [...OPPORTUNITY_CSV_HEADERS, ...AWARD_CSV_HEADERS] : OPPORTUNITY_CSV_HEADERS, ...rows]);
 }
 
 /** lgbids-opportunities-YYYY-MM-DD.csv, dated by the caller's local day. */

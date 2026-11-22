@@ -12,7 +12,8 @@ function detail(ctx: MockContext, o: Opportunity): Opportunity {
   const loud = changes.filter((c) => c.kind !== 'closing_refined');
   o.unseenChanges = loud.filter((c) => c.seenAt === null).length;
   o.lastChangedAt = loud[0]?.detectedAt ?? null;
-  return { ...o, changes };
+  const award = ctx.state.v2.awards.find((a) => a.opportunityId === o.id) ?? null;
+  return { ...o, changes, award };
 }
 
 /** Watching a bid: the mute switch (UX-7), "Got it" on its changes (MAT-15) and the changes on the detail answer. */

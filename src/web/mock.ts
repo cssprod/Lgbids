@@ -20,6 +20,7 @@ import type {
 } from '../shared/api.js';
 import type {
   Analysis,
+  ServiceKey,
   Application,
   ApplicationStatus,
   AutomationSettings,
@@ -539,7 +540,14 @@ function filterOpportunities(q: URLSearchParams): { items: Opportunity[]; counts
   const text = (q.get('q') ?? '').toLowerCase();
   const sourceId = q.get('sourceId') ?? '';
   const within = Number(q.get('closingWithinDays') ?? 0);
+  // UX-13 filters, read like the server does.
+  const minScore = /^\d{1,3}$/.test(q.get('minScore') ?? '') ? Number(q.get('minScore')) : null;
+  const service = q.get('service') ?? '';
+  const place = (q.get('place') ?? '').trim().toLowerCase();
   const match = (o: Opportunity) =>
+    (minScore === null || (o.suitabilityScore !== null && o.suitabilityScore >= minScore)) &&
+    (!service || (o.analysis?.services ?? []).includes(service as ServiceKey)) &&
+    (!place || `${o.analysis?.areaMatch ?? ''}\n${o.location ?? ''}`.toLowerCase().includes(place)) &&
     (!text || `${o.title} ${o.organization} ${o.referenceNumber}`.toLowerCase().includes(text)) &&
     (!sourceId || o.sourceId === sourceId) &&
     (!within || (o.closesAt !== null && new Date(o.closesAt).getTime() <= Date.now() + within * DAY));
@@ -710,7 +718,7 @@ async function route(method: string, fullPath: string, rawBody: unknown): Promis
   }
   if ((r = m(/^\/api\/opportunities\/(\d+)$/))) {
     const o = opportunities.find((x) => x.id === Number(r![1]));
-    return o ? ok({ ...o, myFeedback: v2.feedback.find((f) => f.opportunityId === o.id) ?? null }) : fail(404, 'That opportunity no longer exists.');
+    return o ? ok({ ...o, award: v2.awards.find((a) => a.opportunityId === o.id) ?? null, myFeedback: v2.feedback.find((f) => f.opportunityId === o.id) ?? null }) : fail(404, 'That opportunity no longer exists.');
   }
   if ((r = m(/^\/api\/opportunities\/(\d+)\/decision$/))) {
     const o = opportunities.find((x) => x.id === Number(r![1]));
@@ -1156,10 +1164,16 @@ export async function mockDownload(href: string): Promise<MockDownload | null> {
   }
   if (path === '/api/opportunities.csv') {
     const zone = 'America/Vancouver';
-    const text = opportunitiesCsv(filterOpportunities(url.searchParams).items, {
-      closes: (o) => (o.closesAtPrecision === 'date' ? formatDate(o.closesAt, zone) : formatDateTime(o.closesAt, zone)),
-      firstSeen: (o) => formatDateTime(o.firstSeenAt, zone),
-    });
+    const awards = url.searchParams.get('include') === 'awards';
+    const items = filterOpportunities(url.searchParams).items.map((o) => (awards ? { ...o, award: v2.awards.find((a) => a.opportunityId === o.id) ?? null } : o));
+    const text = opportunitiesCsv(
+      items,
+      {
+        closes: (o) => (o.closesAtPrecision === 'date' ? formatDate(o.closesAt, zone) : formatDateTime(o.closesAt, zone)),
+        firstSeen: (o) => formatDateTime(o.firstSeenAt, zone),
+      },
+      { awards },
+    );
     const day = new Intl.DateTimeFormat('en-CA', { timeZone: zone }).format(new Date());
     return { blob: new Blob([text], { type: 'text/csv;charset=utf-8' }), filename: opportunitiesCsvFilename(day) };
   }

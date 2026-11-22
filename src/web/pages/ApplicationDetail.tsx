@@ -5,6 +5,8 @@ import type { Application, ApplicationChannel, ApplicationStatus, ApplicationUpd
 import { DOCUMENT_KIND_LABELS, SUBMISSION_METHOD_LABELS } from '../../shared/schemas.js';
 import { useAction, useDocumentTitle, useFormat, useResource, useUnsavedWarning } from '../hooks.js';
 import { AwardSection } from '../components/opportunity/AwardSection.js';
+import { ResultDialog } from '../components/ResultDialog.js';
+import type { ProfileResponse } from '../../shared/api.js';
 import { ChangeBanner } from '../components/opportunity/ChangeBanner.js';
 import { ApplicationChip } from '../components/status.js';
 import { ConfirmDialog, Dialog } from '../components/Dialog.js';
@@ -62,6 +64,8 @@ export function ApplicationDetailPage() {
   const [confirmWithdraw, setConfirmWithdraw] = useState(false);
   const [markOpen, setMarkOpen] = useState(false);
   const [preview, setPreview] = useState(false);
+  const [result, setResult] = useState<'won' | 'lost' | null>(null);
+  const profile = useResource<ProfileResponse>('/api/profile');
   const [sendError, setSendError] = useState<string | null>(null);
   const fileId = useId();
 
@@ -304,10 +308,10 @@ export function ApplicationDetailPage() {
             <>
               <p className="muted small">When the buyer decides, record the result here.</p>
               <div className="button-row">
-                <button type="button" className="btn btn-secondary" disabled={quick.busy || a.status === 'won'} onClick={() => setStatus('won', 'Recorded as won. Congratulations.')}>
+                <button type="button" className="btn btn-secondary" disabled={quick.busy || a.status === 'won'} onClick={() => setResult('won')}>
                   <span aria-hidden="true">★ </span>Won
                 </button>
-                <button type="button" className="btn btn-secondary" disabled={quick.busy || a.status === 'lost'} onClick={() => setStatus('lost', 'Recorded as not awarded.')}>
+                <button type="button" className="btn btn-secondary" disabled={quick.busy || a.status === 'lost'} onClick={() => setResult('lost')}>
                   Not awarded
                 </button>
                 {a.status === 'submitted' ? (
@@ -321,6 +325,21 @@ export function ApplicationDetailPage() {
                 )}
               </div>
               {o ? <AwardSection opportunity={o} application={a} onChange={res.reload} /> : null}
+              {result ? (
+                <ResultDialog
+                  open
+                  outcome={result}
+                  application={a}
+                  companyName={profile.data?.profile.tradeName || profile.data?.profile.legalName || ''}
+                  suggestion={o?.award ?? null}
+                  onClose={() => setResult(null)}
+                  onSaved={(message) => {
+                    setResult(null);
+                    quick.setMessage({ ok: true, text: message });
+                    res.reload();
+                  }}
+                />
+              ) : null}
             </>
           ) : null}
         </Section>
