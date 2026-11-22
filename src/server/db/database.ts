@@ -1,6 +1,6 @@
-import { mkdirSync } from 'node:fs';
+import { chmodSync, mkdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 import type { DatabaseSync, StatementSync } from 'node:sqlite';
 
 /**
@@ -371,6 +371,17 @@ const MIGRATIONS: string[] = [
 /** The schema version a fully migrated database has. */
 export const SCHEMA_VERSION = MIGRATIONS.length;
 
+/** A file-name-safe UTC time stamp, like 20261122T101500Z. */
+export function backupStamp(now: Date = new Date()): string {
+  return now.toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
+}
+
+/** A consistent copy of the open database (VACUUM INTO works while it is in use). Mode 0600: it holds the saved secrets. */
+export function vacuumInto(db: Database, dest: string): void {
+  db.raw.prepare('VACUUM INTO ?').run(dest);
+  if (process.platform !== 'win32') chmodSync(dest, 0o600);
+}
+
 /**
  * Open the database file and bring its schema up to date. `upTo` stops at an
  * older version (tests use it to build a database as an earlier release left it).
@@ -380,7 +391,20 @@ export function openDatabase(path: string, opts: { upTo?: number } = {}): Databa
   db.exec('CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
   const row = db.get<{ value: string }>("SELECT value FROM meta WHERE key = 'schema_version'");
   let version = row ? Number(row.value) : 0;
+  if (version > MIGRATIONS.length) {
+    db.close();
+    throw new Error(
+      `This database was written by a newer version of Lgbids (schema ${version}; this version knows up to ${MIGRATIONS.length}). ` +
+        'Update Lgbids to the newer version again, or restore a backup made with this version (npm run restore -- <backup folder>).',
+    );
+  }
   const target = Math.min(MIGRATIONS.length, opts.upTo ?? MIGRATIONS.length);
+  // A copy as it was before upgrading, so a failed or unwanted upgrade can be undone.
+  if (version > 0 && version < target && path !== ':memory:') {
+    const dir = join(dirname(path), 'backups');
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    vacuumInto(db, join(dir, `lgbids-schema${version}-${backupStamp()}.sqlite`));
+  }
   while (version < target) {
     const migration = MIGRATIONS[version]!;
     db.tx(() => {
