@@ -101,7 +101,45 @@ function mainScope($: $Root): cheerio.Cheerio<Element> {
   return $('body').first() as cheerio.Cheerio<Element>;
 }
 
+/** Bid portals and alert services: a link to one of them is a pointer, never a notice. */
+const PORTALS: { name: string; test: (host: string) => boolean }[] = [
+  { name: 'BC Bid', test: (h) => h === 'bcbid.gov.bc.ca' || h.endsWith('.bcbid.gov.bc.ca') },
+  { name: 'Bonfire', test: (h) => h === 'bonfirehub.ca' || h.endsWith('.bonfirehub.ca') || h === 'gobonfire.com' || h.endsWith('.gobonfire.com') },
+  { name: 'bids&tenders', test: (h) => h === 'bidsandtenders.ca' || h.endsWith('.bidsandtenders.ca') },
+  { name: 'CivicInfo BC', test: (h) => h === 'civicinfo.bc.ca' || h.endsWith('.civicinfo.bc.ca') },
+  { name: 'CanadaBuys', test: (h) => h === 'canadabuys.canada.ca' },
+  { name: 'MERX', test: (h) => h === 'merx.com' || h.endsWith('.merx.com') },
+  { name: 'Biddingo', test: (h) => h === 'biddingo.com' || h.endsWith('.biddingo.com') },
+];
+
+/** The portal a link points to, if any. */
+export function portalFor(url: URL): { name: string; host: string } | null {
+  const host = url.hostname.toLowerCase().replace(/^www\./, '');
+  const portal = PORTALS.find((p) => p.test(host));
+  return portal ? { name: portal.name, host } : null;
+}
+
+const DOCUMENT_PATH = /\.(?:pdf|docx?)$/i;
+
+export interface RejectedLink {
+  url: string;
+  text: string;
+  reason: string;
+}
+
+export interface ListingExplained {
+  items: RawOpportunity[];
+  /** Links that were looked at and not taken, with the reason. */
+  rejected: RejectedLink[];
+  /** Portals this page points to, one per host. */
+  portals: { name: string; host: string }[];
+  /** Plain sentences for the source's health line. */
+  notes: string[];
+}
+
 export interface ListingOptions extends ParseOptions {
+  /** Return the rejected links and portal notes as well as the notices. */
+  explain?: boolean;
   /** Regular expression tested against each link's path + query string. */
   linkPattern?: string;
   /** CSS selector for one row / card. Overrides the automatic row detection. */
@@ -245,7 +283,52 @@ function tableHeaders($: $Root, row: cheerio.Cheerio<Element>): string[] {
 /**
  * Read a page that lists bid opportunities and return one item per notice.
  */
-export function extractListing(html: string, pageUrl: string, opts: ListingOptions = {}): RawOpportunity[] {
+/** The nearest heading before this element in the page, for links whose own text says nothing. */
+function precedingHeading($: $Root, el: Element): string {
+  let node: AnyNode | null = el;
+  while (node && node.type === 'tag' && (node as Element).name !== 'body') {
+    let sib: AnyNode | null = node.prev;
+    while (sib) {
+      if (sib.type === 'tag') {
+        const tag = sib as Element;
+        if (/^h[1-6]$/.test(tag.name)) return collapse($(tag).text());
+        const inner = $(tag).find('h1, h2, h3, h4, h5, h6').last();
+        if (inner.length) return collapse(inner.text());
+      }
+      sib = sib.prev;
+    }
+    node = node.parent;
+  }
+  return '';
+}
+
+export function extractListing(html: string, pageUrl: string, opts: ListingOptions & { explain: true }): ListingExplained;
+export function extractListing(html: string, pageUrl: string, opts?: ListingOptions): RawOpportunity[];
+export function extractListing(html: string, pageUrl: string, opts: ListingOptions = {}): RawOpportunity[] | ListingExplained {
+  const result = explainListing(html, pageUrl, opts);
+  return opts.explain ? result : result.items;
+}
+
+function explainListing(html: string, pageUrl: string, opts: ListingOptions): ListingExplained {
+  const rejected: RejectedLink[] = [];
+  const portals = new Map<string, { name: string; host: string }>();
+  const reject = (url: URL, text: string, reason: string): void => {
+    if (opts.explain) rejected.push({ url: url.toString(), text, reason });
+  };
+  /** True (and noted) when the link goes to a bid portal. */
+  const isPortal = (url: URL, text: string): boolean => {
+    const portal = portalFor(url);
+    if (!portal) return false;
+    if (!portals.has(portal.host)) portals.set(portal.host, portal);
+    reject(url, text, `points to ${portal.name}`);
+    return true;
+  };
+  const done = (items: RawOpportunity[]): ListingExplained => ({
+    items,
+    rejected,
+    portals: [...portals.values()],
+    notes: [...portals.values()].map((p) => `This page points to ${p.name} (${p.host}); follow that buyer's alerts.`),
+  });
   const $ = cheerio.load(html);
   $('script, style, noscript, template').remove();
   const page = new URL(pageUrl);
@@ -270,6 +353,7 @@ export function extractListing(html: string, pageUrl: string, opts: ListingOptio
         if (!url) return;
         const text = collapse($(a).text());
         if (pattern && !pattern.test(`${url.pathname}${url.search}`)) return;
+        if (isPortal(url, text)) return;
         if (!chosen || (GENERIC_LINK_TEXT.test(chosen.text) && !GENERIC_LINK_TEXT.test(text)) || (!chosen.text && text)) {
           chosen = { url, anchor: a as Element, text };
         }
@@ -280,7 +364,7 @@ export function extractListing(html: string, pageUrl: string, opts: ListingOptio
         items.push(item);
       }
     });
-    return items;
+    return done(items);
   }
 
   // --- Automatic row detection ---------------------------------------------------
@@ -307,6 +391,7 @@ export function extractListing(html: string, pageUrl: string, opts: ListingOptio
             const url = resolve($(a).attr('href'), pageUrl);
             if (!url) return;
             const text = collapse($(a).text());
+            if (isPortal(url, text)) return;
             const better =
               !chosen ||
               (GENERIC_LINK_TEXT.test(chosen.text) && !GENERIC_LINK_TEXT.test(text)) ||
@@ -329,15 +414,23 @@ export function extractListing(html: string, pageUrl: string, opts: ListingOptio
     const text = collapse($(a).text());
     const pathAndQuery = `${url.pathname}${url.search}`;
     if (pattern) {
-      if (!pattern.test(pathAndQuery)) return;
+      if (!pattern.test(pathAndQuery)) return reject(url, text, 'does not match the link pattern');
+      if (isPortal(url, text)) return;
     } else {
-      if ($(a).closest(CHROME_SELECTOR).length) return;
+      if ($(a).closest(CHROME_SELECTOR).length) return reject(url, text, 'in the page menu, header or footer');
       if (handledTables.some((table) => $(a).closest(table).length > 0)) return;
-      if (isSamePage(url, page)) return;
-      if (NOT_A_NOTICE.test(text)) return;
-      if (SIDE_LINK.test(text) && !NUMBERED_NOTICE.test(text)) return;
-      const looksLikeNotice = PROCUREMENT_WORDS.test(text) || (PROCUREMENT_HREF.test(url.pathname) && text.length >= 12);
-      if (!looksLikeNotice) return;
+      if (isPortal(url, text)) return;
+      if (isSamePage(url, page)) return reject(url, text, 'another view of this page');
+      if (NOT_A_NOTICE.test(text)) return reject(url, text, 'navigation link');
+      if (SIDE_LINK.test(text) && !NUMBERED_NOTICE.test(text)) return reject(url, text, 'archive, results or help link');
+      let looksLikeNotice = PROCUREMENT_WORDS.test(text) || (PROCUREMENT_HREF.test(url.pathname) && text.length >= 12);
+      // A document posted on the buyer's own page: a long enough name, or a date in its row.
+      if (!looksLikeNotice && DOCUMENT_PATH.test(url.pathname)) {
+        const rowText = collapse($(a).closest('tr, li, p, dd, div').first().text());
+        looksLikeNotice = (text.length >= 12 && !GENERIC_LINK_TEXT.test(text)) || findDates(rowText, opts).length > 0;
+        if (!looksLikeNotice) return reject(url, text, 'document with a short name and no date');
+      }
+      if (!looksLikeNotice) return reject(url, text, 'does not look like a notice');
     }
     const key = url.toString();
     const existing = byUrl.get(key);
@@ -349,7 +442,7 @@ export function extractListing(html: string, pageUrl: string, opts: ListingOptio
   });
 
   const candidates = [...byUrl.values()];
-  if (candidates.length === 0) return items;
+  if (candidates.length === 0) return done(items);
 
   // How many different candidate links sit under each ancestor? The row for a
   // link is the largest ancestor that contains no other candidate.
@@ -383,7 +476,7 @@ export function extractListing(html: string, pageUrl: string, opts: ListingOptio
       items.push(item);
     }
   }
-  return items;
+  return done(items);
 }
 
 function buildItem(
@@ -397,7 +490,8 @@ function buildItem(
   let title = candidate?.text ?? '';
   if (!title || GENERIC_LINK_TEXT.test(title)) {
     const heading = collapse(row.find('h1, h2, h3, h4, h5, h6, .title, strong, b').first().text());
-    title = heading || collapse(rowText.split('\n')[0] ?? '');
+    const before = !heading && candidate ? precedingHeading($, row[0]!) : '';
+    title = heading || before || collapse(rowText.split('\n')[0] ?? '');
   }
   title = collapse(title.replace(/\s*\((?:pdf|opens in (?:a )?new (?:window|tab))[^)]*\)\s*$/i, ''));
   if (title.length < 4 || NOT_A_NOTICE.test(title)) return null;
