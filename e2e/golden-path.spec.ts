@@ -115,6 +115,9 @@ test('portal: the package is a PDF, then Mark as submitted, then Won', async ({ 
   await dialog.getByRole('button', { name: 'Mark as submitted' }).click();
   await expect(page.getByRole('button', { name: /Won/ })).toBeVisible();
   await page.getByRole('button', { name: /Won/ }).click();
+  // UX-11: "Won" opens a dialog that also asks who won and at what price.
+  const result = page.getByRole('dialog', { name: 'Record a win' });
+  await result.getByRole('button', { name: 'Save result' }).click();
   await expect(page.getByText('Recorded as won. Congratulations.')).toBeVisible();
 });
 

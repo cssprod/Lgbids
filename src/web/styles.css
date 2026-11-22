@@ -1587,7 +1587,9 @@ a.tile:hover {
   *::after {
     transition-duration: 0ms !important;
   }
-  .nav.open {
+  /* `.sidebar` raises the specificity: the phone-width rule that starts the
+     drop-in comes later in this file and would otherwise win. */
+  .sidebar .nav.open {
     animation: none;
   }
   .btn:active:not(:disabled),
