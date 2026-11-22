@@ -53,6 +53,9 @@ export function describeMailError(err: unknown, settings: EmailSettings): string
   if (code === 'ETIMEDOUT' || /timed? ?out/i.test(message)) {
     return `The connection to the mail server at ${server} timed out. Check the host and port, and that the server is reachable.`;
   }
+  if (code === 'EREQUIRETLS' || /STARTTLS/i.test(message)) {
+    return `The mail server at ${server} does not offer a secure connection (STARTTLS), so the password was not sent. Turn on "secure" for port 465, or use a server that supports TLS.`;
+  }
   if (code === 'ETLS' || code === 'EREQUIRETLS' || /\b(?:TLS|SSL|certificate|wrong version number)\b/i.test(message)) {
     return `Could not set up a secure connection with the mail server at ${server}. Check the port and the "secure" setting (on for port 465, off for 587).`;
   }
@@ -66,11 +69,32 @@ export function describeMailError(err: unknown, settings: EmailSettings): string
   return `The mail server reported an error: ${message.slice(0, 300)}`;
 }
 
-export const createMailer: MailerFactory = (settings: EmailSettings): Mailer => {
-  const transport = nodemailer.createTransport({
+export function isLoopbackHost(host: string): boolean {
+  const h = host.trim().toLowerCase().replace(/^\[|\]$/g, '');
+  return h === 'localhost' || h === '::1' || /^127\.\d+\.\d+\.\d+$/.test(h);
+}
+
+/** The nodemailer call, injectable so tests can check the transport options. */
+export type TransportFactory = (options: Parameters<typeof nodemailer.createTransport>[0] & Record<string, unknown>) => ReturnType<typeof nodemailer.createTransport>;
+
+export interface MailerOptions {
+  /** Allow a login without TLS on a loopback host (the demo sink). Off only in tests. */
+  plainLoopback?: boolean;
+}
+
+export function createMailerWith(transportFactory: TransportFactory, opts: MailerOptions = {}): MailerFactory {
+  const plainLoopback = opts.plainLoopback ?? true;
+  return (settings: EmailSettings): Mailer => buildMailer(settings, transportFactory, plainLoopback);
+}
+
+function buildMailer(settings: EmailSettings, transportFactory: TransportFactory, plainLoopback: boolean): Mailer {
+  const transport = transportFactory({
     host: settings.host,
     port: settings.port,
     secure: settings.secure,
+    // A login is never sent in clear text: without implicit TLS the server must offer STARTTLS.
+    // Loopback is exempt so the local demo mail sink keeps working.
+    ...(settings.user && !settings.secure && !(plainLoopback && isLoopbackHost(settings.host)) ? { requireTLS: true } : {}),
     ...(settings.user ? { auth: { user: settings.user, pass: settings.pass } } : {}),
     connectionTimeout: 20_000,
     greetingTimeout: 20_000,
@@ -114,7 +138,9 @@ export const createMailer: MailerFactory = (settings: EmailSettings): Mailer => 
       }
     },
   };
-};
+}
+
+export const createMailer: MailerFactory = createMailerWith((options) => nodemailer.createTransport(options));
 
 export function buildSubmissionMail(args: {
   app: Application;

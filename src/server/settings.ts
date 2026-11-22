@@ -148,7 +148,8 @@ export function createSettings(store: Store, env: NodeJS.ProcessEnv = process.en
       const incoming = emailSettingsSchema.parse(value);
       const existing = storedEmail();
       const next: EmailSettings = { ...incoming };
-      if (next.pass === '') next.pass = existing.pass;
+      // A saved password is only reused for the same server and user: it is never sent to a new host.
+      if (next.pass === '' && next.host === existing.host && next.user === existing.user) next.pass = existing.pass;
       const connectionChanged = CONNECTION_FIELDS.some((field) => next[field] !== existing[field]);
       if (connectionChanged) next.verifiedAt = null;
       // A form that leaves verifiedAt out must not wipe the stamp from the last successful test.
@@ -169,14 +170,17 @@ export function createSettings(store: Store, env: NodeJS.ProcessEnv = process.en
     },
 
     getAlertInbox() {
-      return read(KEYS.alertInbox, alertInboxSchema);
+      const inbox = read(KEYS.alertInbox, alertInboxSchema);
+      // Like SMTP_PASS: an environment value wins over the stored one, as given.
+      const pass = env.ALERT_IMAP_PASS;
+      return pass ? { ...inbox, pass } : inbox;
     },
 
     setAlertInbox(value) {
       const incoming = alertInboxSchema.parse(value);
       const existing = read(KEYS.alertInbox, alertInboxSchema);
       const next: AlertInboxSettings = { ...incoming };
-      if (next.pass === '') next.pass = existing.pass;
+      if (next.pass === '' && next.host === existing.host && next.user === existing.user) next.pass = existing.pass;
       const changed = (['host', 'port', 'secure', 'user', 'pass', 'folder'] as const).some((f) => next[f] !== existing[f]);
       next.verifiedAt = changed ? null : existing.verifiedAt;
       store.setSetting(KEYS.alertInbox, next, now());
@@ -191,7 +195,14 @@ export function createSettings(store: Store, env: NodeJS.ProcessEnv = process.en
     },
 
     getPush() {
-      return read(KEYS.push, pushSettingsSchema);
+      const push = read(KEYS.push, pushSettingsSchema);
+      const telegramToken = env.TELEGRAM_TOKEN;
+      const ntfyToken = env.NTFY_TOKEN;
+      return {
+        ...push,
+        ...(telegramToken ? { telegramToken } : {}),
+        ...(ntfyToken ? { ntfyToken } : {}),
+      };
     },
 
     setPush(value, opts = {}) {

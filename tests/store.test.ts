@@ -480,8 +480,9 @@ describe('settings service', () => {
     expect(settings.getEmail()).toMatchObject({ pass: 'secret', verifiedAt: '2026-06-15T20:00:00Z' });
     settings.setEmail({ host: 'smtp.example', user: 'me', pass: '', fromName: 'Green Co' });
     expect(settings.getEmail()).toMatchObject({ fromName: 'Green Co', verifiedAt: '2026-06-15T20:00:00Z' });
+    // OPS-5: a saved password is never carried over to a different host.
     settings.setEmail({ host: 'smtp.other.example', user: 'me', pass: '' });
-    expect(settings.getEmail()).toMatchObject({ pass: 'secret', verifiedAt: null });
+    expect(settings.getEmail()).toMatchObject({ pass: '', verifiedAt: null });
     expect(() => settings.setEmail({ port: 0 })).toThrow(ZodError);
   });
 
