@@ -124,6 +124,24 @@ export const LOCAL_PLACES = [
   'Mill Hill',
   'Mount Work',
   'Hartland',
+  'SEAPARC',
+  'Panorama Recreation',
+  'Juan de Fuca Recreation Centre',
+  'Saanich Commonwealth Place',
+  'Crystal Pool',
+  'Royal Athletic Park',
+  'Heals Range',
+  'HMC Dockyard',
+  'Willis Point',
+  'Durrance',
+  'Tod Inlet',
+  'Deep Cove',
+  'Dean Park',
+  'Ardmore',
+  'Matheson Lake',
+  'Mount Wells',
+  'Gorge Road Hospital',
+  'Aberdeen Hospital',
 ];
 
 /**
@@ -167,6 +185,23 @@ const UNAMBIGUOUS = new Set(
     'PKOLS',
     'Beacon Hill Park',
     'Royal BC Museum',
+    // Local hospitals and recreation centres name one site each (D10).
+    'SEAPARC',
+    'Panorama Recreation',
+    'Juan de Fuca Recreation Centre',
+    'Saanich Commonwealth Place',
+    'Crystal Pool',
+    'Royal Athletic Park',
+    'Heals Range',
+    'HMC Dockyard',
+    'Willis Point',
+    'Tod Inlet',
+    'Matheson Lake',
+    'Gorge Road Hospital',
+    'Aberdeen Hospital',
+    'Royal Jubilee',
+    'Victoria General Hospital',
+    'Otter Point',
   ].map((p) => normalize(p)),
 );
 
@@ -181,6 +216,8 @@ export const DEFAULT_EXCLUDE_PLACES = [
   'Saturna',
   'Gulf Islands',
   'Port Renfrew',
+  'Jordan River',
+  'Shirley',
   'Malahat',
   'Shawnigan',
   'Mill Bay',
@@ -312,6 +349,12 @@ const excludeCache = new WeakMap<string[], CompiledList>();
 
 // "Richmond Road", "Vernon Avenue" and "Langley Street" are streets in Greater
 // Victoria, not the cities of the same name.
+/**
+ * Islands reached only by boat: inside the region on the map, but whether the
+ * work suits a mainland crew is for a person to judge (D10).
+ */
+const BOAT_ISLANDS = /(?:^| )(?:sidney|james|piers|portland|coal|knapp|halibut|mandarte|discovery|chatham|trial) islands?(?= |$)/;
+
 const STREET_SUFFIX = '(?! (?:street|st|road|rd|avenue|ave|drive|dr|boulevard|blvd|way|lane|place|pl|crescent|cres|court|ct|highway|hwy)(?: |$))';
 
 function compile(list: string[], opts: { exclude?: boolean } = {}): CompiledList {
@@ -324,7 +367,10 @@ function compile(list: string[], opts: { exclude?: boolean } = {}): CompiledList
     if (!normalized) continue;
     const re = opts.exclude
       ? new RegExp(`(?:^| )${escapeRegex(normalized)}${STREET_SUFFIX}(?= |$)`)
-      : phraseRegex(phrase);
+      : UNAMBIGUOUS.has(normalized)
+        ? phraseRegex(phrase)
+        // "Victoria Road" in Nanaimo is not Victoria.
+        : new RegExp(`(?:^| )${escapeRegex(normalized)}${STREET_SUFFIX}(?= |$)`);
     if (re) entries.push({ phrase, normalized, re });
   }
   // Longest first, so "Central Saanich" wins over "Saanich".
@@ -393,9 +439,17 @@ export function assessArea(input: AreaInput, region: RegionSettings): AreaResult
   const excludedInLocation = firstHit(excludes, forExclude(location));
   const excludedInOrg = firstHit(excludes, forExclude(org));
 
+  const island = BOAT_ISLANDS.exec(title)?.[0]?.trim();
+  if (island) {
+    return { area: 'unknown', match: island, note: `The work is on ${island}, which is reached by boat; check whether it suits you.`, rule: 'area.boat_island' };
+  }
+
   if (input.localSource || orgHit) {
     const buyer = orgHit ?? input.organization ?? 'a local buyer';
-    if (excludedInTitle && !coreInTitle) {
+    if (excludedInTitle && coreInTitle) {
+      return { area: 'unknown', match: coreInTitle, note: `The title names both ${coreInTitle} and ${excludedInTitle}; check where the work is.`, rule: 'area.place_and_excluded' };
+    }
+    if (excludedInTitle) {
       return { area: 'no', match: excludedInTitle, note: `Posted by ${buyer}, but the work is in ${excludedInTitle}, outside your service area.`, rule: 'area.local_buyer_excluded_title' };
     }
     if (excludedInLocation && !placeInLocation && !placeInTitle) {
@@ -405,8 +459,13 @@ export function assessArea(input: AreaInput, region: RegionSettings): AreaResult
   }
 
   const strongPlace = placeInTitle ?? placeInLocation ?? placeInOrg;
+  // A council or regional district buys for its own territory, so a non-local
+  // one beats a place name that also exists elsewhere.
+  if (strongPlace && !UNAMBIGUOUS.has(normalize(strongPlace)) && (excludedInOrg || LOCAL_GOVERNMENT.test(org))) {
+    return { area: 'no', match: input.organization ?? '', note: `${input.organization} is not a Greater Victoria buyer.`, rule: 'area.nonlocal_government' };
+  }
   if (strongPlace) {
-    if (excludedInTitle && !coreInTitle) {
+    if (excludedInTitle) {
       return {
         area: 'unknown',
         match: strongPlace,

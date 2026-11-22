@@ -3,10 +3,10 @@
   "metrics": {
     "relevancePrecision": 0.9877,
     "relevanceRecall": 0.9877,
-    "suitablePrecision": 0.92,
-    "suitableRecall": 0.9787,
-    "areaAccuracy": 0.9591,
+    "suitablePrecision": 0.9792,
+    "suitableRecall": 1,
+    "areaAccuracy": 0.9955,
     "typeAccuracy": 1,
-    "decisionAccuracy": 0.9364
+    "decisionAccuracy": 0.9727
   }
 }
