@@ -8,6 +8,8 @@ import { isNewSince, lastVisit, useDocumentTitle, useFormat, useResource } from 
 import { ManualAddDialog } from '../components/ManualAddDialog.js';
 import { ChangedChip } from '../components/opportunity/ChangedChip.js';
 import { ReportMissedLink } from '../components/opportunity/ReportMissedLink.js';
+import { FEEDBACK_THANKS } from '../components/opportunity/FeedbackButtons.js';
+import { FeedbackDialog } from '../components/FeedbackDialog.js';
 import { ApplicationChip, DecisionChip, ScoreWithReasons } from '../components/status.js';
 import { Term } from '../components/Popover.js';
 import { Chip, Empty, ErrorBox, PageHeader, SkeletonList } from '../components/ui.js';
@@ -63,6 +65,9 @@ export function OpportunitiesPage() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [nonce, setNonce] = useState(0);
   const searchId = useId();
+  const toast = useToast();
+  // "Tell us why" from the toast after "Not for us": the row is gone by then, so the dialog lives here.
+  const [tellWhy, setTellWhy] = useState<Opportunity | null>(null);
 
   // Search as the user types, after a short pause.
   useEffect(() => {
@@ -225,7 +230,7 @@ export function OpportunitiesPage() {
           ) : (
             <ul className="opp-list list-card">
               {list.items.map((o) => (
-                <OpportunityRow key={o.id} o={o} isNew={isNewSince(o.firstSeenAt, since)} onChanged={() => setNonce((n) => n + 1)} />
+                <OpportunityRow key={o.id} o={o} isNew={isNewSince(o.firstSeenAt, since)} onChanged={() => setNonce((n) => n + 1)} onTellWhy={setTellWhy} />
               ))}
             </ul>
           )}
@@ -239,11 +244,23 @@ export function OpportunitiesPage() {
         </div>
       ) : null}
       <ReportMissedLink />
+      {tellWhy ? (
+        <FeedbackDialog
+          open
+          opportunity={tellWhy}
+          verdict="not_relevant"
+          onClose={() => setTellWhy(null)}
+          onSaved={() => {
+            setTellWhy(null);
+            toast({ text: FEEDBACK_THANKS });
+          }}
+        />
+      ) : null}
     </>
   );
 }
 
-function OpportunityRow({ o, isNew, onChanged }: { o: Opportunity; isNew: boolean; onChanged: () => void }) {
+function OpportunityRow({ o, isNew, onChanged, onTellWhy }: { o: Opportunity; isNew: boolean; onChanged: () => void; onTellWhy: (o: Opportunity) => void }) {
   const fmt = useFormat();
   const toast = useToast();
   const navigate = useNavigate();
@@ -270,6 +287,8 @@ function OpportunityRow({ o, isNew, onChanged }: { o: Opportunity; isNew: boolea
             },
           },
         });
+        // Optional reason (D18); the one-tap dismissal does not wait for it.
+        toast({ text: 'Was the score wrong?', action: { label: 'Tell us why', run: () => onTellWhy(updated) } });
       }
       onChanged();
     } catch (e) {

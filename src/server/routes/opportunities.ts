@@ -2,13 +2,26 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { OpportunityList, OpportunityViewName } from '../../shared/api.js';
 import type { Opportunity } from '../../shared/schemas.js';
-import type { OpportunityView } from '../contracts.js';
+import type { OpportunityRecord, OpportunityView } from '../contracts.js';
 import { opportunitiesCsvName, opportunitiesCsvText } from '../util/csv.js';
 import { ApiError, idParam, intQuery, notFound, opportunityDto, parseBody, query, type RouteContext } from './util.js';
 
 const VIEWS: OpportunityViewName[] = ['suitable', 'review', 'unsuitable', 'closed', 'dismissed', 'all'];
 
 const decisionSchema = z.object({ decision: z.enum(['pursue', 'dismissed']).nullable() });
+
+/**
+ * "Not for us": the bid leaves the lists, and an application that has not
+ * gone out is withdrawn (a sent one keeps its history). Shared with the
+ * feedback route, where "Not relevant" also dismisses (D18).
+ */
+export function dismissOpportunity(ctx: RouteContext, opp: OpportunityRecord, at: Date): void {
+  const { store } = ctx.deps;
+  store.setUserDecision(opp.id, 'dismissed');
+  const application = store.getApplicationByOpportunity(opp.id);
+  if (application) store.transitionApplication(application.id, ['needs_input', 'ready', 'failed'], 'withdrawn', at);
+  store.addEvent({ level: 'info', kind: 'opportunity_dismissed', message: `You dismissed “${opp.title}”.`, opportunityId: opp.id, applicationId: application?.id ?? null, runId: null }, at);
+}
 
 export function registerOpportunities(app: FastifyInstance, ctx: RouteContext): void {
   const { store, now } = ctx.deps;
@@ -17,7 +30,7 @@ export function registerOpportunities(app: FastifyInstance, ctx: RouteContext): 
   function detail(id: number): Opportunity {
     const record = store.getOpportunity(id);
     if (!record) throw notFound('opportunity');
-    const opp = opportunityDto(record);
+    const opp: Opportunity = { ...opportunityDto(record), changes: store.listChanges(id), myFeedback: store.getFeedbackFor(id) ?? null };
     if (opp.analysis) {
       opp.analysis = { ...opp.analysis, alsoListed: store.duplicatesOf(id).map((d) => ({ source: d.sourceName, url: d.url })) };
     }
@@ -79,11 +92,7 @@ export function registerOpportunities(app: FastifyInstance, ctx: RouteContext): 
       ctx.pipeline.draftFor(id, { rebuild: false });
       store.addEvent({ level: 'info', kind: 'opportunity_pursued', message: `You chose to pursue “${opp.title}”.`, opportunityId: id, applicationId: null, runId: null }, at);
     } else if (decision === 'dismissed') {
-      store.setUserDecision(id, 'dismissed');
-      const application = store.getApplicationByOpportunity(id);
-      // Only a submission that has not gone out can be withdrawn here; a sent one keeps its history.
-      if (application) store.transitionApplication(application.id, ['needs_input', 'ready', 'failed'], 'withdrawn', at);
-      store.addEvent({ level: 'info', kind: 'opportunity_dismissed', message: `You dismissed “${opp.title}”.`, opportunityId: id, applicationId: application?.id ?? null, runId: null }, at);
+      dismissOpportunity(ctx, opp, at);
     } else {
       store.setUserDecision(id, null);
     }

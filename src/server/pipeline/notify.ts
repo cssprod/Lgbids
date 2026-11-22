@@ -1,18 +1,18 @@
 import type { Application, Opportunity, RunRecord } from '../../shared/schemas.js';
 import type { AppDeps, OpportunityRecord } from '../contracts.js';
 import { emailConfigured } from '../submission/email.js';
-import { formatLocal, nowIso } from '../util/dates.js';
+import { formatLocal } from '../util/dates.js';
 import { isEmail } from '../util/text.js';
 import { PushError, pushConfigured, sendPush, type PushLine } from './push.js';
+import { notifyChanges, watchedChangesOfRun } from './watch.js';
 
 /**
- * The summary e-mail after a run: new suitable opportunities, drafts that
- * need the user, submissions sent automatically, and deadlines coming up.
+ * The summary e-mail after a run: changes to bids the user is pursuing, new
+ * suitable opportunities, drafts that need the user and submissions sent
+ * automatically. Closing reminders have their own tick (reminders.ts).
  * One message per run at most, and only when there is something new, so it
  * stays worth opening.
  */
-
-const REMINDER_KIND = 'deadline_reminder';
 
 function plural(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`;
@@ -52,14 +52,20 @@ export async function sendDigest(deps: AppDeps, run: RunRecord): Promise<boolean
     // notifyOnNew only controls the new-bids section, not the whole e-mail.
     const emailOn = isEmail(to) && emailConfigured(email);
     const pushOn = pushConfigured(push);
-    if (!emailOn && !pushOn) return false;
     const now = deps.now();
+    // This run's changes to bids the user is watching lead the summary; collected before the alerts mark them as told.
+    const changes = watchedChangesOfRun(store, run.id);
+    const changedIds = new Set(changes.map((c) => c.opp.id));
+    // One message per change (push, and e-mail when asked); it never fails the run.
+    await notifyChanges(deps, now);
+    if (!emailOn && !pushOn) return false;
 
     // New suitable opportunities nobody has been told about yet.
     const fresh: OpportunityRecord[] = [];
     for (let offset = 0; automation.notifyOnNew; offset += 500) {
       const page = store.listOpportunities({ view: 'suitable', limit: 500, offset }, now);
-      fresh.push(...page.items.filter((o) => o.notifiedAt === null));
+      // A changed bid is told about as a change, not again as new.
+      fresh.push(...page.items.filter((o) => o.notifiedAt === null && !changedIds.has(o.id)));
       if (page.items.length < 500) break;
     }
 
@@ -73,37 +79,29 @@ export async function sendDigest(deps: AppDeps, run: RunRecord): Promise<boolean
     const readyToApprove = store.listApplications({ status: ['ready'] }).filter((a) => drafted.has(a.id) && a.channel === 'email');
     const autoSent = store.listApplications({ status: ['submitted'] }).filter((a) => sent.has(a.id) && a.submittedVia === 'auto-email');
 
-    // Unsent submissions closing soon, each reminded once.
-    const horizon = now.getTime() + automation.deadlineReminderDays * 86_400_000;
-    const reminded = new Set(events.filter((e) => e.kind === REMINDER_KIND && e.applicationId !== null).map((e) => e.applicationId));
-    const closingSoon =
-      automation.notifyReminders && automation.deadlineReminderDays > 0
-        ? store.listApplications({ status: ['ready', 'needs_input'] }).filter((a) => {
-            const closesAt = a.opportunity?.closesAt;
-            if (!closesAt || a.opportunity?.status !== 'open' || reminded.has(a.id)) return false;
-            // The store tracks reminders too; whichever is available is honoured.
-            if ((a as Application & { remindedAt?: string | null }).remindedAt) return false;
-            const at = new Date(closesAt).getTime();
-            return at > now.getTime() && at <= horizon;
-          })
-        : [];
-
     // Sites that listed notices before and none this run: told once, on the run that noticed.
     const changedSites = (run.stats?.sources ?? []).filter((s) => s.layoutWarning);
 
-    if (fresh.length + needsInput.length + readyToApprove.length + autoSent.length + closingSoon.length + changedSites.length === 0) return false;
+    if (changes.length + fresh.length + needsInput.length + readyToApprove.length + autoSent.length + changedSites.length === 0) return false;
 
     const summary: string[] = [];
+    if (changes.length) summary.push(plural(changes.length, 'change to a bid you are pursuing', 'changes to bids you are pursuing'));
     if (fresh.length) summary.push(plural(fresh.length, 'new opportunity', 'new opportunities'));
     if (autoSent.length) summary.push(`${plural(autoSent.length, 'submission', 'submissions')} sent`);
     if (needsInput.length) summary.push(`${needsInput.length} ${needsInput.length === 1 ? 'needs' : 'need'} your input`);
     if (readyToApprove.length) summary.push(`${readyToApprove.length} ready to approve`);
-    if (closingSoon.length) summary.push(`${closingSoon.length} closing soon`);
     if (changedSites.length) summary.push(`${plural(changedSites.length, 'source', 'sources')} to check`);
     const subject = `Lgbids: ${summary.join(', ')}`;
     const appUrl = automation.appUrl;
 
     const sections: string[] = ['Here is what the latest check of the bid sites found.'];
+    if (changes.length) {
+      sections.push(
+        `Changes to bids you are pursuing:\n\n${changes
+          .map(({ change, opp }) => `• ${opp.title}${opp.organization ? ` — ${opp.organization}` : ''}\n  ${change.summary}${appLink(appUrl, opp.application ? `/applications/${opp.application.id}` : `/opportunities/${opp.id}`)}`)
+          .join('\n\n')}`,
+      );
+    }
     if (fresh.length) sections.push(`New suitable opportunities:\n\n${fresh.map((o) => oppLine(o, zone, appUrl)).join('\n\n')}`);
     if (autoSent.length) {
       sections.push(
@@ -116,9 +114,6 @@ export async function sendDigest(deps: AppDeps, run: RunRecord): Promise<boolean
       );
     }
     if (readyToApprove.length) sections.push(`New drafts ready for you to approve and send:\n\n${readyToApprove.map((a) => appLine(a, zone, '', appUrl)).join('\n\n')}`);
-    if (closingSoon.length) {
-      sections.push(`Closing soon and not yet submitted:\n\n${closingSoon.map((a) => appLine(a, zone, `\n  ${a.status === 'ready' ? 'ready to send' : 'needs your input'}`, appUrl)).join('\n\n')}`);
-    }
     if (changedSites.length) sections.push(`Sources to check:\n\n${changedSites.map((s) => `• ${s.name}: ${s.layoutWarning}`).join('\n')}`);
     sections.push('Open Lgbids to review them. You can change or switch off these e-mails in Settings.');
 
@@ -133,20 +128,15 @@ export async function sendDigest(deps: AppDeps, run: RunRecord): Promise<boolean
       }
     }
     // A short phone version of the same news; a failure is logged and never fails the run.
-    const pushSent = pushOn && (await pushDigest(deps, run, { subject, fresh, autoSent, needsInput, readyToApprove, closingSoon }));
+    // Changes already had a phone alert each, so the short version leaves them out.
+    const pushNews = fresh.length + autoSent.length + needsInput.length + readyToApprove.length > 0;
+    const pushSent = pushOn && pushNews && (await pushDigest(deps, run, { subject, fresh, autoSent, needsInput, readyToApprove }));
     if (!emailSent && !pushSent) return false;
 
     store.markNotified(
       fresh.map((o) => o.id),
       now,
     );
-    for (const app of closingSoon) {
-      store.updateApplication(app.id, { remindedAt: nowIso(now) }, now);
-      store.addEvent(
-        { level: 'info', kind: REMINDER_KIND, message: `Sent a reminder that “${app.opportunity?.title ?? 'Untitled notice'}” closes soon.`, opportunityId: app.opportunityId, applicationId: app.id, runId: run.id },
-        now,
-      );
-    }
     if (emailSent) {
       store.addEvent({ level: 'info', kind: 'notify', message: `Sent the summary e-mail to ${to}: ${summary.join(', ')}.`, opportunityId: null, applicationId: null, runId: run.id }, now);
     }
@@ -163,11 +153,81 @@ export async function sendDigest(deps: AppDeps, run: RunRecord): Promise<boolean
 }
 
 // ---------------------------------------------------------------------------
+// One alert about one bid (reminders and changes), on every channel that is set up
+// ---------------------------------------------------------------------------
+
+export interface BidAlert {
+  /** Short title, also the e-mail subject after "Lgbids: ". */
+  title: string;
+  /** Full sentences. */
+  lines: string[];
+  /** The notice on the buyer's site, for the phone alert. */
+  url: string;
+  /** Path inside Lgbids for the "Open in Lgbids" link, e.g. /opportunities/4. */
+  path: string;
+  /** Send the e-mail copy too (the matching Notifications switch is on). */
+  email: boolean;
+  opportunityId: number;
+  applicationId: number | null;
+  /** What the alert is about, for warnings in the activity log, e.g. "closing reminder". */
+  what: string;
+}
+
+/**
+ * Send one alert by push (when phone alerts are set up) and by e-mail (when
+ * asked and an address and SMTP are set). Returns the channels that went
+ * through and how many were tried; failures become warnings in the activity log and never throw.
+ */
+export async function deliverAlert(deps: AppDeps, alert: BidAlert, now: Date): Promise<{ channels: string[]; tried: number }> {
+  const { store, settings } = deps;
+  const channels: string[] = [];
+  let tried = 0;
+  const warn = (message: string) => {
+    try {
+      store.addEvent({ level: 'warn', kind: 'notify', message, opportunityId: alert.opportunityId, applicationId: alert.applicationId, runId: null }, now);
+    } catch {
+      // The log is a courtesy here; the alert result still stands.
+    }
+  };
+  const automation = settings.getAutomation();
+  const appUrl = automation.appUrl;
+
+  const push = settings.getPush();
+  if (pushConfigured(push)) {
+    const via = PROVIDER_NAME[push.provider];
+    tried += 1;
+    try {
+      const lines: PushLine[] = [...alert.lines];
+      if (appUrl) lines.push({ text: 'Open in Lgbids', url: `${appUrl}${alert.path}` });
+      await sendPush(push, { title: alert.title, lines, url: alert.url || undefined }, deps.pushFetch);
+      channels.push('push');
+    } catch (error) {
+      const reason = error instanceof PushError ? error.message : 'Something went wrong while sending it.';
+      warn(`The ${alert.what} through ${via} could not be sent. ${reason}`);
+    }
+  }
+
+  const to = automation.notifyEmail.trim();
+  const email = settings.getEmail();
+  if (alert.email && isEmail(to) && emailConfigured(email)) {
+    tried += 1;
+    try {
+      const text = `${alert.lines.join('\n\n')}\n\n${alert.url ? `The notice: ${alert.url}\n` : ''}${appLink(appUrl, alert.path).trim() ? `${appLink(appUrl, alert.path).trim()}\n` : ''}\nYou can switch these e-mails off in Settings, or for this bid on its page.\n`;
+      await deps.mailerFactory(email).send({ to: [to], cc: [], bcc: [], subject: `Lgbids: ${alert.title}`, text, attachments: [] });
+      channels.push('email');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      warn(`The ${alert.what} e-mail to ${to} could not be sent: ${message}`);
+    }
+  }
+  return { channels, tried };
+}
+
+// ---------------------------------------------------------------------------
 // Phone alert (Telegram or ntfy): the digest in a few lines
 // ---------------------------------------------------------------------------
 
 const PUSH_NOTICES = 5;
-const PUSH_REMINDERS = 3;
 const PROVIDER_NAME = { telegram: 'Telegram', ntfy: 'ntfy', off: 'phone' } as const;
 
 interface DigestNews {
@@ -176,7 +236,6 @@ interface DigestNews {
   autoSent: Application[];
   needsInput: Application[];
   readyToApprove: Application[];
-  closingSoon: Application[];
 }
 
 /** Send the short version of the digest; true when it went through. Failures become a warning in the activity log. */
@@ -194,10 +253,6 @@ async function pushDigest(deps: AppDeps, run: RunRecord, news: DigestNews): Prom
   if (news.autoSent.length) lines.push(`${plural(news.autoSent.length, 'submission was', 'submissions were')} sent automatically.`);
   if (news.needsInput.length) lines.push(`${plural(news.needsInput.length, 'new draft needs', 'new drafts need')} your input.`);
   if (news.readyToApprove.length) lines.push(`${plural(news.readyToApprove.length, 'new draft is', 'new drafts are')} ready to approve and send.`);
-  for (const app of news.closingSoon.slice(0, PUSH_REMINDERS)) {
-    lines.push(`Closing soon, not yet submitted: ${app.opportunity?.title ?? 'Untitled notice'}, ${closes(app.opportunity, zone)}.`);
-  }
-  if (news.closingSoon.length > PUSH_REMINDERS) lines.push(`${plural(news.closingSoon.length - PUSH_REMINDERS, 'more submission closes', 'more submissions close')} soon.`);
 
   try {
     await sendPush(push, { title: news.subject, lines }, deps.pushFetch);

@@ -12,20 +12,9 @@ async function setup(automation: Record<string, unknown>) {
 }
 
 describe('summary e-mail (UX-3)', () => {
-  it('still e-mails a closing reminder when new-bid e-mails are off', async () => {
+  it('no longer lists closing soon bids; reminders have their own tick (UX-7)', async () => {
     const h = await setup({ notifyOnNew: false });
     seedOpportunity(h.deps, { title: 'Fresh suitable bid' });
-    const soon = seedOpportunity(h.deps, { title: 'Closing soon bid', closesAt: at(30) });
-    createApp(h.deps, soon, 'ready');
-    const run = h.deps.store.startRun('manual', NOW);
-    expect(await sendDigest(h.deps, run)).toBe(true);
-    expect(h.sent).toHaveLength(1);
-    expect(h.sent[0]!.text).toContain('Closing soon and not yet submitted');
-    expect(h.sent[0]!.text).not.toContain('New suitable opportunities');
-  });
-
-  it('sends nothing for reminders when closing reminders are off', async () => {
-    const h = await setup({ notifyOnNew: false, notifyReminders: false });
     const soon = seedOpportunity(h.deps, { title: 'Closing soon bid', closesAt: at(30) });
     createApp(h.deps, soon, 'ready');
     expect(await sendDigest(h.deps, h.deps.store.startRun('manual', NOW))).toBe(false);

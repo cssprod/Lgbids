@@ -1,4 +1,4 @@
-import { NOTICE_TYPE_LABELS, SUBMISSION_METHOD_LABELS, type Opportunity } from './schemas.js';
+import { FEEDBACK_REASON_LABELS, NOTICE_TYPE_LABELS, SUBMISSION_METHOD_LABELS, type FeedbackRecord, type Opportunity } from './schemas.js';
 
 /**
  * Spreadsheet export, shared by the server route and the in-browser
@@ -65,4 +65,57 @@ export function opportunitiesCsv(items: Opportunity[], dates: CsvDates): string 
 /** lgbids-opportunities-YYYY-MM-DD.csv, dated by the caller's local day. */
 export function opportunitiesCsvFilename(localDate: string): string {
   return `lgbids-opportunities-${localDate}.csv`;
+}
+
+export const FEEDBACK_CSV_HEADERS = [
+  'Date',
+  'Verdict',
+  'Reasons',
+  'Note',
+  'Title',
+  'Buyer',
+  'Link',
+  'Found via',
+  'Source',
+  'Type',
+  'Score',
+  'Decision',
+  'Matched terms',
+  'Services',
+  'Area',
+  'Area match',
+  'Area rule',
+  'Type rule',
+  'Rules version',
+];
+
+/** Feedback on scores as a spreadsheet; the caller formats dates in the user's time zone. */
+export function feedbackCsv(items: FeedbackRecord[], formatDate: (iso: string) => string): string {
+  const rows = items.map((f) => [
+    formatDate(f.createdAt),
+    f.verdict === 'not_relevant' ? 'Not relevant' : 'Missed',
+    f.reasons.map((r) => FEEDBACK_REASON_LABELS[r] ?? r).join('; '),
+    f.note,
+    f.title,
+    f.organization,
+    f.url,
+    f.foundVia,
+    f.sourceId,
+    NOTICE_TYPE_LABELS[f.noticeType] ?? f.noticeType,
+    f.score,
+    f.decision ?? '',
+    f.matchedTerms.join('; '),
+    f.services.join('; '),
+    f.area,
+    f.areaMatch,
+    f.trace?.areaRule ?? '',
+    f.trace?.typeRule ?? '',
+    f.lexiconVersion,
+  ]);
+  return toCsv([FEEDBACK_CSV_HEADERS, ...rows]);
+}
+
+/** lgbids-feedback-YYYY-MM-DD.csv, dated by the caller's local day. */
+export function feedbackCsvFilename(localDate: string): string {
+  return `lgbids-feedback-${localDate}.csv`;
 }

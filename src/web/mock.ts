@@ -32,7 +32,7 @@ import type {
   SourceRecord,
 } from '../shared/schemas.js';
 import { automationSchema, profileSchema } from '../shared/schemas.js';
-import { opportunitiesCsv, opportunitiesCsvFilename } from '../shared/csv.js';
+import { feedbackCsv, feedbackCsvFilename, opportunitiesCsv, opportunitiesCsvFilename } from '../shared/csv.js';
 import type { MockResponse } from './api.js';
 import { formatDate, formatDateTime } from './format.js';
 import { alerts } from './mock/alerts.js';
@@ -196,6 +196,9 @@ let opportunities: Opportunity[] = [
     closesAt: endOfDay(12),
     closesAtPrecision: 'date',
     closesAtRaw: 'December 2026',
+    // The sample change below (MAT-15): the buyer moved the closing date.
+    unseenChanges: 1,
+    lastChangedAt: iso(-3 * HOUR),
     submissionMethod: 'bcbid',
     submissionUrl: 'https://bcbid.example/opportunity/PRK-26-07',
     location: 'Langford, BC',
@@ -613,7 +616,26 @@ function dashboard(): DashboardResponse {
 
 type Body = Record<string, unknown>;
 
-let v2: MockV2State = { changes: [], feedback: [], awards: [], savedSearches: [], recipients: [] };
+/** One sample change, so the Changed chip, the timeline and the application banner can be tried. */
+const SAMPLE_CHANGES: MockV2State['changes'] = EMPTY
+  ? []
+  : [
+      {
+        id: 901,
+        opportunityId: 102,
+        kind: 'closing_moved',
+        summary: `The closing date moved from ${formatDate(endOfDay(9), 'America/Vancouver')} to ${formatDate(endOfDay(12), 'America/Vancouver')}.`,
+        before: endOfDay(9),
+        after: endOfDay(12),
+        addendum: false,
+        detectedAt: iso(-3 * HOUR),
+        runId: 14,
+        notifiedAt: iso(-3 * HOUR),
+        seenAt: null,
+      },
+    ];
+
+let v2: MockV2State = { changes: SAMPLE_CHANGES, feedback: [], awards: [], savedSearches: [], recipients: [] };
 
 /** Live view of the core state for the mock modules (getters, so reassignments here are seen there). */
 const state: MockState = {
@@ -688,7 +710,7 @@ async function route(method: string, fullPath: string, rawBody: unknown): Promis
   }
   if ((r = m(/^\/api\/opportunities\/(\d+)$/))) {
     const o = opportunities.find((x) => x.id === Number(r![1]));
-    return o ? ok(o) : fail(404, 'That opportunity no longer exists.');
+    return o ? ok({ ...o, myFeedback: v2.feedback.find((f) => f.opportunityId === o.id) ?? null }) : fail(404, 'That opportunity no longer exists.');
   }
   if ((r = m(/^\/api\/opportunities\/(\d+)\/decision$/))) {
     const o = opportunities.find((x) => x.id === Number(r![1]));
@@ -1140,6 +1162,12 @@ export async function mockDownload(href: string): Promise<MockDownload | null> {
     });
     const day = new Intl.DateTimeFormat('en-CA', { timeZone: zone }).format(new Date());
     return { blob: new Blob([text], { type: 'text/csv;charset=utf-8' }), filename: opportunitiesCsvFilename(day) };
+  }
+  if (path === '/api/feedback.csv') {
+    const zone = 'America/Vancouver';
+    const day = new Intl.DateTimeFormat('en-CA', { timeZone: zone }).format(new Date());
+    const text = feedbackCsv(v2.feedback, (at) => formatDateTime(at, zone));
+    return { blob: new Blob([text], { type: 'text/csv;charset=utf-8' }), filename: feedbackCsvFilename(day) };
   }
   if ((r = /^\/api\/applications\/(\d+)\/package\.pdf$/.exec(path))) {
     const a = applications.find((x) => x.id === Number(r![1]));
