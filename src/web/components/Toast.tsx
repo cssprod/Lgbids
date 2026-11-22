@@ -7,11 +7,16 @@ import { Icon } from './Icon.js';
  * One polite live region announces them to screen readers.
  */
 
+export interface ToastAction {
+  label: string;
+  run: () => void;
+}
+
 export interface ToastInput {
   text: string;
   ok?: boolean;
-  /** An action such as Undo, shown as a button in the toast. */
-  action?: { label: string; run: () => void };
+  /** Actions such as Undo, shown as buttons in the toast in this order. Any of them closes it. */
+  actions?: ToastAction[];
 }
 
 interface ToastItem extends ToastInput {
@@ -35,7 +40,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       const id = next.current++;
       // Newest at the bottom; keep at most three on screen.
       setItems((all) => [...all.slice(-2), { ...t, id }]);
-      if (t.ok !== false) window.setTimeout(() => close(id), t.action ? 7000 : 4000);
+      if (t.ok !== false) window.setTimeout(() => close(id), t.actions?.length ? 7000 : 4000);
     },
     [close],
   );
@@ -47,20 +52,29 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       {children}
       <div className="toasts" aria-live="polite" aria-atomic="false">
         {items.map((t) => (
-          <div key={t.id} className={`toast ${t.ok === false ? 'toast-bad' : 'toast-ok'}`} role={t.ok === false ? 'alert' : undefined}>
+          <div
+            key={t.id}
+            className={`toast ${t.ok === false ? 'toast-bad' : 'toast-ok'}${(t.actions?.length ?? 0) > 1 ? ' toast-multi' : ''}`}
+            role={t.ok === false ? 'alert' : undefined}
+          >
             <Icon name={t.ok === false ? 'alert' : 'check'} size={18} />
             <p>{t.text}</p>
-            {t.action ? (
-              <button
-                type="button"
-                className="btn btn-small btn-secondary"
-                onClick={() => {
-                  t.action!.run();
-                  close(t.id);
-                }}
-              >
-                {t.action.label}
-              </button>
+            {t.actions?.length ? (
+              <div className="toast-actions">
+                {t.actions.map((a) => (
+                  <button
+                    key={a.label}
+                    type="button"
+                    className="btn btn-small btn-secondary"
+                    onClick={() => {
+                      a.run();
+                      close(t.id);
+                    }}
+                  >
+                    {a.label}
+                  </button>
+                ))}
+              </div>
             ) : null}
             <button type="button" className="toast-close" aria-label="Close message" onClick={() => close(t.id)}>
               <Icon name="close" size={16} />

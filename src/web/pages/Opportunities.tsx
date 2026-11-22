@@ -280,20 +280,22 @@ function OpportunityRow({ o, isNew, onChanged, onTellWhy }: { o: Opportunity; is
         const appId = updated.application?.id;
         toast({
           text: `Application drafted for “${o.title}”.`,
-          action: appId ? { label: 'Open', run: () => navigate(`/applications/${appId}`) } : undefined,
+          actions: appId ? [{ label: 'Open', run: () => navigate(`/applications/${appId}`) }] : undefined,
         });
       } else {
+        // "Tell us why" is an optional reason (D18); the one-tap dismissal does not wait for it.
         toast({
-          text: `“${o.title}” is dismissed.`,
-          action: {
-            label: 'Undo',
-            run: () => {
-              api.post(`/api/opportunities/${o.id}/decision`, { decision: null }).then(onChanged, (e: unknown) => toast({ ok: false, text: errorMessage(e) }));
+          text: `“${o.title}” is dismissed. Was the score wrong?`,
+          actions: [
+            {
+              label: 'Undo',
+              run: () => {
+                api.post(`/api/opportunities/${o.id}/decision`, { decision: null }).then(onChanged, (e: unknown) => toast({ ok: false, text: errorMessage(e) }));
+              },
             },
-          },
+            { label: 'Tell us why', run: () => onTellWhy(updated) },
+          ],
         });
-        // Optional reason (D18); the one-tap dismissal does not wait for it.
-        toast({ text: 'Was the score wrong?', action: { label: 'Tell us why', run: () => onTellWhy(updated) } });
       }
       onChanged();
     } catch (e) {

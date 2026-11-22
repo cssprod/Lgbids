@@ -93,15 +93,17 @@ export function ScoringTab() {
       setConfirm(null);
       toast({
         text: `“${word}” was added to excluded words. Open bids are scored again at the next check.`,
-        action: {
-          label: 'Undo',
-          run: () => {
-            setExcluded((words) => words.filter((w) => w !== word)).then(
-              () => toast({ text: `“${word}” was taken off excluded words.` }),
-              (e: unknown) => toast({ ok: false, text: errorMessage(e) }),
-            );
+        actions: [
+          {
+            label: 'Undo',
+            run: () => {
+              setExcluded((words) => words.filter((w) => w !== word)).then(
+                () => toast({ text: `“${word}” was taken off excluded words.` }),
+                (e: unknown) => toast({ ok: false, text: errorMessage(e) }),
+              );
+            },
           },
-        },
+        ],
       });
     } catch (e) {
       toast({ ok: false, text: errorMessage(e) });

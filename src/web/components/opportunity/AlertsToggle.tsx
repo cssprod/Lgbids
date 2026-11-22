@@ -25,7 +25,7 @@ export function AlertsToggle({ opportunity, onChange }: AlertsToggleProps) {
       if (undo) return;
       toast({
         text: muted ? 'Reminders and change alerts are off for this bid.' : 'Reminders and change alerts are on for this bid.',
-        action: { label: 'Undo', run: () => void save(!muted, true) },
+        actions: [{ label: 'Undo', run: () => void save(!muted, true) }],
       });
     } catch (e) {
       toast({ text: errorMessage(e), ok: false });

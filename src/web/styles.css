@@ -2319,6 +2319,24 @@ details.group[open] > summary::before {
   color: inherit;
   border-color: currentColor;
 }
+.toast-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+/* Two or more buttons go on their own row on a phone, so the message keeps its width. */
+@media (max-width: 560px) {
+  .toast-multi .toast-actions {
+    grid-column: 2 / -1;
+    grid-row: 2;
+    justify-content: flex-start;
+  }
+  .toast-multi .toast-close {
+    grid-column: 4;
+    grid-row: 1;
+  }
+}
 .toast-close {
   display: inline-grid;
   place-items: center;
