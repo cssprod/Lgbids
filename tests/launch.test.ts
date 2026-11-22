@@ -11,6 +11,7 @@ interface Launcher {
   installReason(root: string): string;
   buildReason(root: string): string;
   readEnvFile(path: string, env: Record<string, string | undefined>): Record<string, string | undefined>;
+  lockUrl(dataDir: string, alive?: (pid: number) => boolean): string | null;
 }
 
 let launch: Launcher;
@@ -95,5 +96,14 @@ describe('launcher', () => {
     expect(env.PORT).toBe('5000');
     expect(env.HOST).toBe('127.0.0.1');
     expect(launch.readEnvFile(join(root, 'missing.env'), { A: '1' })).toEqual({ A: '1' });
+  });
+
+  it("takes the running instance's address from its lock file", () => {
+    const dir = mkdtempSync(join(tmpdir(), 'lgbids-launch-lock-'));
+    dirs.push(dir);
+    expect(launch.lockUrl(dir)).toBeNull();
+    writeFileSync(join(dir, 'lgbids.lock'), JSON.stringify({ pid: 4242, port: 3100, startedAt: '', url: 'http://127.0.0.1:3100' }));
+    expect(launch.lockUrl(dir, () => true)).toBe('http://127.0.0.1:3100/');
+    expect(launch.lockUrl(dir, () => false)).toBeNull();
   });
 });

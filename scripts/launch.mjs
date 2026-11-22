@@ -34,6 +34,29 @@ export function appUrl(env = process.env) {
   return `http://${host}:${port}/`;
 }
 
+/**
+ * The address of a Lgbids already running on `dataDir`, read from its lock file
+ * (written by the server), or null when there is none or its process has gone.
+ */
+export function lockUrl(dataDir, alive = pidAlive) {
+  try {
+    const info = JSON.parse(readFileSync(join(dataDir, 'lgbids.lock'), 'utf8'));
+    if (!Number.isInteger(info.pid) || !alive(info.pid) || typeof info.url !== 'string') return null;
+    return info.url.endsWith('/') ? info.url : `${info.url}/`;
+  } catch {
+    return null;
+  }
+}
+
+function pidAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return err?.code === 'EPERM';
+  }
+}
+
 /** The command that opens `url` in the default browser on `platform`. */
 export function browserCommand(platform, url) {
   // `start` is built into cmd; the empty "" is the window title it would otherwise take from the URL.
@@ -140,7 +163,9 @@ async function main() {
   const root = fileURLToPath(new URL('..', import.meta.url));
   const env = readEnvFile(join(root, '.env'));
   const noBrowser = process.argv.includes('--no-browser') || env.LGBIDS_NO_BROWSER === '1';
-  const url = appUrl(env);
+  // A copy already running may listen on another port than .env says now; its lock knows.
+  const running = lockUrl(resolve(root, (env.DATA_DIR ?? '').trim() || 'data'));
+  const url = running ?? appUrl(env);
 
   if (await isHealthy(url)) {
     console.log(`Lgbids is already running at ${url}`);

@@ -30,10 +30,10 @@ export function createFileStore(dataDir: string): FileStore {
 
   return {
     async save(content, originalName) {
-      await mkdir(dir, { recursive: true });
+      await mkdir(dir, { recursive: true, mode: 0o700 });
       const name = `${randomBytes(8).toString('hex')}.${safeExtension(originalName)}`;
       // 'wx' refuses to overwrite, in the near-impossible case of a repeated random name.
-      await writeFile(join(dir, name), content, { flag: 'wx' });
+      await writeFile(join(dir, name), content, { flag: 'wx', mode: 0o600 });
       return name;
     },
 

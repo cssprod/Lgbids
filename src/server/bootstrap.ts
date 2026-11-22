@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync } from 'node:fs';
 import { isIP } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -15,6 +15,7 @@ import { createSettings } from './settings.js';
 import { createImapMailbox } from './sources/alerts/mailbox.js';
 import { DEFAULT_SOURCES } from './sources/registry.js';
 import { createMailer } from './submission/email.js';
+import { acquireLock, type InstanceLock } from './util/lock.js';
 
 /**
  * Wire the server's parts together. Tests and the CLI tools pass overrides
@@ -22,10 +23,11 @@ import { createMailer } from './submission/email.js';
  */
 export function createDeps(config: AppConfig, overrides: Partial<AppDeps> = {}): AppDeps {
   const inMemory = config.dataDir === ':memory:';
-  if (!inMemory) mkdirSync(config.dataDir, { recursive: true });
+  if (!inMemory) prepareDataDir(config.dataDir);
 
   const now = overrides.now ?? (() => new Date());
   const store = overrides.store ?? createStore(openDatabase(inMemory ? ':memory:' : join(config.dataDir, 'lgbids.sqlite')));
+  if (!inMemory && !overrides.store) restrictDatabaseFiles(config.dataDir);
   const settings = overrides.settings ?? createSettings(store, process.env, now);
   // An in-memory database has nowhere permanent for uploads either, so they go to a throw-away folder.
   const files = overrides.files ?? createFileStore(inMemory ? mkdtempSync(join(tmpdir(), 'lgbids-files-')) : config.dataDir);
@@ -41,6 +43,24 @@ export function createDeps(config: AppConfig, overrides: Partial<AppDeps> = {}):
   store.failStaleRuns(now());
 
   return { config, store, settings, files, mailerFactory, httpFactory, alertMailboxFactory, alertImportDir, now, ...(overrides.pushFetch ? { pushFetch: overrides.pushFetch } : {}) };
+}
+
+/**
+ * The data folder holds the database with saved mail passwords and tokens
+ * (decision D24: plain text, protected by file modes), so only the owner may
+ * read it. Windows has no POSIX modes; its user profile folders are private.
+ */
+export function prepareDataDir(dataDir: string, platform: NodeJS.Platform = process.platform): void {
+  mkdirSync(dataDir, { recursive: true, mode: 0o700 });
+  if (platform !== 'win32') chmodSync(dataDir, 0o700);
+}
+
+export function restrictDatabaseFiles(dataDir: string, platform: NodeJS.Platform = process.platform): void {
+  if (platform === 'win32') return;
+  for (const name of ['lgbids.sqlite', 'lgbids.sqlite-wal', 'lgbids.sqlite-shm']) {
+    const path = join(dataDir, name);
+    if (existsSync(path)) chmodSync(path, 0o600);
+  }
 }
 
 /**
@@ -88,13 +108,27 @@ export interface StartedServer {
 }
 
 /** Start the whole app. Also used by demo mode, with its own config and data folder. */
-export async function startServer(config: AppConfig, deps: AppDeps = createDeps(config)): Promise<StartedServer> {
+export async function startServer(config: AppConfig, given?: AppDeps): Promise<StartedServer> {
+  // One server per data folder: two would run every check and send twice.
+  let lock: InstanceLock | null = null;
+  if (config.dataDir !== ':memory:') {
+    prepareDataDir(config.dataDir);
+    lock = acquireLock(config.dataDir, { port: config.port });
+  }
+  let deps: AppDeps;
+  try {
+    deps = given ?? createDeps(config);
+  } catch (err) {
+    lock?.release();
+    throw err;
+  }
   const pipeline = createPipeline(deps);
   const scheduler = createScheduler(deps, pipeline);
   const app = await buildApp(deps, pipeline, scheduler);
   await app.listen({ port: config.port, host: config.host });
   const address = app.server.address();
   const port = typeof address === 'object' && address ? address.port : config.port;
+  lock?.update({ port, url: displayUrl(config, port) });
   scheduler.start();
   let stopped = false;
   return {
@@ -106,8 +140,12 @@ export async function startServer(config: AppConfig, deps: AppDeps = createDeps(
       if (stopped) return;
       stopped = true;
       scheduler.stop();
-      await app.close();
-      deps.store.close();
+      try {
+        await app.close();
+        deps.store.close();
+      } finally {
+        lock?.release();
+      }
     },
   };
 }
