@@ -1,6 +1,7 @@
 import {
   NOTICE_TYPE_LABELS,
   SERVICE_LABELS,
+  type ServiceKey,
   type Analysis,
   type AnalysisReason,
   type AutomationSettings,
@@ -138,7 +139,9 @@ export function analyse(input: AnalyseInput, ctx: AnalyseContext): AnalyseResult
   // --- Is it landscaping work? ------------------------------------------------
   const terms = relevance.matchedTerms.slice(0, 4).join(', ');
   if (relevance.score >= RELEVANT_AT) {
-    if (relevance.inTitle) good(`Gardening / landscaping work (${terms}).`, 'relevance.title');
+    if (relevance.bundledTrade)
+      warn(`The title names another trade as well (${terms}), so the landscaping is probably bundled with work you may not do.`, 'relevance.bundled_trade');
+    else if (relevance.inTitle) good(`Gardening / landscaping work (${terms}).`, 'relevance.title');
     else warn(`Landscaping is mentioned in the description but not the title (${terms}) — it may be a small part of a larger job.`, 'relevance.body_only');
   } else if (relevance.score >= BORDERLINE_AT) {
     warn(`Only loosely related to landscaping (${terms || 'weak wording'}).`, 'relevance.borderline');
@@ -165,21 +168,23 @@ export function analyse(input: AnalyseInput, ctx: AnalyseContext): AnalyseResult
 
   // --- Is it work the company does? -------------------------------------------
   let serviceFit: 'offered' | 'partial' | 'none' | 'undetected' = 'undetected';
+  // "Supply only: plants, soil, mulch, sod" reads wrong for a mower purchase.
+  const serviceLabel = (k: ServiceKey) => (k === 'supply' && relevance.equipmentPurchase ? 'Equipment or materials purchase' : SERVICE_LABELS[k]);
   if (relevance.primary) {
     const offered = relevance.services.filter((s) => profile.services[s]);
     if (profile.services[relevance.primary]) {
       serviceFit = 'offered';
-      good(`${SERVICE_LABELS[relevance.primary]} — a service you offer.`, 'service.offered');
+      good(`${serviceLabel(relevance.primary)} — a service you offer.`, 'service.offered');
     } else if (offered.length > 0) {
       serviceFit = 'partial';
       warn(
-        `Mainly ${SERVICE_LABELS[relevance.primary].toLowerCase()}, which you do not offer; also involves ${SERVICE_LABELS[offered[0]!].toLowerCase()}.`,
+        `Mainly ${serviceLabel(relevance.primary).toLowerCase()}, which you do not offer; also involves ${SERVICE_LABELS[offered[0]!].toLowerCase()}.`,
         'service.partial',
       );
     } else {
       serviceFit = 'none';
       if (relevance.score >= BORDERLINE_AT) {
-        block(`${SERVICE_LABELS[relevance.primary]} — not a service in your profile.`, 'service.not_offered');
+        block(`${serviceLabel(relevance.primary)} — not a service in your profile.`, 'service.not_offered');
       }
     }
   }
@@ -214,6 +219,7 @@ export function analyse(input: AnalyseInput, ctx: AnalyseContext): AnalyseResult
   }
   const capabilityPoints = Math.max(0, 10 - unmet * 3);
   let score = Math.round(relevance.score * 0.4 + areaPoints + servicePoints + timingPoints + capabilityPoints);
+  if (relevance.bundledTrade) score -= 15;
   if (blocked) score = Math.min(score, 39);
   score = Math.max(0, Math.min(100, score));
 

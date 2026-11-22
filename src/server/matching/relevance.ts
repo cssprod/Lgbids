@@ -63,6 +63,11 @@ add('garden', 3, 'planting beds', '(?:flower|planting|shrub|perennial|annual|lan
 add('garden', 3, 'horticulture', 'horticultur(?:e|al|ist|ists)');
 add('garden', 3, 'hanging baskets', 'hanging (?:flower )?baskets?|flower baskets?|floral (?:displays?|plantings?)|bedding plants?');
 add('garden', 3, 'weeding', 'weeding');
+add('garden', 3, 'planter maintenance', 'planters? (?:maintenance|watering|care|planting|services?)|(?:watering|maintenance) of (?:\\w+ ){0,2}planters?');
+add('lawn', 2, 'line trimming', '(?:line|string) trimming|weed (?:whack|eat)(?:ing|ers?)|weed ?whacking|weed ?eating');
+add('grounds', 3, 'green infrastructure maintenance', 'bioretention|bio ?swales?|rain gardens?|green (?:stormwater )?infrastructure (?:maintenance|care|services?|upkeep)');
+add('restoration', 3, 'pollinator meadow', '(?:pollinator|wildflower|meadow) (?:gardens? )?(?:establishment|planting|seeding|meadows?|habitat)|meadow establishment');
+add('vegetation', 3, 'aquatic weed harvesting', 'aquatic (?:weeds?|vegetation|plants?) (?:harvest\\w*|removal|control|cutting)|weed harvest\\w*');
 add('garden', 3, 'mulching', 'mulch(?:ing|es)?');
 add('garden', 3, 'pruning', 'prun(?:ing|e|ed)');
 add('garden', 3, 'hedge trimming', 'hedges? (?:trimming|cutting|maintenance|pruning|shearing)');
@@ -133,7 +138,10 @@ add('hardscape', 2, 'gravel paths', '(?:gravel|crushed stone) (?:paths?|trails?|
 add('hardscape', 1, 'pathways', 'pathways?|walkways?|fenc(?:e|es|ing)');
 
 // --- Irrigation ---------------------------------------------------------------
-add('irrigation', 3, 'irrigation', 'irrigation');
+add('irrigation', 3, 'irrigation', 'irrigation(?! (?:pump(?:ing)? stations?|districts?|mains?)\\b)');
+// Water-supply infrastructure that happens to carry irrigation water: a hint, not landscape work.
+add('irrigation', 1, 'irrigation infrastructure', 'irrigation (?:pump(?:ing)? stations?|districts?|mains?)');
+add('irrigation', 3, 'sprinkler blow-out', 'sprinkler (?:blow ?outs?|start ?ups?|winteri[sz]ation|winteri[sz]ing)|irrigation (?:blow ?outs?|start ?ups?|winteri[sz]ation)');
 add('irrigation', 3, 'lawn sprinklers', '(?:lawn|landscape|turf|field|garden|underground|in ground) sprinklers?');
 add('irrigation', 1, 'sprinklers', 'sprinklers?|backflow');
 
@@ -200,7 +208,8 @@ const MASKS: RegExp[] = [
   /\b(?:water|wastewater|waste water|sewage|sewer|treatment|power|heating|cooling|central|asphalt|batch|concrete|processing|manufacturing|recycling|composting|desalination|cogeneration|chiller|boiler|steam|physical|pilot|mechanical|electrical|hvac) plants?\b/g,
   /\bplants? (?:upgrades?|operations?|operators?|expansion|equipment|shutdown|managers?|engineer\w*|commissioning|optimi[sz]ation|capacity|process\w*|room)\b/g,
   /\bplant and equipment\b|\bproperty plant\b|\bwwtp\b|\bwtp\b/g,
-  /\bpump(?:ing)? stations?\b/g,
+  /(?<!irrigation )\bpump(?:ing)? stations?\b/g,
+  /\bhanging (?:flower )?baskets? (?:brackets?|hangers?|hooks?|arms?|poles?)\b|\bbasket (?:brackets?|hangers?|hooks?)\b/g,
   /\b(?:threat|policy|funding|competitive|regulatory|political|media|technology|digital|vendor|market|legal|legislative|economic|research|data|risk|security|cyber\w*|it|business|service|program|current|changing|evolving|broader|health ?care|housing|energy|financial|industry|learning|educational|employment|labou?r|cultural) landscapes?\b/g,
   /\blandscapes? (?:of|scan|review|analysis|study|report|survey|mode|orientation|format|photograph\w*|painting|scale|ecology|connectivity|unit|fire|level)\b/g,
   /\b(?:decision|family|phone|fault|christmas) trees?\b|\btrees? (?:structure|view|diagram|menu)\b/g,
@@ -209,10 +218,11 @@ const MASKS: RegExp[] = [
   /\bseed (?:funding|money|grants?|capital|investment|round)\b/g,
   /\bhedge funds?\b|\bhedging (?:strategy|program|policy|instruments?)\b|\b(?:fuel|currency|commodity|interest rate|price) hedg\w+\b/g,
   /\bgreenhouse gas(?:es)?\b|\bghg\b/g,
-  /\b(?:wound|bladder|nasal|ear|eye|surgical|colonic|sinus|oral|dental|medical) irrigation\b|\birrigation (?:solutions?|fluids?|syringes?|sets?|tubing|districts?)\b/g,
+  /\b(?:wound|bladder|nasal|ear|eye|surgical|colonic|sinus|oral|dental|medical) irrigation\b|\birrigation (?:solutions?|fluids?|syringes?|sets?|tubing)\b/g,
   /\bfire sprinklers?\b|\b(?:building|wet|dry|pre ?action) sprinklers?\b|\bsprinkler (?:heads?|systems?) (?:inspection|testing|retrofit|replacement)\b/g,
   /\baeration (?:basins?|tanks?|blowers?|systems?|diffusers?|equipment|upgrades?|cells?|lagoons?|piping)\b/g,
   /\b(?:building|heritage|masonry|fire|flood|water damage|concrete|window|roof|pavement|asphalt|road|structural|facade|envelope|bridge|data|system|service|power|disaster) restoration\b/g,
+  /\blawn (?:bowl\w*|signs?|chairs?|games?|darts)\b/g,
   /\bartificial turf\b|\bsynthetic turf\b|\bturf wars?\b/g,
   /\bgrass ?roots\b|\broot cause\b|\byard waste\b|\b(?:works|public works|storage|rail|ship|lumber|scrap|operations) yards?\b/g,
   /\bgreen (?:fleet|energy|building|bins?|waste)\b|\btree of life\b|\bfield (?:services?|work|office|staff|testing|data|trips?|house|technicians?|inspections?|engineer\w*|review)\b/g,
@@ -245,6 +255,10 @@ export interface RelevanceResult {
   primary: ServiceKey | null;
   /** The notice buys goods (plants, soil, equipment) rather than work. */
   supplyOnly: boolean;
+  /** A non-landscape trade is named in the title, so landscaping is bundled with it. */
+  bundledTrade: boolean;
+  /** Supply-only and about equipment rather than plants or soil. */
+  equipmentPurchase: boolean;
   /** The notice buys a plan, study or design rather than physical work. */
   consulting: boolean;
   codeMatch: boolean;
@@ -301,6 +315,10 @@ function collect(text: string, where: 'title' | 'body'): TermMatch[] {
 const ROUGH_MOWING = /\b(?:flail|roadside|rough cut|boom|slope|highway|ditch|shoulder|right of way)\b/;
 const SUPPLY_TITLE = /\b(?:supply|purchase|procurement|provision|delivery|acquisition)\b/;
 const WORK_TITLE = /\b(?:install\w*|planting|maintenance|services?|construction|placement|removal|renovation|restoration|mowing|pruning|cutting)\b/;
+// Synthetic turf is a flooring/construction trade; lawn words around it are not lawn care.
+const SYNTHETIC_TURF = /\b(?:synthetic|artificial)\b.*\bturf\b|\bturf\b.*\b(?:synthetic|artificial)\b/;
+// A non-landscape trade named in the title: landscaping in the body is then a small part of it (D11).
+const OTHER_TRADE_TITLE = /\b(?:janitorial|custodial|hvac|heating|ventilation|paving|repaving|watermains?|water mains?|sewers?|sanitary|roofing|re ?roofing|playground equipment)\b/;
 const CONSULT_TITLE = /\b(?:plan|plans|planning|study|studies|strategy|design|consult\w*|assessment|inventory|architect\w*|review|audit|feasibility|report)\b/;
 
 export interface RelevanceInput {
@@ -317,8 +335,10 @@ export function assessRelevance(input: RelevanceInput, opts: { includeKeywords?:
   const title = mask(titleN, maskHits);
   const body = mask(bodyN, maskHits);
 
-  const titleMatches = collect(title, 'title');
-  const bodyMatches = collect(body, 'body');
+  const syntheticTurf = SYNTHETIC_TURF.test(titleN);
+  const keep = (m: TermMatch) => !(syntheticTurf && m.service === 'lawn');
+  const titleMatches = collect(title, 'title').filter(keep);
+  const bodyMatches = collect(body, 'body').filter(keep);
 
   const titleBest = Math.max(0, ...titleMatches.map((m) => TITLE_POINTS[m.strength]));
   const bodyBest = Math.max(0, ...bodyMatches.map((m) => BODY_POINTS[m.strength]));
@@ -375,7 +395,9 @@ export function assessRelevance(input: RelevanceInput, opts: { includeKeywords?:
   const matchedTerms = uniq(ordered.filter((m) => m.strength >= 2 || ordered.length <= 3).map((m) => m.label)).slice(0, 8);
   if (includeHit) matchedTerms.unshift(`your keyword “${includeHit}”`);
 
-  return { score, matches: ordered, matchedTerms, services, primary, supplyOnly, consulting, codeMatch, inTitle: titleSolid || !!includeHit || codeMatch, maskHits: uniq(maskHits.filter(Boolean)) };
+  const bundledTrade = !includeHit && !codeMatch && titleMatches.length + bodyMatches.length > 0 && OTHER_TRADE_TITLE.test(title);
+  const equipmentPurchase = supplyOnly && ordered.some((m) => m.label === 'equipment' || m.label === 'grounds equipment');
+  return { score, matches: ordered, matchedTerms, services, primary, supplyOnly, bundledTrade, equipmentPurchase, consulting, codeMatch, inTitle: titleSolid || !!includeHit || codeMatch, maskHits: uniq(maskHits.filter(Boolean)) };
 }
 
 /** Cheap pre-filter for large national feeds: could this row possibly be relevant? */
