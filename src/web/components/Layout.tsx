@@ -35,7 +35,8 @@ const NAV: { heading: string; items: NavItem[] }[] = [
         label: 'Applications',
         icon: 'inbox',
         badge: (c) => {
-          const n = c.needsInput + c.ready;
+          // Unseen changes to bids (a moved date, an addendum) count too: they may change what is sent.
+          const n = c.needsInput + c.ready + c.unseenChanges;
           return n > 0 ? { value: n, label: `${n} need you`, tone: 'warn' } : null;
         },
       },

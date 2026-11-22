@@ -8,6 +8,7 @@ import { useAction, useDocumentTitle, useFormat, useInterval, useResource } from
 import { ApplicationChip, LayoutWarningCallout, SourceChip, TRIGGER_TEXT } from '../components/status.js';
 import { Callout, Empty, ErrorBox, Live, PageHeader, Section, SkeletonList } from '../components/ui.js';
 import { AwaitingResult } from '../components/dashboard/AwaitingResult.js';
+import { ChangedChip } from '../components/opportunity/ChangedChip.js';
 import { plural } from '../format.js';
 import { Icon } from '../components/Icon.js';
 
@@ -124,6 +125,9 @@ export function DashboardPage({ onTimeZone }: { onTimeZone: (tz: string) => void
   const attention = d.attention.slice(0, 5);
   const deadlines = d.deadlines.slice(0, 6);
   const needYou = d.counts.needsInput + d.counts.ready;
+  // Changes the buyer made to bids (a moved date, an addendum) also need a look (MAT-15).
+  const changed = d.counts.unseenChanges;
+  const changedText = changed > 0 ? ` ${plural(changed, 'change')} to check.` : '';
 
   return (
     <>
@@ -138,7 +142,9 @@ export function DashboardPage({ onTimeZone }: { onTimeZone: (tz: string) => void
           fresh
             ? 'Welcome to Lgbids. Three steps below get your first bids in.'
             : needYou > 0
-            ? `${plural(needYou, 'application')} ${needYou === 1 ? 'needs' : 'need'} you. ${plural(d.counts.openSuitable, 'suitable bid')} open.`
+            ? `${plural(needYou, 'application')} ${needYou === 1 ? 'needs' : 'need'} you.${changedText} ${plural(d.counts.openSuitable, 'suitable bid')} open.`
+            : changed > 0
+            ? `${plural(changed, 'change')} to bids to check. ${plural(d.counts.openSuitable, 'suitable bid')} open.`
             : `Nothing is waiting for you. ${plural(d.counts.openSuitable, 'suitable bid')} open.`
         }
         actions={
@@ -297,11 +303,19 @@ export function DashboardPage({ onTimeZone }: { onTimeZone: (tz: string) => void
           title="Needs your attention"
           actions={d.attention.length > attention.length ? <Link to="/applications" className="small">See all {d.attention.length}</Link> : undefined}
         >
-          {d.attention.length === 0 ? (
+          {changed > 0 ? (
+            <Callout tone="warn" title={`${plural(changed, 'change')} to bids since you last looked`}>
+              <p>
+                A buyer moved a date, added an addendum, cancelled or awarded a bid. Bids with a change show a “Changed” chip.{' '}
+                <Link to="/opportunities?view=suitable">See the bids</Link>
+              </p>
+            </Callout>
+          ) : null}
+          {d.attention.length === 0 && changed === 0 ? (
             <Empty title="Nothing is waiting for you.">
               <p>When Lgbids drafts an application that needs your input or is ready to send, it appears here.</p>
             </Empty>
-          ) : (
+          ) : d.attention.length === 0 ? null : (
             <ul className="rows">
               {attention.map((a) => {
                 const o = a.opportunity;
@@ -315,6 +329,7 @@ export function DashboardPage({ onTimeZone }: { onTimeZone: (tz: string) => void
                       <p className="row-meta">
                         <span>{o?.organization}</span>
                         {c ? <span className={c.soon ? 'text-warn strong' : ''}>{c.relative}</span> : null}
+                        {o ? <ChangedChip opportunity={o} since={null} /> : null}
                       </p>
                       {a.missing.length > 0 ? (
                         <p className="missing-inline">

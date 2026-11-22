@@ -196,6 +196,9 @@ let opportunities: Opportunity[] = [
     closesAt: endOfDay(12),
     closesAtPrecision: 'date',
     closesAtRaw: 'December 2026',
+    // The sample change below (MAT-15): the buyer moved the closing date.
+    unseenChanges: 1,
+    lastChangedAt: iso(-3 * HOUR),
     submissionMethod: 'bcbid',
     submissionUrl: 'https://bcbid.example/opportunity/PRK-26-07',
     location: 'Langford, BC',
@@ -613,7 +616,26 @@ function dashboard(): DashboardResponse {
 
 type Body = Record<string, unknown>;
 
-let v2: MockV2State = { changes: [], feedback: [], awards: [], savedSearches: [], recipients: [] };
+/** One sample change, so the Changed chip, the timeline and the application banner can be tried. */
+const SAMPLE_CHANGES: MockV2State['changes'] = EMPTY
+  ? []
+  : [
+      {
+        id: 901,
+        opportunityId: 102,
+        kind: 'closing_moved',
+        summary: `The closing date moved from ${formatDate(endOfDay(9), 'America/Vancouver')} to ${formatDate(endOfDay(12), 'America/Vancouver')}.`,
+        before: endOfDay(9),
+        after: endOfDay(12),
+        addendum: false,
+        detectedAt: iso(-3 * HOUR),
+        runId: 14,
+        notifiedAt: iso(-3 * HOUR),
+        seenAt: null,
+      },
+    ];
+
+let v2: MockV2State = { changes: SAMPLE_CHANGES, feedback: [], awards: [], savedSearches: [], recipients: [] };
 
 /** Live view of the core state for the mock modules (getters, so reassignments here are seen there). */
 const state: MockState = {
