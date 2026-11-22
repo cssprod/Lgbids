@@ -22,7 +22,7 @@ import { registerSettings } from './routes/settings.js';
 import { registerSources } from './routes/sources.js';
 import { registerStatus } from './routes/status.js';
 import { registerWatch } from './routes/watch.js';
-import { ApiError, isZodError, MAX_UPLOAD_BYTES, zodSentence, type RouteContext } from './routes/util.js';
+import { ApiError, DOWNLOAD_CSP, isZodError, MAX_UPLOAD_BYTES, zodSentence, type RouteContext } from './routes/util.js';
 
 const SECURITY_HEADERS: Record<string, string> = {
   'x-content-type-options': 'nosniff',
@@ -31,7 +31,13 @@ const SECURITY_HEADERS: Record<string, string> = {
   // The built web UI is plain files from this server: scripts, styles and API calls are all same-origin.
   'content-security-policy':
     "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+  // The app uses none of these browser features, so no page it serves may ask for them.
+  'permissions-policy': 'camera=(), microphone=(), geolocation=(), payment=(), usb=()',
+  'cross-origin-opener-policy': 'same-origin',
 };
+
+/** Browsers remember to use https for a year; only sent over https, where it means something. */
+const HSTS = 'max-age=31536000';
 
 /** Fastify and plugin errors that are the caller's doing, with what to tell them. */
 const CLIENT_ERRORS: Record<string, { status: number; message: string }> = {
@@ -135,6 +141,7 @@ export async function buildApp(deps: AppDeps, pipeline: Pipeline, scheduler: Sch
 
   app.addHook('onRequest', async (req, reply) => {
     reply.headers(SECURITY_HEADERS);
+    if (req.protocol === 'https') reply.header('strict-transport-security', HSTS);
     if (hostAllowed && !hostAllowed(hostnameOf(req.headers.host ?? ''))) {
       reply.code(403).send({ error: 'This server does not answer to that address. Open it at http://localhost or add the name to ALLOWED_HOSTS.' });
       return reply;
@@ -143,6 +150,14 @@ export async function buildApp(deps: AppDeps, pipeline: Pipeline, scheduler: Sch
       reply.code(403).send({ error: 'This request came from another website and was refused.' });
       return reply;
     }
+  });
+
+  // A downloaded file opened in the browser runs as nothing: no scripts, no
+  // same-origin access, even if an uploaded file is HTML or SVG.
+  app.addHook('onSend', async (_req, reply, payload) => {
+    const disposition = reply.getHeader('content-disposition');
+    if (typeof disposition === 'string' && /^attachment/i.test(disposition)) reply.header('content-security-policy', DOWNLOAD_CSP);
+    return payload;
   });
 
   app.setErrorHandler((err: FastifyError | Error, req: FastifyRequest, reply: FastifyReply) => {

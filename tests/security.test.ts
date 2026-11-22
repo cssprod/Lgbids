@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { allowedHosts, loadConfig, trustProxy } from '../src/server/config.js';
-import { closeHarnesses, harness } from './helpers/apiHarness.js';
+import { weakPasswordWarning } from '../src/server/routes/auth.js';
+import { closeHarnesses, harness, multipart } from './helpers/apiHarness.js';
 
 afterEach(closeHarnesses);
 
@@ -54,5 +55,66 @@ describe('host allowlist (DNS rebinding)', () => {
     expect(trustProxy({})).toBe(false);
     expect(trustProxy({ TRUST_PROXY: '10.0.0.0/8, 192.168.1.5' })).toBe('10.0.0.0/8,192.168.1.5');
     expect(trustProxy({ TRUST_PROXY: 'hops=2' })).toBe(2);
+  });
+});
+
+describe('sign-in throttling', () => {
+  it('caps wrong passwords across all addresses, even with a rotating X-Forwarded-For behind a trusted proxy', async () => {
+    const { app } = await harness({ appPassword: 'correct horse battery', trustProxy: trustProxy({ TRUST_PROXY: '1' }) });
+    for (let i = 0; i < 30; i += 1) {
+      const res = await app.inject({ method: 'POST', url: '/api/login', headers: { 'x-forwarded-for': `198.51.100.${i}` }, payload: { password: 'wrong' } });
+      expect(res.statusCode, `try ${i}`).toBe(401);
+    }
+    const blocked = await app.inject({ method: 'POST', url: '/api/login', headers: { 'x-forwarded-for': '198.51.100.250' }, payload: { password: 'correct horse battery' } });
+    expect(blocked.statusCode).toBe(429);
+    expect(blocked.json().error).toMatch(/sign-in is paused/);
+  });
+
+  it('still locks out one address after five wrong passwords', async () => {
+    const { app } = await harness({ appPassword: 'correct horse battery' });
+    for (let i = 0; i < 5; i += 1) await app.inject({ method: 'POST', url: '/api/login', payload: { password: 'wrong' } });
+    expect((await app.inject({ method: 'POST', url: '/api/login', payload: { password: 'wrong' } })).statusCode).toBe(429);
+  });
+
+  it('warns about a short password only off this computer', () => {
+    expect(weakPasswordWarning({ host: '0.0.0.0', appPassword: 'short' })).toMatch(/shorter than 12/);
+    expect(weakPasswordWarning({ host: '127.0.0.1', appPassword: 'short' })).toBeNull();
+    expect(weakPasswordWarning({ host: '0.0.0.0', appPassword: 'a long enough password' })).toBeNull();
+    expect(weakPasswordWarning({ host: '0.0.0.0', appPassword: '' })).toBeNull();
+  });
+});
+
+describe('security headers', () => {
+  it('sends Permissions-Policy and COOP, and HSTS only over https', async () => {
+    const { app } = await harness({ trustProxy: trustProxy({ TRUST_PROXY: '1' }) });
+    const plain = await app.inject({ method: 'GET', url: '/api/session' });
+    expect(plain.headers['permissions-policy']).toContain('camera=()');
+    expect(plain.headers['cross-origin-opener-policy']).toBe('same-origin');
+    expect(plain.headers['strict-transport-security']).toBeUndefined();
+    const secure = await app.inject({ method: 'GET', url: '/api/session', headers: { 'x-forwarded-proto': 'https' } });
+    expect(secure.headers['strict-transport-security']).toMatch(/max-age=\d+/);
+  });
+
+  it('ignores x-forwarded-proto when no proxy is trusted', async () => {
+    const { app } = await harness();
+    const res = await app.inject({ method: 'GET', url: '/api/session', headers: { 'x-forwarded-proto': 'https' } });
+    expect(res.headers['strict-transport-security']).toBeUndefined();
+  });
+
+  it('sandboxes downloaded files', async () => {
+    const { app } = await harness();
+    const up = await app.inject({
+      method: 'POST',
+      url: '/api/documents',
+      ...multipart({ kind: 'other', name: 'Page' }, { name: 'page.html', type: 'text/html', content: Buffer.from('<script>alert(1)</script>') }),
+    });
+    expect(up.statusCode).toBe(200);
+    const down = await app.inject({ method: 'GET', url: `/api/documents/${up.json().id}/download` });
+    expect(down.statusCode).toBe(200);
+    expect(down.headers['content-security-policy']).toBe("sandbox; default-src 'none'");
+    const csv = await app.inject({ method: 'GET', url: '/api/opportunities.csv' });
+    expect(csv.headers['content-security-policy']).toBe("sandbox; default-src 'none'");
+    const page = await app.inject({ method: 'GET', url: '/api/session' });
+    expect(page.headers['content-security-policy']).toContain("default-src 'self'");
   });
 });

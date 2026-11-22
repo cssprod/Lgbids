@@ -120,6 +120,9 @@ export function contentDisposition(kind: 'attachment' | 'inline', filename: stri
   return `${kind}; filename="${ascii}"; filename*=UTF-8''${encoded}`;
 }
 
+/** Content-Security-Policy for downloaded files (set for every attachment response in app.ts). */
+export const DOWNLOAD_CSP = "sandbox; default-src 'none'";
+
 export function sendFile(reply: FastifyReply, kind: 'attachment' | 'inline', filename: string, mime: string, content: Buffer): FastifyReply {
   return reply
     .header('content-type', safeMime(mime))
