@@ -445,12 +445,13 @@ export function createPipeline(deps: AppDeps): Pipeline {
     const opp = store.getOpportunity(id);
     if (!opp) return;
     // Applications hang off the canonical row; a duplicate's date change matters to it too.
+    // The change is logged even with no application yet: the bid may still be pursued.
     const app = store.getApplicationByOpportunity(opp.duplicateOf ?? opp.id);
-    if (!app) return;
     const when = opp.closesAt ? `it now closes ${formatLocal(opp.closesAt, opp.closesAtPrecision, zone)}` : 'the new closing date could not be read';
-    event('warn', 'closing_changed', `The closing date changed for ${quoted(opp.title)}; ${when}. Check the submission before it goes out.`, {
+    const advice = app ? ' Check the submission before it goes out.' : '';
+    event(app ? 'warn' : 'info', 'closing_changed', `The closing date changed for ${quoted(opp.title)}; ${when}.${advice}`, {
       opportunityId: opp.id,
-      applicationId: app.id,
+      applicationId: app?.id ?? null,
       runId,
     });
   }

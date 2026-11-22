@@ -6,7 +6,7 @@ import { ZodError } from 'zod';
 import type { AnalysisSave, ApplicationCreate, Store } from '../src/server/contracts.js';
 import { loadConfig } from '../src/server/config.js';
 import { openDatabase } from '../src/server/db/database.js';
-import { createStore } from '../src/server/db/store.js';
+import { createStore, type ChangeStore } from '../src/server/db/store.js';
 import { createFileStore } from '../src/server/files.js';
 import { defaultRegion } from '../src/server/matching/geo.js';
 import { createSettings, emailFromEnvironment } from '../src/server/settings.js';
@@ -17,7 +17,7 @@ import { sourceConfigSchema, type Analysis, type Decision } from '../src/shared/
 const now = new Date('2026-06-15T20:00:00Z');
 const later = (hours: number) => new Date(now.getTime() + hours * 3_600_000);
 
-let store: Store;
+let store: ChangeStore;
 
 function addSource(id: string, name = id) {
   store.insertSource({ id, name, kind: 'html_list', enabled: true, builtin: false, notes: '', config: sourceConfigSchema.parse({}) }, now);
@@ -120,15 +120,19 @@ describe('upsertOpportunity', () => {
     expect(store.getOpportunity(id)!.analysedAt).not.toBeNull();
   });
 
-  it('reports a changed closing date and clears notified_at', () => {
+  // MAT-8: a moved closing is a change, not a new bid, so the bid is not listed as "new" again.
+  it('reports a changed closing date, logs it, and keeps notified_at', () => {
     const { id } = store.upsertOpportunity('a', raw(), false, now);
     store.markNotified([id], now);
     expect(store.getOpportunity(id)!.notifiedAt).not.toBeNull();
     const r = store.upsertOpportunity('a', raw({ closing: { iso: '2026-07-16T21:00:00Z', precision: 'datetime' } }), false, later(1));
     expect(r).toMatchObject({ changed: true, closingChanged: true });
+    expect(r.changes.map((c) => c.kind)).toEqual(['closing_moved']);
     const o = store.getOpportunity(id)!;
     expect(o.closesAt).toBe('2026-07-16T21:00:00Z');
-    expect(o.notifiedAt).toBeNull();
+    expect(o.notifiedAt).not.toBeNull();
+    expect(o.changes?.[0]).toMatchObject({ kind: 'closing_moved', before: '2026-07-09T21:00:00Z', after: '2026-07-16T21:00:00Z' });
+    expect(o.lastChangedAt).toBe('2026-06-15T21:00:00Z');
   });
 
   it('does not report a closing change when the listing had none before', () => {
@@ -153,7 +157,10 @@ describe('applyDetail', () => {
       },
       later(1),
     );
-    expect(r.closingChanged).toBe(true);
+    // MAT-8: the same day gaining its time is a refinement, recorded but not a move.
+    expect(r.closingChanged).toBe(false);
+    expect(r.changes.map((c) => c.kind)).toEqual(['closing_refined']);
+    expect(store.getOpportunity(id)!.unseenChanges).toBe(0);
     const o = store.getOpportunity(id)!;
     expect(o.closesAt).toBe('2026-07-09T21:00:00Z');
     expect(o.closesAtPrecision).toBe('datetime');
@@ -169,12 +176,19 @@ describe('applyDetail', () => {
     expect(store.getOpportunity(id)!.closesAtPrecision).toBe('datetime');
   });
 
-  it('does not let a detail datetime replace a listing datetime, and null only stamps', () => {
+  // MAT-8: the notice page is the buyer's own word, so its new closing date is taken.
+  it('takes a new closing date from the notice page, keeps it against the stale listing, and null only stamps', () => {
     const { id } = store.upsertOpportunity('a', raw(), false, now);
     analyse(id, 'review');
-    expect(store.applyDetail(id, { closing: { iso: '2026-07-20T21:00:00Z', precision: 'datetime' } }, now).closingChanged).toBe(false);
-    expect(store.getOpportunity(id)!.closesAt).toBe('2026-07-09T21:00:00Z');
-    expect(store.getOpportunity(id)!.analysedAt).not.toBeNull();
+    const r = store.applyDetail(id, { closing: { iso: '2026-07-20T21:00:00Z', precision: 'datetime' } }, now);
+    expect(r.closingChanged).toBe(true);
+    expect(r.changes.map((c) => c.kind)).toEqual(['closing_moved']);
+    expect(store.getOpportunity(id)!.closesAt).toBe('2026-07-20T21:00:00Z');
+    expect(store.getOpportunity(id)!.analysedAt).toBeNull();
+    // The listing still shows the old date: that is not a new observation.
+    const again = store.upsertOpportunity('a', raw(), false, later(1));
+    expect(again.changes).toEqual([]);
+    expect(store.getOpportunity(id)!.closesAt).toBe('2026-07-20T21:00:00Z');
     store.applyDetail(id, null, later(1));
     expect(store.getOpportunity(id)!.detailFetchedAt).toBe('2026-06-15T21:00:00Z');
   });
@@ -245,6 +259,83 @@ describe('linkDuplicate', () => {
     store.upsertOpportunity('a', raw(), false, now);
     const other = store.upsertOpportunity('a', raw({ externalId: 'n-2' }), false, now);
     expect(store.linkDuplicate(other.id)).toBeNull();
+  });
+});
+
+describe('safe dedupe and notice events (MAT-7)', () => {
+  const lastYear = new Date('2025-06-15T20:00:00Z');
+  const title = 'Park Washroom Landscaping Services';
+
+  // The dup2 probe: a new-year notice with no closing date yet.
+  it('keeps an undated new-year notice visible instead of hiding it under last year\'s closed row', () => {
+    const old = store.upsertOpportunity('a', raw({ title, referenceNumber: '', closing: { iso: '2025-07-09T21:00:00Z', precision: 'datetime' } }), false, lastYear).id;
+    store.closeExpired(new Date('2025-07-10T20:00:00Z'));
+    expect(store.getOpportunity(old)!.status).toBe('closed');
+    const fresh = store.upsertOpportunity('b', raw({ externalId: 'new', title, referenceNumber: '', closing: null }), false, now).id;
+    expect(store.linkDuplicate(fresh)).toBeNull();
+    expect(store.listOpportunities({ view: 'all' }, now).items.map((o) => o.id)).toContain(fresh);
+  });
+
+  it('needs undated title matches to be first seen within 45 days', () => {
+    const first = store.upsertOpportunity('a', raw({ title, referenceNumber: '', closing: null }), false, new Date('2026-03-01T20:00:00Z')).id;
+    const tooLate = store.upsertOpportunity('b', raw({ externalId: 'late', title, referenceNumber: '', closing: null }), false, now).id;
+    expect(store.linkDuplicate(tooLate)).toBeNull();
+    const near = store.upsertOpportunity('a', raw({ externalId: 'near-a', title: `${title} Phase 2`, referenceNumber: '', closing: null }), false, later(-24 * 30)).id;
+    const copy = store.upsertOpportunity('b', raw({ externalId: 'near-b', title: `${title} Phase 2`, referenceNumber: '', closing: null }), false, now).id;
+    expect(store.linkDuplicate(copy)).toBe(near);
+    expect(first).toBeLessThan(near);
+  });
+
+  it('treats a later round of a cancelled reference as a re-issue, not a copy', () => {
+    const cancelled = store.upsertOpportunity('a', raw({ status: 'cancelled' }), false, now).id;
+    const reissue = store.upsertOpportunity('b', raw({ externalId: 'r-1', closing: { iso: '2026-07-30T21:00:00Z', precision: 'datetime' } }), false, later(1)).id;
+    expect(store.linkDuplicate(reissue)).toBeNull();
+    expect(store.linkDuplicate(reissue)).toBeNull();
+    const notes = store.listEvents(20).filter((e) => e.kind === 'reissue');
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toMatchObject({ opportunityId: reissue });
+    expect(notes[0]!.message).toContain(`notice ${cancelled}`);
+    expect(store.getOpportunity(reissue)!.status).toBe('open');
+  });
+
+  it('links an open copy to a finished row only when both closings are known and close together', () => {
+    const closed = store.upsertOpportunity('a', raw({ status: 'closed' }), false, now).id;
+    const undated = store.upsertOpportunity('b', raw({ externalId: 'u-1', closing: null }), false, now).id;
+    expect(store.linkDuplicate(undated)).toBeNull();
+    const same = store.upsertOpportunity('b', raw({ externalId: 'u-2', closing: { iso: '2026-07-09T23:00:00Z', precision: 'datetime' } }), false, now).id;
+    expect(store.linkDuplicate(same)).toBe(closed);
+  });
+
+  it('links a same-source addendum to its parent and takes its new closing', () => {
+    const parent = store.upsertOpportunity('a', raw(), false, now).id;
+    const addendum = store.upsertOpportunity(
+      'a',
+      raw({ externalId: 'n-1-add1', title: 'Addendum 1 - RFQ 2026-041 Boulevard Mowing Services', url: 'https://bids.example/n-1-add1', closing: { iso: '2026-07-16T21:00:00Z', precision: 'datetime' } }),
+      false,
+      later(1),
+    ).id;
+    expect(store.linkDuplicate(addendum)).toBe(parent);
+    const row = store.getOpportunity(parent)!;
+    expect(row.closesAt).toBe('2026-07-16T21:00:00Z');
+    expect(row.changes?.map((c) => c.kind)).toEqual(['closing_moved']);
+    expect(store.getOpportunity(addendum)!.duplicateOf).toBe(parent);
+    // Two ordinary notices on one site still never link.
+    const other = store.upsertOpportunity('a', raw({ externalId: 'n-9', url: 'https://bids.example/n-9' }), false, now).id;
+    expect(store.linkDuplicate(other)).toBeNull();
+  });
+
+  it('sets the status from what a notice announces', () => {
+    const cancelled = store.upsertOpportunity('a', raw({ externalId: 'c-1', title: 'CANCELLED - RFQ 2026-050 Hedge Trimming', status: 'open' }), false, now).id;
+    expect(store.getOpportunity(cancelled)!.status).toBe('cancelled');
+    const result = store.upsertOpportunity('a', raw({ externalId: 'c-2', title: 'Bid Results - RFQ 2026-051 Turf Aeration' }), false, now).id;
+    expect(store.getOpportunity(result)!.status).not.toBe('open');
+    const awarded = store.upsertOpportunity('b', raw({ externalId: 'c-3', title: 'RFQ 2026-052 Tree Pruning', event: 'award' }), false, now);
+    expect(store.getOpportunity(awarded.id)!.status).toBe('awarded');
+    // A listing that later marks a known notice as cancelled ends it too.
+    const known = store.upsertOpportunity('a', raw({ externalId: 'c-4', title: 'RFQ 2026-053 Planting' }), false, now).id;
+    store.upsertOpportunity('a', raw({ externalId: 'c-4', title: 'RFQ 2026-053 Planting - Cancelled' }), false, later(1));
+    expect(store.getOpportunity(known)!.status).toBe('cancelled');
+    expect(store.listChanges(known).map((c) => c.kind)).toEqual(['status_changed']);
   });
 });
 

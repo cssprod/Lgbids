@@ -23,6 +23,7 @@ import {
   type LibraryDocument,
   type NoticeChange,
   type NoticeChangeKind,
+  type NoticeEvent,
   type NoticeType,
   type Opportunity,
   type OpportunityStatus,
@@ -51,11 +52,12 @@ import type {
   UpsertResult,
 } from '../contracts.js';
 import { organizationKey } from '../matching/geo.js';
-import { extractReference, referenceKey, titleKey } from '../matching/notice.js';
+import { diffNotice, type ChangeDraft, type NoticeSnapshot } from '../matching/changes.js';
+import { classifyNoticeEvent, extractReference, referenceKey, titleKey } from '../matching/notice.js';
 import { nextLayoutHealth } from '../sources/health.js';
 import { connectorFor } from '../sources/registry.js';
 import type { RawOpportunity } from '../sources/types.js';
-import { nowIso } from '../util/dates.js';
+import { closingDeadline, nowIso } from '../util/dates.js';
 import { sha1 } from '../util/text.js';
 import type { Database } from './database.js';
 
@@ -72,6 +74,10 @@ const HOUR = 3_600_000;
 const DUPLICATE_WINDOW_MS = 36 * HOUR;
 /** A notice with no closing date that no source has listed for this long is treated as gone. */
 const UNDATED_STALE_MS = 21 * 24 * HOUR;
+/** Two undated listings with the same title are one notice only if first seen (or published) this close together. */
+const UNDATED_TITLE_WINDOW_MS = 45 * 24 * HOUR;
+/** A reference seen again with a closing this much later than a finished notice's is a re-issue, not a copy. */
+const REISSUE_GAP_MS = 7 * 24 * HOUR;
 
 // ---------------------------------------------------------------------------
 // Row types
@@ -418,8 +424,59 @@ function fillFrom(target: OppContent, incoming: Partial<RawOpportunity>): void {
   const categories = cleanCategories(incoming.categories);
   if (categories.length > 0 && parseJson<string[]>(target.categories, []).length === 0) target.categories = JSON.stringify(categories);
 
+  // Documents are added to, never replaced: a new file on a known notice is
+  // usually an addendum, which the change log must be able to see.
   const documents = cleanDocuments(incoming.documents);
-  if (documents.length > 0 && parseJson<DocumentLink[]>(target.documents, []).length === 0) target.documents = JSON.stringify(documents);
+  if (documents.length > 0) target.documents = JSON.stringify(unionDocuments(parseJson<DocumentLink[]>(target.documents, []), documents));
+}
+
+function unionDocuments(base: DocumentLink[], extra: DocumentLink[]): DocumentLink[] {
+  const out = [...base];
+  const seen = new Set(base.map((d) => d.url));
+  for (const doc of extra) {
+    if (seen.has(doc.url)) continue;
+    out.push(doc);
+    seen.add(doc.url);
+  }
+  return out;
+}
+
+/**
+ * A listing that still says "open" after the closing has passed does not
+ * reopen the row; it would only be closed again, and logged as a change, every run.
+ */
+function reopensPast(c: OppContent, status: OpportunityStatus, now: Date): boolean {
+  if (status !== 'open' || c.status === 'open' || !c.closes_at) return false;
+  return closingDeadline(c.closes_at, (c.closes_at_precision as DatePrecision | null) ?? null).getTime() <= now.getTime();
+}
+
+function snapshotOf(c: OppContent): NoticeSnapshot {
+  return {
+    closesAt: c.closes_at,
+    closesAtPrecision: (c.closes_at_precision as DatePrecision | null) ?? null,
+    status: c.status as OpportunityStatus,
+    documents: parseJson<DocumentLink[]>(c.documents, []),
+    description: c.description,
+  };
+}
+
+/** What a notice event means for whether the bid can still be made; null leaves the status alone. */
+function statusForEvent(event: NoticeEvent | undefined): OpportunityStatus | null {
+  if (event === 'cancellation') return 'cancelled';
+  if (event === 'award') return 'awarded';
+  if (event === 'result') return 'closed';
+  return null;
+}
+
+/** A listing that shows only the date must not undo the exact time already known for that same day. */
+function sameDayCoarser(c: OppContent, closing: { iso: string | null; precision: DatePrecision }): boolean {
+  return (
+    closing.precision === 'date' &&
+    c.closes_at_precision === 'datetime' &&
+    c.closes_at !== null &&
+    closing.iso !== null &&
+    Math.abs(Date.parse(closing.iso) - Date.parse(c.closes_at)) < 24 * HOUR
+  );
 }
 
 function toSource(row: SourceRow): SourceRecord {
@@ -759,7 +816,16 @@ export function recomputeKeys(db: Database): number {
   });
 }
 
-export function createStore(db: Database): Store {
+/**
+ * The store as built here: the shared contract, plus the changes each write
+ * recorded (also saved in `opportunity_changes`). It is still a `Store`.
+ */
+export type ChangeStore = Omit<Store, 'upsertOpportunity' | 'applyDetail'> & {
+  upsertOpportunity(sourceId: string, raw: RawOpportunity, bcSource: boolean, now: Date): UpsertResult & { changes: NoticeChange[] };
+  applyDetail(id: number, detail: Partial<RawOpportunity> | null, now: Date): { closingChanged: boolean; changes: NoticeChange[] };
+};
+
+export function createStore(db: Database): ChangeStore {
   function oppRow(id: number): OppRow | undefined {
     return db.get<OppRow>(`${OPP_SELECT} WHERE o.id = :id`, { id });
   }
@@ -779,8 +845,7 @@ export function createStore(db: Database): Store {
          bc_source = CASE WHEN :bc = 1 THEN 1 ELSE bc_source END,
          last_seen_at = COALESCE(:seen, last_seen_at),
          detail_fetched_at = CASE WHEN :detail = 1 THEN :stamp ELSE detail_fetched_at END,
-         analysed_at = CASE WHEN :changed = 1 THEN NULL ELSE analysed_at END,
-         notified_at = CASE WHEN :closing_changed = 1 THEN NULL ELSE notified_at END
+         analysed_at = CASE WHEN :changed = 1 THEN NULL ELSE analysed_at END
        WHERE id = :id`,
       {
         ...c,
@@ -791,10 +856,129 @@ export function createStore(db: Database): Store {
         detail: extra.detail ?? false,
         stamp: extra.now ? nowIso(extra.now) : null,
         changed: extra.changed,
-        closing_changed: extra.closingChanged,
         id,
       },
     );
+  }
+
+  /** The run in progress, so a change found during a run is filed under it. */
+  function currentRunId(): number | null {
+    return db.get<{ id: number }>("SELECT id FROM runs WHERE status = 'running' ORDER BY id DESC LIMIT 1")?.id ?? null;
+  }
+
+  function saveChanges(opportunityId: number, drafts: ChangeDraft[], detectedAt: string): NoticeChange[] {
+    if (drafts.length === 0) return [];
+    const runId = currentRunId();
+    return drafts.map((d) => {
+      const { lastInsertRowid } = db.run(
+        `INSERT INTO opportunity_changes (opportunity_id, kind, summary, before_value, after_value, addendum, detected_at, run_id)
+         VALUES (:id, :kind, :summary, :before, :after, :addendum, :at, :run)`,
+        { id: opportunityId, kind: d.kind, summary: d.summary, before: d.before, after: d.after, addendum: d.addendum, at: detectedAt, run: runId },
+      );
+      return toChange(db.get<ChangeRow>('SELECT * FROM opportunity_changes WHERE id = :id', { id: lastInsertRowid })!);
+    });
+  }
+
+  /**
+   * True when `incoming` is the value this row already moved away from. Sites do
+   * not all catch up at once: after an extension seen on one copy (or on the
+   * notice page), the other listing keeps showing the old date for a while,
+   * and that must not move the closing back (and back again) every run.
+   */
+  function isStale(id: number, kinds: string[], incoming: string, current: string | null): boolean {
+    if (current === null || incoming === current) return false;
+    const list = inList('k', kinds);
+    const last = db.get<{ before_value: string; after_value: string }>(
+      `SELECT before_value, after_value FROM opportunity_changes WHERE opportunity_id = :id AND kind IN (${list.sql})
+       ORDER BY detected_at DESC, id DESC LIMIT 1`,
+      { ...list.params, id },
+    );
+    return !!last && last.after_value === current && last.before_value === incoming;
+  }
+
+  /**
+   * Compare, write and log one row's new content. A change seen on a copy of
+   * a notice is carried to the row people work with (the canonical one), so
+   * an extension on any site keeps the bid and its draft alive.
+   */
+  function commitContent(
+    existing: OppRow,
+    c: OppContent,
+    opts: { now: Date; bcSource?: boolean; detail?: boolean },
+  ): { changed: boolean; closingChanged: boolean; changes: NoticeChange[] } {
+    const before = pickContent(existing);
+    const changed = opts.detail ? JSON.stringify(before) !== JSON.stringify(c) : contentHash(c) !== existing.content_hash;
+    // The first read of a notice page brings its full text where the listing had a
+    // summary; that is reading the notice, not a change to it.
+    const firstRead = opts.detail === true && existing.detail_fetched_at === null;
+    const drafts = diffNotice(snapshotOf(before), snapshotOf(c)).filter((d) => !(firstRead && d.kind === 'description_changed'));
+    writeContent(existing.id, c, { changed: changed || drafts.length > 0, closingChanged: false, bcSource: opts.bcSource, now: opts.now, detail: opts.detail });
+    const changes = saveChanges(existing.id, drafts, nowIso(opts.now));
+    if (existing.duplicate_of !== null && drafts.length > 0) propagate(existing.id, existing.duplicate_of, drafts, nowIso(opts.now));
+    return { changed: changed || drafts.length > 0, closingChanged: drafts.some((d) => d.kind === 'closing_moved'), changes };
+  }
+
+  function propagate(duplicateId: number, canonicalId: number, drafts: ChangeDraft[], detectedAt: string): void {
+    const dup = db.get<OppRow>('SELECT * FROM opportunities WHERE id = :id', { id: duplicateId });
+    const canonical = db.get<OppRow>('SELECT * FROM opportunities WHERE id = :id', { id: canonicalId });
+    if (!dup || !canonical) return;
+    const c = pickContent(canonical);
+    const kinds = new Set(drafts.map((d) => d.kind));
+    // The latest observation wins: the copy just reported something new.
+    if ((kinds.has('closing_moved') || kinds.has('closing_added') || kinds.has('closing_refined')) && dup.closes_at) {
+      c.closes_at = dup.closes_at;
+      c.closes_at_precision = dup.closes_at_precision;
+      c.closes_at_raw = dup.closes_at_raw;
+    }
+    if (kinds.has('status_changed')) c.status = dup.status;
+    if (kinds.has('documents_added')) c.documents = JSON.stringify(unionDocuments(parseJson<DocumentLink[]>(c.documents, []), parseJson<DocumentLink[]>(dup.documents, [])));
+    const carried = diffNotice(snapshotOf(pickContent(canonical)), snapshotOf(c)).filter((d) => d.kind !== 'description_changed');
+    if (carried.length === 0) return;
+    writeContent(canonical.id, c, { changed: true, closingChanged: false });
+    saveChanges(canonical.id, carried, detectedAt);
+  }
+
+  /** A reference seen again well after a finished notice closed is a new round of the same work: say so once. */
+  function noteReissue(row: OppRow, sameReference: OppRow[]): void {
+    if (row.status !== 'open' || !row.closes_at) return;
+    const earlier = sameReference.find(
+      (c) => c.status !== 'open' && c.closes_at !== null && Date.parse(row.closes_at!) - Date.parse(c.closes_at) > REISSUE_GAP_MS,
+    );
+    if (!earlier) return;
+    const noted = db.get<{ id: number }>("SELECT id FROM events WHERE kind = 'reissue' AND opportunity_id = :id LIMIT 1", { id: row.id });
+    if (noted) return;
+    db.run(
+      `INSERT INTO events (at, level, kind, message, opportunity_id, application_id, run_id)
+       VALUES (:at, 'info', 'reissue', :message, :id, NULL, :run)`,
+      {
+        at: row.last_seen_at,
+        message: `"${row.title}" looks like a re-issue of notice ${earlier.id} (${earlier.status}), so it is listed as a new bid.`,
+        id: row.id,
+        run: currentRunId(),
+      },
+    );
+  }
+
+  /** Find the row an alert about an existing notice (addendum, moved closing, cancellation, award) refers to. */
+  function eventTarget(raw: RawOpportunity): OppRow | undefined {
+    if (!raw.event || raw.event === 'notice' || !str(raw.url)) return undefined;
+    return db.get<OppRow>('SELECT * FROM opportunities WHERE url = :url ORDER BY duplicate_of IS NOT NULL, id LIMIT 1', { url: str(raw.url) });
+  }
+
+  /** Merge an alert event into the row it is about: never its title or address, only what the event changes. */
+  function applyEvent(target: OppRow, raw: RawOpportunity, bcSource: boolean, now: Date): UpsertResult & { changes: NoticeChange[] } {
+    const c = pickContent(target);
+    const closing = raw.closing ? { iso: normIso(raw.closing.iso), precision: raw.closing.precision } : null;
+    if (closing?.iso && !sameDayCoarser(c, closing)) {
+      c.closes_at = closing.iso;
+      c.closes_at_precision = closing.precision;
+      if (str(raw.closingRaw)) c.closes_at_raw = str(raw.closingRaw);
+    }
+    const status = statusForEvent(raw.event);
+    if (status) c.status = status;
+    fillFrom(c, raw);
+    const result = commitContent(target, c, { now, bcSource });
+    return { id: target.id, isNew: false, ...result };
   }
 
   function applicationFiles(applicationId: number): (ApplicationFile & { storedName: string })[] {
@@ -818,7 +1002,7 @@ export function createStore(db: Database): Store {
     return db.get<DocRow>('SELECT * FROM documents WHERE id = :id', { id });
   }
 
-  const store: Store = {
+  const store: ChangeStore = {
     // ---- settings --------------------------------------------------------
     getSetting(key) {
       const row = db.get<{ value: string }>('SELECT value FROM settings WHERE key = :key', { key });
@@ -987,7 +1171,7 @@ export function createStore(db: Database): Store {
     },
 
     // ---- opportunities ---------------------------------------------------
-    upsertOpportunity(sourceId, raw, bcSource, now): UpsertResult {
+    upsertOpportunity(sourceId, raw, bcSource, now): UpsertResult & { changes: NoticeChange[] } {
       return db.tx(() => {
         const existing = db.get<OppRow>('SELECT * FROM opportunities WHERE source_id = :sourceId AND external_id = :externalId', {
           sourceId,
@@ -997,7 +1181,15 @@ export function createStore(db: Database): Store {
         const at = nowIso(now);
 
         if (!existing) {
+          // An alert about a notice already known (by its address) updates that row instead of adding a second one.
+          const target = eventTarget(raw);
+          if (target) return applyEvent(target, raw, bcSource, now);
+        }
+
+        if (!existing) {
           const title = str(raw.title);
+          // A cancellation, award or result is never open to bids, whatever the listing says.
+          const eventStatus = statusForEvent(raw.event ?? classifyNoticeEvent(title));
           const c: OppContent = {
             title,
             organization: '',
@@ -1015,7 +1207,7 @@ export function createStore(db: Database): Store {
             contact_email: '',
             contact_phone: '',
             documents: '[]',
-            status: raw.status ?? 'open',
+            status: eventStatus ?? raw.status ?? 'open',
           };
           fillFrom(c, raw);
           const result = db.run(
@@ -1031,7 +1223,7 @@ export function createStore(db: Database): Store {
                :at, :at)`,
             { ...c, ...keysFor(c), source_id: sourceId, external_id: raw.externalId, bc_source: bcSource, content_hash: contentHash(c), at },
           );
-          return { id: result.lastInsertRowid, isNew: true, changed: true, closingChanged: false };
+          return { id: result.lastInsertRowid, isNew: true, changed: true, closingChanged: false, changes: [] };
         }
 
         const c = pickContent(existing);
@@ -1040,18 +1232,15 @@ export function createStore(db: Database): Store {
         if (title) c.title = title;
         const url = str(raw.url);
         if (url) c.url = url;
-        if (raw.status) c.status = raw.status;
+        const eventStatus = statusForEvent(raw.event ?? classifyNoticeEvent(c.title));
+        if (eventStatus) c.status = eventStatus;
+        else if (raw.status && !isStale(existing.id, ['status_changed'], raw.status, c.status) && !reopensPast(c, raw.status, now)) c.status = raw.status;
         const published = normIso(raw.publishedAt);
         if (published) c.published_at = published;
         if (closing?.iso) {
           // A listing that shows only the date must not undo the exact time read
           // from the notice page for that same day; that would look like a change every run.
-          const sameDayCoarser =
-            closing.precision === 'date' &&
-            c.closes_at_precision === 'datetime' &&
-            c.closes_at !== null &&
-            Math.abs(Date.parse(closing.iso) - Date.parse(c.closes_at)) < 24 * HOUR;
-          if (!sameDayCoarser) {
+          if (!sameDayCoarser(c, closing) && !isStale(existing.id, ['closing_moved'], closing.iso, c.closes_at)) {
             c.closes_at = closing.iso;
             c.closes_at_precision = closing.precision;
             const rawText = str(raw.closingRaw);
@@ -1063,47 +1252,41 @@ export function createStore(db: Database): Store {
         fillFrom(c, raw);
         if (!c.reference_number) c.reference_number = extractReference(c.title);
 
-        const closingChanged = existing.closes_at !== null && c.closes_at !== null && existing.closes_at !== c.closes_at;
-        const changed = contentHash(c) !== existing.content_hash;
-        writeContent(existing.id, c, { changed, closingChanged, bcSource, now });
-        return { id: existing.id, isNew: false, changed, closingChanged };
+        const result = commitContent(existing, c, { now, bcSource });
+        return { id: existing.id, isNew: false, ...result };
       });
     },
 
-    applyDetail(id, detail, now) {
+    applyDetail(id, detail, now): { closingChanged: boolean; changes: NoticeChange[] } {
       return db.tx(() => {
         const existing = oppRow(id);
-        if (!existing) return { closingChanged: false };
+        if (!existing) return { closingChanged: false, changes: [] };
         const at = nowIso(now);
         if (!detail) {
           db.run('UPDATE opportunities SET detail_fetched_at = :at WHERE id = :id', { at, id });
-          return { closingChanged: false };
+          return { closingChanged: false, changes: [] };
         }
         const c = pickContent(existing);
         if (!c.title && str(detail.title)) c.title = str(detail.title);
         if (!c.url && str(detail.url)) c.url = str(detail.url);
         if (!c.published_at) c.published_at = normIso(detail.publishedAt);
         // A notice page may report that the notice was cancelled or awarded.
-        if (detail.status) c.status = detail.status;
+        if (detail.status && !isStale(id, ['status_changed'], detail.status, c.status) && !reopensPast(c, detail.status, now)) c.status = detail.status;
 
-        const closingIso = detail.closing ? normIso(detail.closing.iso) : null;
-        if (detail.closing && closingIso) {
-          const upgrade = detail.closing.precision === 'datetime' && c.closes_at_precision === 'date';
-          if (!c.closes_at || upgrade) {
-            c.closes_at = closingIso;
-            c.closes_at_precision = detail.closing.precision;
-            if (str(detail.closingRaw)) c.closes_at_raw = str(detail.closingRaw);
-          }
+        // The notice page is the buyer's own word, so a new closing date there is
+        // taken (an addendum often moves it before the listing catches up).
+        const closing = detail.closing ? { iso: normIso(detail.closing.iso), precision: detail.closing.precision } : null;
+        if (closing?.iso && !sameDayCoarser(c, closing) && !isStale(id, ['closing_moved'], closing.iso, c.closes_at)) {
+          c.closes_at = closing.iso;
+          c.closes_at_precision = closing.precision;
+          if (str(detail.closingRaw)) c.closes_at_raw = str(detail.closingRaw);
         }
         if (!c.closes_at_raw && str(detail.closingRaw)) c.closes_at_raw = str(detail.closingRaw);
         fillFrom(c, detail);
         if (!c.reference_number) c.reference_number = extractReference(c.title);
 
-        const before = pickContent(existing);
-        const contentChanged = JSON.stringify(before) !== JSON.stringify(c);
-        const closingChanged = existing.closes_at !== null && c.closes_at !== null && existing.closes_at !== c.closes_at;
-        writeContent(id, c, { changed: contentChanged, closingChanged, now, detail: true });
-        return { closingChanged };
+        const { closingChanged, changes } = commitContent(existing, c, { now, detail: true });
+        return { closingChanged, changes };
       });
     },
 
@@ -1144,21 +1327,44 @@ export function createStore(db: Database): Store {
         if (row.duplicate_of !== null) return row.duplicate_of;
         if (!row.ref_key && !row.title_key) return null;
 
-        const candidates = db.all<OppRow>(
-          `SELECT * FROM opportunities
-           WHERE id != :id AND source_id != :source AND duplicate_of IS NULL
-             AND ((ref_key != '' AND ref_key = :ref) OR (title_key != '' AND title_key = :title))
-           ORDER BY id`,
-          { id, source: row.source_id, ref: row.ref_key, title: row.title_key },
-        );
-        const closeTogether = (a: string | null, b: string | null) => !a || !b || Math.abs(Date.parse(a) - Date.parse(b)) <= DUPLICATE_WINDOW_MS;
+        // An addendum posted as its own notice on the same site belongs to its parent.
+        const isAddendum = classifyNoticeEvent(row.title) === 'addendum';
+        const candidates = db
+          .all<OppRow>(
+            `SELECT * FROM opportunities
+             WHERE id != :id AND duplicate_of IS NULL
+               AND (source_id != :source OR (:addendum = 1 AND ref_key != '' AND ref_key = :ref))
+               AND ((ref_key != '' AND ref_key = :ref) OR (title_key != '' AND title_key = :title))
+             ORDER BY id`,
+            { id, source: row.source_id, ref: row.ref_key, title: row.title_key, addendum: isAddendum },
+          )
+          .filter((c) => c.source_id !== row.source_id || classifyNoticeEvent(c.title) !== 'addendum');
+        const gap = (a: string | null, b: string | null) => (a && b ? Math.abs(Date.parse(a) - Date.parse(b)) : null);
+        const closeTogether = (c: OppRow) => {
+          const g = gap(c.closes_at, row.closes_at);
+          return g !== null && g <= DUPLICATE_WINDOW_MS;
+        };
+        // A missing closing date is not a wildcard: undated rows with the same title
+        // must at least have appeared around the same time (last year's notice is not this one).
+        const seenTogether = (c: OppRow) => {
+          const seen = gap(c.first_seen_at, row.first_seen_at);
+          const published = gap(c.published_at, row.published_at);
+          return (seen !== null && seen <= UNDATED_TITLE_WINDOW_MS) || (published !== null && published <= UNDATED_TITLE_WINDOW_MS);
+        };
+        // An open notice never hides under a finished one unless both clearly close together.
+        const lifecycleFits = (c: OppRow) => row.status !== 'open' || c.status === 'open' || closeTogether(c);
+        const refMatch = (c: OppRow) => row.ref_key !== '' && c.ref_key === row.ref_key;
+        const titleMatch = (c: OppRow) =>
+          row.title_key !== '' && c.title_key === row.title_key && (c.closes_at && row.closes_at ? closeTogether(c) : seenTogether(c));
         // A matching reference number is decisive; a matching title also needs the closings to agree.
-        const match =
-          candidates.find((c) => row.ref_key !== '' && c.ref_key === row.ref_key) ??
-          candidates.find((c) => row.title_key !== '' && c.title_key === row.title_key && closeTogether(c.closes_at, row.closes_at));
-        if (!match) return null;
+        const match = candidates.find((c) => refMatch(c) && lifecycleFits(c)) ?? candidates.find((c) => titleMatch(c) && lifecycleFits(c));
+        if (!match) {
+          noteReissue(row, candidates.filter(refMatch));
+          return null;
+        }
 
-        const [canonical, duplicate] = match.id < row.id ? [match, row] : [row, match];
+        const [canonical, duplicate] = isAddendum || match.id < row.id ? [match, row] : [row, match];
+        const canonicalBefore = pickContent(canonical);
         db.run('UPDATE opportunities SET duplicate_of = :canon WHERE id = :dup', { canon: canonical.id, dup: duplicate.id });
         // Rows that pointed at the one that is no longer canonical follow it.
         db.run('UPDATE opportunities SET duplicate_of = :canon WHERE duplicate_of = :dup', { canon: canonical.id, dup: duplicate.id });
@@ -1183,6 +1389,16 @@ export function createStore(db: Database): Store {
         }
         c.documents = JSON.stringify(docs);
         if (parseJson<string[]>(c.categories, []).length === 0) c.categories = duplicate.categories;
+        // A cancellation or award notice for the same bid ends it.
+        if (c.status === 'open' && (duplicate.status === 'cancelled' || duplicate.status === 'awarded')) c.status = duplicate.status;
+        // An addendum that moves the closing is the buyer's latest word on it. Two
+        // ordinary copies are not: their small differences come from how each
+        // site writes times, so only a missing closing is filled.
+        if (classifyNoticeEvent(duplicate.title) === 'addendum' && duplicate.closes_at && duplicate.closes_at !== c.closes_at) {
+          c.closes_at = duplicate.closes_at;
+          c.closes_at_precision = duplicate.closes_at_precision;
+          c.closes_at_raw = duplicate.closes_at_raw;
+        }
 
         let submission = { method: canonical.submission_method, email: canonical.submission_email, url: canonical.submission_url };
         if (submission.method === 'unknown' && duplicate.submission_method !== 'unknown') submission.method = duplicate.submission_method;
@@ -1191,8 +1407,13 @@ export function createStore(db: Database): Store {
         const submissionChanged =
           submission.method !== canonical.submission_method || submission.email !== canonical.submission_email || submission.url !== canonical.submission_url;
 
-        const contentChanged = JSON.stringify(c) !== JSON.stringify(pickContent(canonical));
-        if (contentChanged) writeContent(canonical.id, c, { changed: true, closingChanged: false, bcSource: bool(duplicate.bc_source) });
+        const contentChanged = JSON.stringify(c) !== JSON.stringify(canonicalBefore);
+        if (contentChanged) {
+          writeContent(canonical.id, c, { changed: true, closingChanged: false, bcSource: bool(duplicate.bc_source) });
+          // A longer copy of the text is not news; a new date, status or document is.
+          const drafts = diffNotice(snapshotOf(canonicalBefore), snapshotOf(c)).filter((d) => d.kind !== 'description_changed');
+          saveChanges(canonical.id, drafts, row.last_seen_at);
+        }
         if (submissionChanged || contentChanged) {
           db.run(
             `UPDATE opportunities SET submission_method = :method, submission_email = :email, submission_url = :url,
@@ -1207,7 +1428,11 @@ export function createStore(db: Database): Store {
 
     getOpportunity(id) {
       const row = oppRow(id);
-      return row ? toRecord(row) : undefined;
+      if (!row) return undefined;
+      const changes = db
+        .all<ChangeRow>('SELECT * FROM opportunity_changes WHERE opportunity_id = :id ORDER BY detected_at DESC, id DESC', { id })
+        .map(toChange);
+      return { ...toRecord(row), changes };
     },
 
     listOpportunities(filter: OpportunityFilter, now) {
