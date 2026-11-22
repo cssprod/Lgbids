@@ -1,6 +1,6 @@
 {
   "name": "lgbids",
-  "version": "0.1.0",
+  "version": "0.2.0-beta",
   "private": true,
   "description": "Finds, qualifies and applies to gardening and landscaping bid opportunities in Greater Victoria, BC.",
   "type": "module",

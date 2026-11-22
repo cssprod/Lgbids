@@ -29,5 +29,5 @@ Branch `ccr-707adaf0-joblwh` holds all of Wave 2 that can be built here. `npm ru
 - **Netlify**: turn on form detection, check that `notice-feedback` shows under Forms, and send one per-bid feedback from the deployed prototype.
 
 ### 2.4 — release
-- Set the version to `0.2.0-beta` in `package.json` (it still says `0.1.0`) and date the CHANGELOG entry.
+- Done: the version is `0.2.0-beta` in `package.json` and `package-lock.json`, and the CHANGELOG entry is dated 2026-11-22 with upgrade notes.
 - Tag `v0.2.0-beta` and open the PR once the user says OK (D27, D29). If the 2.2 results are not back by then, tag with honest statuses and ship 2.2 as `v0.2.1-beta`.

@@ -2,7 +2,17 @@
 
 All notable changes to Lgbids are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
-## [0.2.0-beta] — Unreleased
+## [0.2.0-beta] — 2026-11-22
+
+Not tagged yet: the `v0.2.0-beta` tag waits for the owner's OK.
+
+### Upgrading from 0.1.0
+- **You are signed out once.** Sign-in sessions are now stored as a SHA-256 fingerprint, so sessions from 0.1.0 no longer match. Sign in again with your `APP_PASSWORD`.
+- **A backups folder appears.** Before the database is upgraded, a copy is saved in the `backups` folder next to it (owner-only). `npm run backup` and `npm run restore -- <backup folder>` make and restore copies by hand. Backups contain your saved passwords and tokens, so keep them private.
+- **Custom service areas keep their old lists.** If you changed the service-area lists in Settings, the new places (for example Willis Point, Otter Point and East Sooke) are not added to them. Add them by hand, or reset the lists to the defaults.
+- **Some drafts may change group.** The new matching rules re-score open bids at the first check, so a few drafts can move between "suitable" and "review". Bundled-trade notices (janitorial, multi-trade, civil works with sod) now go to review with a lower score.
+- **Oak Bay starts off on new installs** until its Test passes. An existing install keeps its current on/off setting.
+
 
 Wave 2: more bids, fewer misses, and a beta you can run every day. The plan is in docs/WAVE-2.md (lean mode) and the open items are in docs/WAVE-2-STATUS.md.
 
