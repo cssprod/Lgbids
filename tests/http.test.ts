@@ -161,6 +161,18 @@ describe('private addresses', () => {
       expect(isPrivateAddress(ip), ip).toBe(false);
     }
   });
+
+  it('judges NAT64 and 6to4 addresses by the IPv4 address inside, and refuses site-local', () => {
+    const inside = ['64:ff9b::a00:1', '64:ff9b::10.0.0.1', '64:ff9b::7f00:1', '64:ff9b::a9fe:a9fe', '64:ff9b:1::808:808', '2002:a00:1::1', '2002:7f00:1::', '2002:c0a8:101::5', 'fec0::1', 'feff::1', '::ffff:0:10.0.0.1', '0:0:0:0:0:ffff:a00:1', '[::ffff:127.0.0.1]'];
+    for (const ip of inside) expect(isPrivateAddress(ip), ip).toBe(true);
+    for (const ip of ['64:ff9b::808:808', '64:ff9b::8.8.8.8', '2002:808:808::1', '2002:8efa:101::']) expect(isPrivateAddress(ip), ip).toBe(false);
+  });
+
+  it('refuses a host whose DNS answer is a NAT64 or 6to4 form of a private address', async () => {
+    const lookup: LookupFn = async () => [{ address: '64:ff9b::a9fe:a9fe', family: 6 }];
+    const http = new HttpClient({ delayMs: 0, retries: 0, lookup, fetchImpl: (async () => new Response('x')) as typeof fetch });
+    await expect(http.get('https://metadata.example/latest')).rejects.toThrow(/private network/);
+  });
 });
 
 describe('fixed settings (D2)', () => {

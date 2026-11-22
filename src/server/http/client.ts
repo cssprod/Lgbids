@@ -185,6 +185,12 @@ export class HttpClient {
    * private ranges, link-local such as cloud metadata at 169.254.169.254,
    * CGNAT, unique-local, multicast, 0.0.0.0), so a source address or a
    * redirect cannot make the server read internal services.
+   *
+   * Known gap: fetch looks the name up again when it connects, so a name that
+   * answers with a public address here and a private one a moment later (DNS
+   * rebinding) is not caught. Pinning the connection to the checked address
+   * needs an undici Agent with `connect.lookup`, and Node does not expose
+   * undici's Agent without adding the npm package, so that is left for now.
    */
   private async guardAddress(target: URL): Promise<void> {
     if (target.protocol !== 'https:' && target.protocol !== 'http:') {
@@ -341,6 +347,25 @@ function ipv4Parts(ip: string): number[] | null {
   return parts.length === 4 && parts.every((n) => Number.isInteger(n) && n >= 0 && n <= 255) ? parts : null;
 }
 
+/** The eight 16-bit groups of an IPv6 address (a trailing dotted IPv4 becomes the last two); null if it cannot be read. */
+function ipv6Groups(ip: string): number[] | null {
+  let text = ip;
+  const dotted = /(\d+\.\d+\.\d+\.\d+)$/.exec(text);
+  if (dotted) {
+    const p = ipv4Parts(dotted[1]!);
+    if (!p) return null;
+    text = `${text.slice(0, -dotted[1]!.length)}${((p[0]! << 8) | p[1]!).toString(16)}:${((p[2]! << 8) | p[3]!).toString(16)}`;
+  }
+  const halves = text.split('::');
+  if (halves.length > 2) return null;
+  const head = halves[0] ? halves[0].split(':') : [];
+  const tail = halves.length === 2 && halves[1] ? halves[1].split(':') : [];
+  const missing = 8 - head.length - tail.length;
+  if (missing < 0 || (halves.length === 1 && missing !== 0)) return null;
+  const groups = [...head, ...Array<string>(missing).fill('0'), ...tail].map((part) => (/^[0-9a-f]{1,4}$/.test(part) ? parseInt(part, 16) : NaN));
+  return groups.every((n) => Number.isInteger(n)) ? groups : null;
+}
+
 /** True for addresses that are not on the public internet. */
 export function isPrivateAddress(address: string): boolean {
   const ip = address.trim().toLowerCase().replace(/^\[|\]$/g, '').replace(/%.*$/, '');
@@ -360,20 +385,23 @@ export function isPrivateAddress(address: string): boolean {
     );
   }
   if (isIP(ip) === 6) {
-    // An IPv4 address written as IPv6 (::ffff:10.0.0.1) is checked as IPv4.
-    const mapped = /^(?:0*:)*:?ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(ip) ?? /^::(\d+\.\d+\.\d+\.\d+)$/.exec(ip);
-    if (mapped) return isPrivateAddress(mapped[1]!);
-    const hexMapped = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(ip);
-    if (hexMapped) {
-      const hi = parseInt(hexMapped[1]!, 16);
-      const lo = parseInt(hexMapped[2]!, 16);
-      return isPrivateAddress(`${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`);
-    }
-    if (ip === '::' || ip === '::1') return true;
-    const first = parseInt(ip.split(':')[0] || '0', 16);
+    const g = ipv6Groups(ip);
+    if (!g) return true;
+    const v4 = (hi: number, lo: number) => `${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`;
+    const zeros = (from: number, to: number) => g.slice(from, to).every((n) => n === 0);
+    if (zeros(0, 8) || (zeros(0, 7) && g[7] === 1)) return true; // :: and ::1
+    // Addresses that carry an IPv4 address inside are judged by that address.
+    if (zeros(0, 5) && g[5] === 0xffff) return isPrivateAddress(v4(g[6]!, g[7]!)); // IPv4-mapped ::ffff:0:0/96
+    if (zeros(0, 4) && g[4] === 0xffff && g[5] === 0) return isPrivateAddress(v4(g[6]!, g[7]!)); // IPv4-translated ::ffff:0:0:0/96
+    if (zeros(0, 6)) return isPrivateAddress(v4(g[6]!, g[7]!)); // IPv4-compatible ::/96
+    if (g[0] === 0x64 && g[1] === 0xff9b && zeros(2, 6)) return isPrivateAddress(v4(g[6]!, g[7]!)); // NAT64 64:ff9b::/96
+    if (g[0] === 0x64 && g[1] === 0xff9b && g[2] === 1) return true; // local-use NAT64 64:ff9b:1::/48
+    if (g[0] === 0x2002) return isPrivateAddress(v4(g[1]!, g[2]!)); // 6to4 2002::/16
+    const first = g[0]!;
     return (
       (first & 0xfe00) === 0xfc00 || // unique local fc00::/7
       (first & 0xffc0) === 0xfe80 || // link-local fe80::/10
+      (first & 0xffc0) === 0xfec0 || // site-local fec0::/10 (deprecated, still routed inside some networks)
       (first & 0xff00) === 0xff00 // multicast ff00::/8
     );
   }
