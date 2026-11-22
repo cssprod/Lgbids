@@ -822,7 +822,11 @@ async function route(method: string, fullPath: string, rawBody: unknown): Promis
   }
   if (path === '/api/settings/alert-inbox/test') {
     alertInbox = { ...alertInbox, verifiedAt: new Date().toISOString() };
-    return ok({ ok: true, message: 'Connected. Found 2 alert e-mails from BC Bid or Bonfire in “INBOX” from the last 30 days.' } satisfies ActionResult);
+    return ok({
+      ok: true,
+      bySender: { bcbid: 1, bonfire: 1 },
+      message: 'Connected. Found 2 alert e-mails from BC Bid or Bonfire in “INBOX” from the last 30 days.',
+    } satisfies ActionResult);
   }
   if (path === '/api/settings/alert-inbox') {
     if (method === 'PUT') {

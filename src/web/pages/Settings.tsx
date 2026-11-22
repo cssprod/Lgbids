@@ -71,6 +71,25 @@ function TypeChecklist({ legend, hint, value, onChange }: { legend: string; hint
 const ALERT_SENDER_DOMAINS = ['bcbid.gov.bc.ca', 'bonfirehub.ca', 'canadabuys.canada.ca', 'bidsandtenders.ca', 'merx.com', 'biddingo.com'];
 const ALERT_FILTER = ALERT_SENDER_DOMAINS.join(' OR ');
 
+/** Names for the sender keys the inbox test counts (AlertSender in the alert parser). */
+const ALERT_SENDER_NAMES: Record<string, string> = {
+  bcbid: 'BC Bid',
+  bonfire: 'Bonfire',
+  canadabuys: 'CanadaBuys',
+  bidsandtenders: 'bids&tenders',
+  merx: 'MERX',
+  biddingo: 'Biddingo',
+};
+
+/** "By sender: BC Bid 3, Bonfire 1." or '' when nothing was counted. */
+function senderCounts(bySender: ActionResult['bySender']): string {
+  const parts = Object.entries(bySender ?? {})
+    .filter((entry): entry is [string, number] => typeof entry[1] === 'number' && entry[1] > 0)
+    .sort((a, b) => b[1] - a[1])
+    .map(([key, n]) => `${ALERT_SENDER_NAMES[key] ?? key} ${n}`);
+  return parts.length ? `By sender: ${parts.join(', ')}.` : '';
+}
+
 const NOTIFY_KEYS = ['notifyEmail', 'notifyOnNew', 'notifyReminders', 'notifyChanges', 'appUrl', 'deadlineReminderDays'] as const;
 type NotifyKey = (typeof NOTIFY_KEYS)[number];
 type NotifyDraft = Pick<AutomationSettings, NotifyKey>;
@@ -480,7 +499,8 @@ function AlertInboxForm() {
   async function runTest() {
     const r = await test.run(() => api.post<ActionResult>('/api/settings/alert-inbox/test'));
     if (r) {
-      test.setMessage({ ok: r.ok, text: r.message });
+      const counts = r.ok ? senderCounts(r.bySender) : '';
+      test.setMessage({ ok: r.ok, text: counts ? `${r.message} ${counts}` : r.message });
       if (r.ok) res.reload();
     }
   }
