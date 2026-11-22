@@ -85,6 +85,21 @@ describe('POST /api/opportunities/manual', () => {
     expect(env.store.getApplicationByOpportunity(res.json().id)).toBeUndefined();
   });
 
+  it('keeps the chosen submission method when the bid is scored again later', async () => {
+    const { env, app } = await setup({ mode: 'discover' });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/opportunities/manual',
+      payload: { title: 'Boulevard Garden Bed Maintenance', buyer: 'Sample Township of Esquimalt', closing: '2026-07-20', submissionMethod: 'bonfire', text: 'Garden bed maintenance and weeding of boulevards in Esquimalt, BC.' },
+    });
+    const id = res.json().id as number;
+    expect(env.store.getOpportunity(id)?.submissionMethod).toBe('bonfire');
+    // A settings change marks every bid for scoring again; the next check re-analyses it.
+    env.deps.settings.setAutomation({ ...env.deps.settings.getAutomation(), suitableThreshold: 55 });
+    await createPipeline(env.deps).run('manual');
+    expect(env.store.getOpportunity(id)?.submissionMethod).toBe('bonfire');
+  });
+
   it('answers a bad request with a full sentence', async () => {
     const { app } = await setup();
     const short = await app.inject({ method: 'POST', url: '/api/opportunities/manual', payload: { title: 'x', buyer: 'Town' } });

@@ -23,7 +23,7 @@ import { analyse, type AnalyseInput } from '../matching/analyse.js';
 import { extractAward, isOwnCompany } from '../matching/award.js';
 import { classifyNoticeEvent } from '../matching/notice.js';
 import { BORDERLINE_AT, mightBeRelevant } from '../matching/relevance.js';
-import { connectorFor, DEFAULT_SOURCES, listSource } from '../sources/registry.js';
+import { connectorFor, DEFAULT_SOURCES, listSource, MANUAL_SOURCE_ID } from '../sources/registry.js';
 import type { AlertContext, RawOpportunity } from '../sources/types.js';
 import { buildSubmissionMail, emailConfigured } from '../submission/email.js';
 import { closingDeadline, formatLocal, nowIso } from '../util/dates.js';
@@ -161,7 +161,9 @@ export function createPipeline(deps: AppDeps): Pipeline {
       documentText: opp.documentText,
       localSource: cfg.localBuyer,
       bcSource: opp.bcSource || cfg.localBuyer || cfg.bcOnly,
-      sourceSubmission: cfg.defaultSubmission,
+      // A bid added by hand keeps the submission method the person chose (saved
+      // when it was added); the manual source's own default is "unknown".
+      sourceSubmission: opp.sourceId === MANUAL_SOURCE_ID && opp.submissionMethod !== 'unknown' ? opp.submissionMethod : cfg.defaultSubmission,
     };
   }
 
