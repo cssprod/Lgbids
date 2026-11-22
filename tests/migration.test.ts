@@ -355,6 +355,19 @@ describe('v2 settings', () => {
     expect(createSettings(store, {}).getAutomation().reminderHours).toEqual([72, 24]);
   });
 
+  it('reads settings saved with the old user agent and robots switch, and drops both keys (D2)', () => {
+    const store = memoryStore();
+    const old = JSON.parse('{"mode":"discover","userAgent":"Mozilla/5.0 (pretend browser)","respectRobots":false,"requestDelayMs":2000,"suitableThreshold":55}');
+    store.setSetting('automation', old, NOW);
+    const automation = createSettings(store, {}).getAutomation();
+    expect(automation).toMatchObject({ mode: 'discover', requestDelayMs: 2000, suitableThreshold: 55 });
+    expect(automation).not.toHaveProperty('userAgent');
+    expect(automation).not.toHaveProperty('respectRobots');
+    const parsed = automationSchema.safeParse(old);
+    expect(parsed.success).toBe(true);
+    expect(Object.keys(parsed.data!)).not.toContain('respectRobots');
+  });
+
   it('answers 400 with a sentence for a bad app address', async () => {
     const app = await testApp();
     const res = await app.inject({ method: 'PUT', url: '/api/settings/automation', payload: { appUrl: 'http://bids.example.com' } });

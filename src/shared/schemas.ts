@@ -252,9 +252,9 @@ export const automationSchema = z.object({
   notifyOnNew: z.boolean().default(true),
   deadlineReminderDays: z.number().int().min(0).max(30).default(3),
 
-  /** Sent with every request to a bid site. */
-  userAgent: z.string().trim().min(3).max(200).default('Lgbids/0.1 (bid opportunity monitor)'),
-  respectRobots: z.boolean().default(true),
+  // There is no user agent or "respect robots.txt" setting (D2): every request
+  // is sent as Lgbids/<version> and robots.txt is always obeyed. Settings saved
+  // by older versions still carry those keys; z.object drops them on parse.
   requestDelayMs: z.number().int().min(250).max(60000).default(1500),
   /** Read publicly linked bid documents (PDF) to find submission instructions. */
   readDocuments: z.boolean().default(true),
