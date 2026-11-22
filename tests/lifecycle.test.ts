@@ -105,6 +105,22 @@ describe('a closed bid whose closing is moved into the future reopens', () => {
     store.upsertOpportunity('alerts', { externalId: 'alert-4', title: 'Cancelled', url: 'https://bids.example/n-4', event: 'cancellation', closing: extended }, false, afterClose);
     expect(store.getOpportunity(cancelled)!.status).toBe('cancelled');
   });
+
+  it('a slow copy of the notice never reopens an awarded or cancelled bid', () => {
+    store.insertSource({ id: 'list2', name: 'Other listing', kind: 'html_list', enabled: true, builtin: false, notes: '', config: sourceConfigSchema.parse({}) }, now);
+    for (const [n, event] of [['5', 'award'], ['6', 'cancellation']] as const) {
+      const a = store.upsertOpportunity('list', notice({ externalId: `a-${n}`, url: `https://bids.example/a-${n}`, title: `RFQ 26-21${n} Boulevard Mowing Services` }), false, now).id;
+      const b = store.upsertOpportunity('list2', notice({ externalId: `b-${n}`, url: `https://other.example/b-${n}`, title: `RFQ 26-21${n} Boulevard Mowing Services` }), false, now).id;
+      expect(store.linkDuplicate(b)).toBe(a);
+      store.closeExpired(new Date('2026-06-21T18:00:00Z'));
+      store.upsertOpportunity('alerts', { externalId: `alert-${n}`, title: 'Result', url: `https://bids.example/a-${n}`, event }, false, afterClose);
+      const final = event === 'award' ? 'awarded' : 'cancelled';
+      expect(store.getOpportunity(a)!.status).toBe(final);
+      store.upsertOpportunity('list2', notice({ externalId: `b-${n}`, url: `https://other.example/b-${n}`, title: `RFQ 26-21${n} Boulevard Mowing Services`, closing: extended }), false, afterClose);
+      expect(store.getOpportunity(a)!.status).toBe(final);
+      expect(store.getOpportunity(b)!.status).toBe('closed');
+    }
+  });
 });
 
 describe('notice pages that refuse automated reading (COV-17)', () => {

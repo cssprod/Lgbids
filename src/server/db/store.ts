@@ -845,6 +845,17 @@ function awardKeys(notice: OppRow): { ref: string; title: string } {
 }
 
 export function createStore(db: Database): ChangeStore {
+  /**
+   * A copy whose bid was cancelled or awarded is finished with it: a slow site
+   * showing an earlier extension must not reopen the copy (and so the bid).
+   */
+  function copyOfFinished(row: OppRow): boolean {
+    if (row.duplicate_of === null) return false;
+    const canon = db.get<{ status: string }>('SELECT status FROM opportunities WHERE id = :id', { id: row.duplicate_of });
+    if (canon && (canon.status === 'cancelled' || canon.status === 'awarded')) return true;
+    return db.get<{ id: number }>('SELECT id FROM awards WHERE opportunity_id = :id LIMIT 1', { id: row.duplicate_of }) !== undefined;
+  }
+
   function oppRow(id: number): OppRow | undefined {
     return db.get<OppRow>(`${OPP_SELECT} WHERE o.id = :id`, { id });
   }
@@ -949,7 +960,8 @@ export function createStore(db: Database): ChangeStore {
       c.closes_at_precision = dup.closes_at_precision;
       c.closes_at_raw = dup.closes_at_raw;
     }
-    if (kinds.has('status_changed')) c.status = dup.status;
+    // Cancelled and awarded are final: a copy on a slower site never undoes them.
+    if (kinds.has('status_changed') && c.status !== 'cancelled' && c.status !== 'awarded') c.status = dup.status;
     if (kinds.has('documents_added')) c.documents = JSON.stringify(unionDocuments(parseJson<DocumentLink[]>(c.documents, []), parseJson<DocumentLink[]>(dup.documents, [])));
     const carried = diffNotice(snapshotOf(pickContent(canonical)), snapshotOf(c)).filter((d) => d.kind !== 'description_changed');
     if (carried.length === 0) return;
@@ -995,7 +1007,7 @@ export function createStore(db: Database): ChangeStore {
     }
     const status = statusForEvent(raw.event);
     if (status) c.status = status;
-    else if (reopensExtended(c, target.closes_at, now)) c.status = 'open';
+    else if (reopensExtended(c, target.closes_at, now) && !copyOfFinished(target)) c.status = 'open';
     fillFrom(c, raw);
     const result = commitContent(target, c, { now, bcSource });
     return { id: target.id, isNew: false, ...result };
@@ -1271,7 +1283,7 @@ export function createStore(db: Database): ChangeStore {
         const eventStatus = statusForEvent(raw.event ?? classifyNoticeEvent(c.title));
         if (eventStatus) c.status = eventStatus;
         else if (raw.status && !isStale(existing.id, ['status_changed'], raw.status, c.status) && !reopensPast(c, raw.status, now)) c.status = raw.status;
-        if (!eventStatus && (raw.status ?? 'open') === 'open' && reopensExtended(c, existing.closes_at, now)) c.status = 'open';
+        if (!eventStatus && (raw.status ?? 'open') === 'open' && reopensExtended(c, existing.closes_at, now) && !copyOfFinished(existing)) c.status = 'open';
         fillFrom(c, raw);
         if (!c.reference_number) c.reference_number = extractReference(c.title);
 
@@ -1306,7 +1318,7 @@ export function createStore(db: Database): ChangeStore {
         if (!c.closes_at_raw && str(detail.closingRaw)) c.closes_at_raw = str(detail.closingRaw);
         // A notice page may report that the notice was cancelled or awarded.
         if (detail.status && !isStale(id, ['status_changed'], detail.status, c.status) && !reopensPast(c, detail.status, now)) c.status = detail.status;
-        if ((detail.status ?? 'open') === 'open' && reopensExtended(c, existing.closes_at, now)) c.status = 'open';
+        if ((detail.status ?? 'open') === 'open' && reopensExtended(c, existing.closes_at, now) && !copyOfFinished(existing)) c.status = 'open';
         fillFrom(c, detail);
         if (!c.reference_number) c.reference_number = extractReference(c.title);
 
