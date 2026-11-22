@@ -91,18 +91,22 @@ export const htmlList: Connector = {
     const found = new Map<string, RawOpportunity>();
     const pages = config.pageParam ? config.maxPages : 1;
     let pagesRead = 0;
+    const portalNotes = new Set<string>();
 
     for (let i = 0; i < pages; i += 1) {
       const url = config.pageParam && i > 0 ? pageUrl(config.url, config.pageParam, config.pageStart + i) : config.url;
       const response = await ctx.http.get(url);
       pagesRead += 1;
-      const items = extractListing(response.text, response.url, {
+      const listing = extractListing(response.text, response.url, {
+        explain: true,
         linkPattern: config.linkPattern,
         itemSelector: config.itemSelector,
         organization: config.organization,
         zone: config.timeZone,
         now: ctx.now,
       });
+      for (const note of listing.notes) portalNotes.add(note);
+      const items = listing.items;
       let added = 0;
       for (const item of items) {
         if (found.has(item.externalId)) continue;
@@ -112,6 +116,7 @@ export const htmlList: Connector = {
       // A page that adds nothing new is past the end of the listing.
       if (added === 0) break;
     }
+    for (const note of portalNotes) ctx.note(note);
     ctx.note(`${found.size} ${found.size === 1 ? 'notice' : 'notices'} on ${pagesRead} ${pagesRead === 1 ? 'page' : 'pages'}.`);
     return { items: [...found.values()] };
   },

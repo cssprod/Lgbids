@@ -1,6 +1,6 @@
 import { ImapFlow } from 'imapflow';
 import type { AlertInboxSettings } from '../../../shared/schemas.js';
-import { ALERT_FROM_SEARCHES } from './parse.js';
+import { ALERT_FROM_SEARCHES, alertSender, type AlertSender } from './parse.js';
 
 /**
  * Read-only access to the mailbox that receives bid alerts.
@@ -25,7 +25,50 @@ export interface AlertMailbox {
   /** Messages after `since` (or from the last `lookbackDays` when there is no position yet), oldest first. */
   fetchNew(since: MailboxPosition | null, opts: { now: Date; lookbackDays: number; max: number }): Promise<{ messages: AlertMessage[]; position: MailboxPosition | null }>;
   /** Sign in, open the folder and count the alert e-mails from the last `lookbackDays`. */
-  test(opts: { now: Date; lookbackDays: number }): Promise<{ count: number }>;
+  test(opts: { now: Date; lookbackDays: number }): Promise<{ count: number; /** Alert e-mails per sender, checked against the From header. */ bySender?: Partial<Record<AlertSender, number>> }>;
+}
+
+/** The alert services' sending domains, for Gmail's own search (same list as the Gmail filter in the setup guide). */
+export const ALERT_SENDER_DOMAINS = [
+  'bcbid.gov.bc.ca',
+  'gobonfire.com',
+  'bonfirehub.com',
+  'bonfirehub.ca',
+  'canadabuys.canada.ca',
+  'bidsandtenders.ca',
+  'merx.com',
+  'biddingo.com',
+];
+
+/** Gmail's search: one X-GM-RAW query naming every sender domain. */
+export function gmailFromQuery(): string {
+  return `from:(${ALERT_SENDER_DOMAINS.join(' OR ')})`;
+}
+
+/**
+ * Which UIDs to fetch and where to remember we stopped.
+ * `found` is what the search returned; `resume` the last UID already read in
+ * this folder (null on a first run or after UIDVALIDITY changed); `uidNext`
+ * the folder's next UID.
+ */
+export function planFetch(found: number[], resume: number | null, max: number, uidNext: number | null): { uids: number[]; lastUid: number } {
+  // "N:*" always matches the newest message, even when it is older than N.
+  const uids = [...new Set(found)].filter((uid) => resume === null || uid > resume).sort((a, b) => a - b).slice(0, Math.max(0, max));
+  if (uids.length > 0) return { uids, lastUid: uids[uids.length - 1]! };
+  if (resume !== null) return { uids, lastUid: resume };
+  // Nothing in the look-back window: start from now, not from the oldest mail in the folder.
+  const lastUid = uidNext && uidNext > 0 ? uidNext - 1 : Math.max(0, ...found);
+  return { uids, lastUid };
+}
+
+function isLoopback(host: string): boolean {
+  return /^(?:localhost|127(?:\.\d{1,3}){3}|::1|\[::1\])$/i.test(host.trim());
+}
+
+type Envelope = { from?: { name?: string; address?: string }[] } | undefined;
+function senderOf(envelope: Envelope): AlertSender | null {
+  const from = (envelope?.from ?? []).map((a) => `${a.name ?? ''} <${a.address ?? ''}>`).join(', ');
+  return from ? alertSender(from) : null;
 }
 
 const TIMEOUT_MS = 60_000;
@@ -44,11 +87,13 @@ function friendlyError(err: unknown, folder: string): Error {
 }
 
 export function createImapMailbox(settings: AlertInboxSettings): AlertMailbox {
-  async function withFolder<T>(fn: (client: ImapFlow, uidValidity: string) => Promise<T>): Promise<T> {
+  async function withFolder<T>(fn: (client: ImapFlow, uidValidity: string, uidNext: number | null) => Promise<T>): Promise<T> {
     const client = new ImapFlow({
       host: settings.host,
       port: settings.port,
       secure: settings.secure,
+      // Never send the password in clear text to a remote server.
+      ...(!settings.secure && !isLoopback(settings.host) ? { doSTARTTLS: true } : {}),
       auth: { user: settings.user, pass: settings.pass },
       logger: false,
       connectionTimeout: TIMEOUT_MS,
@@ -58,7 +103,7 @@ export function createImapMailbox(settings: AlertInboxSettings): AlertMailbox {
     try {
       await client.connect();
       const box = await client.mailboxOpen(settings.folder, { readOnly: true });
-      return await fn(client, String(box.uidValidity));
+      return await fn(client, String(box.uidValidity), box.uidNext ? Number(box.uidNext) : null);
     } catch (err) {
       throw friendlyError(err, settings.folder);
     } finally {
@@ -66,34 +111,47 @@ export function createImapMailbox(settings: AlertInboxSettings): AlertMailbox {
     }
   }
 
-  function fromQuery(extra: Record<string, unknown>): Record<string, unknown> {
+  function fromQuery(client: ImapFlow, extra: Record<string, unknown>): Record<string, unknown> {
+    // Gmail matches whole sender domains; elsewhere an OR of FROM substrings.
+    if (client.capabilities?.has?.('X-GM-EXT-1')) return { ...extra, gmraw: gmailFromQuery() };
     return { ...extra, or: ALERT_FROM_SEARCHES.map((from) => ({ from })) };
   }
 
   return {
     async fetchNew(since, { now, lookbackDays, max }) {
-      return withFolder(async (client, uidValidity) => {
+      return withFolder(async (client, uidValidity, uidNext) => {
         const resume = since && since.uidValidity === uidValidity ? since.lastUid : null;
         const query =
-          resume !== null ? fromQuery({ uid: `${resume + 1}:*` }) : fromQuery({ since: new Date(now.getTime() - lookbackDays * 86_400_000) });
+          resume !== null
+            ? fromQuery(client, { uid: `${resume + 1}:*` })
+            : fromQuery(client, { since: new Date(now.getTime() - lookbackDays * 86_400_000) });
         const found = ((await client.search(query, { uid: true })) || []) as number[];
-        // "N:*" always matches the newest message, even when it is older than N.
-        const uids = found.filter((uid) => resume === null || uid > resume).sort((a, b) => a - b).slice(0, max);
+        const plan = planFetch(found, resume, max, uidNext);
         const messages: AlertMessage[] = [];
-        if (uids.length > 0) {
-          for await (const msg of client.fetch(uids, { source: true, uid: true }, { uid: true })) {
-            if (msg.source) messages.push({ id: `imap:${msg.uid}`, raw: msg.source });
+        if (plan.uids.length > 0) {
+          for await (const msg of client.fetch(plan.uids, { source: true, uid: true, envelope: true }, { uid: true })) {
+            // The server search is loose; keep only mail an alert sender really sent.
+            if (msg.source && senderOf(msg.envelope as Envelope)) messages.push({ id: `imap:${msg.uid}`, raw: msg.source });
           }
         }
-        const lastUid = uids.length > 0 ? uids[uids.length - 1]! : (resume ?? Math.max(0, ...found));
-        return { messages, position: { uidValidity, lastUid } };
+        return { messages, position: { uidValidity, lastUid: plan.lastUid } };
       });
     },
 
     async test({ now, lookbackDays }) {
       return withFolder(async (client) => {
-        const found = ((await client.search(fromQuery({ since: new Date(now.getTime() - lookbackDays * 86_400_000) }), { uid: true })) || []) as number[];
-        return { count: found.length };
+        const found = ((await client.search(fromQuery(client, { since: new Date(now.getTime() - lookbackDays * 86_400_000) }), { uid: true })) || []) as number[];
+        const bySender: Partial<Record<AlertSender, number>> = {};
+        let count = 0;
+        if (found.length > 0) {
+          for await (const msg of client.fetch(found, { uid: true, envelope: true }, { uid: true })) {
+            const sender = senderOf(msg.envelope as Envelope);
+            if (!sender) continue;
+            count += 1;
+            bySender[sender] = (bySender[sender] ?? 0) + 1;
+          }
+        }
+        return { count, bySender };
       });
     },
   };

@@ -459,7 +459,7 @@ describe('default sources', () => {
   });
 
   it('ship the unchecked western-community pages turned off, with a note saying how to check them', () => {
-    for (const id of ['sooke', 'langford', 'colwood', 'viewroyal', 'sidney']) {
+    for (const id of ['sooke', 'langford', 'colwood', 'viewroyal', 'sidney', 'oakbay']) {
       const s = DEFAULT_SOURCES.find((x) => x.id === id)!;
       expect(s, id).toBeDefined();
       // Off on a new install, but not forced off: once turned on it stays on.
