@@ -1,5 +1,8 @@
+# Node.js major version; override with --build-arg NODE_VERSION=24.
+ARG NODE_VERSION=22
+
 # Build stage: compile the server and the web UI.
-FROM node:22-slim AS build
+FROM node:${NODE_VERSION}-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
@@ -7,12 +10,14 @@ COPY . .
 RUN npm run build && npm prune --omit=dev
 
 # Run stage: only what is needed at runtime.
-FROM node:22-slim
+FROM node:${NODE_VERSION}-slim
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=3000 DATA_DIR=/data
 WORKDIR /app
 COPY --from=build /app/package.json ./
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
+# The volume starts with the folder's owner and mode, so the non-root user can write to it.
+RUN mkdir -p /data && chown node:node /data && chmod 700 /data
 VOLUME /data
 EXPOSE 3000
 USER node

@@ -3,3 +3,10 @@ dist
 data
 data-demo
 .git
+.env
+.env.*
+.netlify
+.claude
+coverage
+*.log
+lgbids-prototype-*.zip
