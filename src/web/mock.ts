@@ -427,12 +427,11 @@ function ymd(days: number): string {
 /** One "layout may have changed" sample, so testers see how Today and Sources show it. */
 function withWarningSample(list: SourceRecord[]): SourceRecord[] {
   return list.map((s) =>
-    s.id === 'oakbay'
+    s.id === 'esquimalt'
       ? {
           ...s,
-          enabled: true,
           layoutWarning:
-            'This site returned no notices this time but listed 4 notices last time — its layout may have changed. Open it and check, then press “Test”. If the buyer simply has nothing open, this warning clears once the site lists notices again.',
+            'This site returned no notices this time but listed 17 notices last time — its layout may have changed. Open it and check, then press “Test”. If the buyer simply has nothing open, this warning clears once the site lists notices again.',
         }
       : s,
   );

@@ -42,7 +42,7 @@ Node >= 22.13, TypeScript (ESM, `.js` import suffixes), Fastify 5, built-in `nod
 - Tests: tests/dates, matching, connectors.
 
 ## Remaining work
-Next wave: docs/WAVE-2.md (v2 plan: lanes, tasks, user decisions, workflow outline, budget). Older phases: docs/PLAN.md.
+Next wave: docs/WAVE-2.md (v2 plan, lean mode §8.9). Current progress and what is left: docs/WAVE-2-STATUS.md. Older phases: docs/PLAN.md.
 
 ## Conventions
 - Token efficiency (user rule, 2026-11-21): always choose the cheapest approach that keeps quality. Do small tasks inline; use workflows only for real multi-lane work, with few agents (scout/build lanes + one verify; skip separate critic/fix agents unless the change is risky), tight prompts, read-only scouts returning structured data, `budget` guards on every loop, and no re-reading of files already summarised.
