@@ -250,16 +250,43 @@ export interface RelevanceResult {
   codeMatch: boolean;
   /** The title itself names landscaping work (not just the description). */
   inTitle: boolean;
+  /** Phrases blanked out by the masks before matching (rule trace). */
+  maskHits: string[];
 }
 
 export const RELEVANT_AT = 45;
 export const BORDERLINE_AT = 25;
 
-function mask(text: string): string {
+function mask(text: string, hits?: string[]): string {
   let out = text;
-  for (const re of MASKS) out = out.replace(re, ' ');
+  for (const re of MASKS) {
+    out = out.replace(re, (m) => {
+      hits?.push(m.trim());
+      return ' ';
+    });
+  }
   return out;
 }
+
+/**
+ * A short stable fingerprint of the vocabulary and masks, so a saved score or
+ * a piece of feedback can say which version of the rules produced it.
+ * FNV-1a over the pattern sources: no I/O, same result in browser and server.
+ */
+function fingerprint(parts: string[]): string {
+  let h = 0x811c9dc5;
+  for (const ch of parts.join('\u0001')) {
+    h ^= ch.charCodeAt(0);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(16).padStart(8, '0');
+}
+
+export const LEXICON_VERSION = fingerprint([
+  ...terms.map((t) => `${t.service}|${t.strength}|${t.label}|${t.re.source}`),
+  ...MASKS.map((m) => m.source),
+  CODE_RE.source,
+]);
 
 function collect(text: string, where: 'title' | 'body'): TermMatch[] {
   const out: TermMatch[] = [];
@@ -286,8 +313,9 @@ export function assessRelevance(input: RelevanceInput, opts: { includeKeywords?:
   const titleN = normalize(input.title);
   const rawBody = [input.description ?? '', ...(input.categories ?? [])].join(' \n ');
   const bodyN = normalize(rawBody.slice(0, 20000));
-  const title = mask(titleN);
-  const body = mask(bodyN);
+  const maskHits: string[] = [];
+  const title = mask(titleN, maskHits);
+  const body = mask(bodyN, maskHits);
 
   const titleMatches = collect(title, 'title');
   const bodyMatches = collect(body, 'body');
@@ -347,7 +375,7 @@ export function assessRelevance(input: RelevanceInput, opts: { includeKeywords?:
   const matchedTerms = uniq(ordered.filter((m) => m.strength >= 2 || ordered.length <= 3).map((m) => m.label)).slice(0, 8);
   if (includeHit) matchedTerms.unshift(`your keyword “${includeHit}”`);
 
-  return { score, matches: ordered, matchedTerms, services, primary, supplyOnly, consulting, codeMatch, inTitle: titleSolid || !!includeHit || codeMatch };
+  return { score, matches: ordered, matchedTerms, services, primary, supplyOnly, consulting, codeMatch, inTitle: titleSolid || !!includeHit || codeMatch, maskHits: uniq(maskHits.filter(Boolean)) };
 }
 
 /** Cheap pre-filter for large national feeds: could this row possibly be relevant? */

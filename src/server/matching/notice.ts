@@ -40,27 +40,73 @@ const FALLBACK: TypeRule[] = [
   { type: 'RFSO', re: /\bas[- ](?:and[- ]when[- ])?needed\b|\bon[- ]call\b|\broster\b/i },
 ];
 
+// In a description, award wording is often about the future ("the contract
+// will be awarded to the lowest bid"), so only past-tense award phrases count.
+const DESCRIPTION_AWARD =
+  /\b(?:(?:has|have) been awarded|was awarded|were awarded|notice of (?:contract )?award|award(?:ed)? notice|award notification|contract (?:was |has been )?awarded to)\b/i;
+// "not a sole-source award", "this is not a notice of intent": a negated
+// phrase says the opposite of what the bare words would.
+const NEGATED = /\b(?:not|no longer|never|neither|nor)\s+(?:a |an |the )?(?:sole[- ]source|direct award|notice of intent|advance contract award)\w*(?:\s+award)?/gi;
+// Bid results are posted after closing; the type is treated as an award.
+const RESULT_TITLE = /\b(?:bid|tender|quotation|proposal)s? results?\b|^\s*results?\s*[:\-]|\bbid tabulations?\b/i;
+
 function firstMatch(rules: TypeRule[], text: string): NoticeType | null {
   let best: { type: NoticeType; index: number } | null = null;
+  const t = text.replace(NEGATED, ' ');
   for (const rule of rules) {
-    const m = rule.re.exec(text);
+    const m = rule.re.exec(t);
     if (!m) continue;
     // Earliest mention wins, except that "qualifications" beats a bare RFQ.
     if (!best || m.index < best.index) best = { type: rule.type, index: m.index };
   }
-  if (best?.type === 'RFQ' && /request for (?:supplier |vendor |contractor |pre[- ]?)?qualifications?|pre[- ]?qualif/i.test(text)) return 'RFSQ';
+  if (best?.type === 'RFQ' && /request for (?:supplier |vendor |contractor |pre[- ]?)?qualifications?|pre[- ]?qualif/i.test(t)) return 'RFSQ';
   return best ? best.type : null;
 }
 
+const DESCRIPTION_RULES: TypeRule[] = [{ type: 'AWARD', re: DESCRIPTION_AWARD }, ...RULES.filter((r) => r.type !== 'AWARD')];
+
+export interface NoticeTypeResult {
+  type: NoticeType;
+  /** Stable id of the rule that decided it (rule trace). */
+  rule: string;
+}
+
+/** The notice type plus the id of the rule that decided it. */
+export function detectNoticeTypeTraced(title: string, description = '', hint = ''): NoticeTypeResult {
+  if (RESULT_TITLE.test(title)) return { type: 'AWARD', rule: 'type.result_title' };
+  const steps: [string, TypeRule[], string][] = [
+    ['type.title_keyword', RULES, title],
+    ['type.hint_keyword', RULES, hint],
+    ['type.description_keyword', DESCRIPTION_RULES, description.slice(0, 1500)],
+    ['type.title_fallback', FALLBACK, title],
+    ['type.hint_fallback', FALLBACK, hint],
+  ];
+  for (const [rule, rules, text] of steps) {
+    const type = firstMatch(rules, text);
+    if (type) return { type, rule };
+  }
+  return { type: 'OTHER', rule: 'type.none' };
+}
+
 export function detectNoticeType(title: string, description = '', hint = ''): NoticeType {
-  return (
-    firstMatch(RULES, title) ??
-    firstMatch(RULES, hint) ??
-    firstMatch(RULES, description.slice(0, 1500)) ??
-    firstMatch(FALLBACK, title) ??
-    firstMatch(FALLBACK, hint) ??
-    'OTHER'
-  );
+  return detectNoticeTypeTraced(title, description, hint).type;
+}
+
+export type NoticeEvent = 'notice' | 'addendum' | 'award' | 'result' | 'cancellation';
+
+const CANCELLED_TITLE = /\b(?:cancel+ed|cancel+ation|withdrawn|rescinded)\b/i;
+const ADDENDUM_TITLE = /\b(?:addend(?:um|a)|amendment|amended|revised closing|closing (?:date )?(?:extended|extension))\b/i;
+
+/**
+ * What a posting is about: a new notice, a change to one, its result or award,
+ * or its cancellation. Results and cancellations are never open to bids.
+ */
+export function classifyNoticeEvent(title: string, text = ''): NoticeEvent {
+  if (CANCELLED_TITLE.test(title)) return 'cancellation';
+  if (RESULT_TITLE.test(title)) return 'result';
+  if (detectNoticeType(title, text) === 'AWARD') return 'award';
+  if (ADDENDUM_TITLE.test(title)) return 'addendum';
+  return 'notice';
 }
 
 const TYPE_WORDS = 'RFP|RFQ|ITT|ITQ|ITB|IFB|RFSO|RFSA|RFSQ|RFPQ|RFEOI|REOI|EOI|RFI|NOI|NRFP|RFT|Tender|Quotation|Contract|Solicitation|Bid|Project|Reference';

@@ -359,6 +359,8 @@ export interface AreaResult {
   match: string;
   /** One sentence explaining the call, for the "why" list. */
   note: string;
+  /** Stable id of the branch that decided it (rule trace), e.g. `area.local_buyer`. */
+  rule?: string;
 }
 
 export function assessArea(input: AreaInput, region: RegionSettings): AreaResult {
@@ -393,12 +395,12 @@ export function assessArea(input: AreaInput, region: RegionSettings): AreaResult
   if (input.localSource || orgHit) {
     const buyer = orgHit ?? input.organization ?? 'a local buyer';
     if (excludedInTitle && !coreInTitle) {
-      return { area: 'no', match: excludedInTitle, note: `Posted by ${buyer}, but the work is in ${excludedInTitle}, outside your service area.` };
+      return { area: 'no', match: excludedInTitle, note: `Posted by ${buyer}, but the work is in ${excludedInTitle}, outside your service area.`, rule: 'area.local_buyer_excluded_title' };
     }
     if (excludedInLocation && !placeInLocation && !placeInTitle) {
-      return { area: 'no', match: excludedInLocation, note: `Posted by ${buyer}, but the work is in ${excludedInLocation}, outside your service area.` };
+      return { area: 'no', match: excludedInLocation, note: `Posted by ${buyer}, but the work is in ${excludedInLocation}, outside your service area.`, rule: 'area.local_buyer_excluded_location' };
     }
-    return { area: 'yes', match: placeInTitle ?? buyer, note: `${buyer} is a Greater Victoria buyer.` };
+    return { area: 'yes', match: placeInTitle ?? buyer, note: `${buyer} is a Greater Victoria buyer.`, rule: 'area.local_buyer' };
   }
 
   const strongPlace = placeInTitle ?? placeInLocation ?? placeInOrg;
@@ -408,24 +410,25 @@ export function assessArea(input: AreaInput, region: RegionSettings): AreaResult
         area: 'unknown',
         match: strongPlace,
         note: `Mentions ${strongPlace} but the title names ${excludedInTitle}; check where the work is.`,
+        rule: 'area.place_and_excluded',
       };
     }
-    return { area: 'yes', match: strongPlace, note: `Work location: ${strongPlace}.` };
+    return { area: 'yes', match: strongPlace, note: `Work location: ${strongPlace}.`, rule: 'area.place' };
   }
 
   if (excludedInTitle || excludedInLocation) {
     const where = excludedInTitle ?? excludedInLocation!;
-    return { area: 'no', match: where, note: `The work is in ${where}, outside your service area.` };
+    return { area: 'no', match: where, note: `The work is in ${where}, outside your service area.`, rule: 'area.excluded_place' };
   }
   // A municipality, regional district or school board buys for its own
   // territory. One that is not on the local list is somewhere else.
   if (excludedInOrg || LOCAL_GOVERNMENT.test(org)) {
-    return { area: 'no', match: input.organization ?? '', note: `${input.organization} is not a Greater Victoria buyer.` };
+    return { area: 'no', match: input.organization ?? '', note: `${input.organization} is not a Greater Victoria buyer.`, rule: 'area.nonlocal_government' };
   }
 
   const otherProvince = OTHER_PROVINCE.test(`${title} ${location}`) && !BC_CUE.test(`${title} ${location}`);
   if (otherProvince && !input.bcSource) {
-    return { area: 'no', match: '', note: 'The work is outside British Columbia.' };
+    return { area: 'no', match: '', note: 'The work is outside British Columbia.', rule: 'area.other_province' };
   }
 
   if (placeInDescription) {
@@ -435,15 +438,16 @@ export function assessArea(input: AreaInput, region: RegionSettings): AreaResult
         area: 'unknown',
         match: placeInDescription,
         note: 'Victoria is mentioned in the description, but that may be an office address rather than the work site.',
+        rule: 'area.description_victoria',
       };
     }
-    return { area: 'yes', match: placeInDescription, note: `The description places the work in ${placeInDescription}.` };
+    return { area: 'yes', match: placeInDescription, note: `The description places the work in ${placeInDescription}.`, rule: 'area.description_place' };
   }
 
   if (bc) {
-    return { area: 'unknown', match: '', note: 'A British Columbia notice that does not say where the work is.' };
+    return { area: 'unknown', match: '', note: 'A British Columbia notice that does not say where the work is.', rule: 'area.bc_unplaced' };
   }
-  return { area: 'no', match: '', note: 'Nothing places this work in Greater Victoria.' };
+  return { area: 'no', match: '', note: 'Nothing places this work in Greater Victoria.', rule: 'area.not_local' };
 }
 
 /**
