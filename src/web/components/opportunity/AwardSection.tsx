@@ -52,7 +52,8 @@ export function AwardSection({ opportunity, application, onChange }: AwardSectio
     return () => {
       cancelled = true;
     };
-  }, [opportunity.id, opportunity.award]);
+    // A reload after a result was recorded (the application changes) fetches again.
+  }, [opportunity, application?.status, application?.updatedAt]);
 
   const hasResult = application?.status === 'won' || application?.status === 'lost';
   if (award === undefined) return null;
