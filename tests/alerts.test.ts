@@ -175,3 +175,46 @@ describe('alert parser robustness', () => {
     expect(readAlertEmail(mail(bonfire, 'New opportunity', card('Tree Planting 2026')), opts).kind).toBe('new');
   });
 });
+
+// COV-8: INVENTED samples for the national services (sender addresses use `.example`).
+describe('new alert senders (COV-8)', () => {
+  it('recognises CanadaBuys, bids&tenders, MERX and Biddingo', () => {
+    expect(alertSender('CanadaBuys <no-reply@canadabuys.example>')).toBe('canadabuys');
+    expect(alertSender('bids&tenders <notices@bidsandtenders.example>')).toBe('bidsandtenders');
+    expect(alertSender('MERX <alerts@merx.example>')).toBe('merx');
+    expect(alertSender('Biddingo <info@biddingo.example>')).toBe('biddingo');
+  });
+
+  const cbRow = (lang: 'en' | 'fr', title: string, ref: string, region: string) =>
+    `<tr><td><a href="https://canadabuys.canada.ca/${lang}/tender-opportunities/tender-notice/${ref.toLowerCase()}">${title}</a></td><td>${ref}</td><td>${region}</td><td>2026/07/09 14:00</td></tr>`;
+  const cbTable = (rows: string) =>
+    `<table><tr><th>Title</th><th>Reference number</th><th>Region</th><th>Closing date</th></tr>${rows}</table>`;
+
+  it('reads CanadaBuys in Eastern time, collapses English and French, and marks rows outside BC', () => {
+    const html = cbTable(
+      cbRow('en', 'Grounds maintenance, CFB Esquimalt, British Columbia', 'WS1234', 'British Columbia') +
+        cbRow('fr', 'Entretien des terrains, BFC Esquimalt, Colombie-Britannique', 'WS1234', 'Colombie-Britannique') +
+        cbRow('en', 'Snow removal services, Ottawa', 'WS9999', 'Ontario'),
+    );
+    const items = parseAlertEmail(mail('CanadaBuys <no-reply@canadabuys.example>', 'New tender notices matching your saved search', html), opts);
+    expect(items).toHaveLength(2);
+    expect(items[0]).toMatchObject({ title: 'Grounds maintenance, CFB Esquimalt, British Columbia', bcSource: true });
+    // 14:00 Eastern (EDT) = 18:00 UTC.
+    expect(items[0]!.closing?.iso).toBe('2026-07-09T18:00:00Z');
+    expect(items[1]).toMatchObject({ bcSource: false });
+  });
+
+  it('takes the buyer from the bids&tenders subdomain', () => {
+    const html = `<p><a href="https://sidney.bidsandtenders.ca/Module/Tenders/en/Tender/Detail/abc-123">2026-05 Parks Landscape Maintenance</a><br>Closing: July 9, 2026 2:00 PM</p>`;
+    const [item] = parseAlertEmail(mail('bids&tenders <notices@bidsandtenders.example>', 'New bid opportunity', html), opts);
+    expect(item).toMatchObject({ organization: 'Town of Sidney', bcSource: true });
+    expect(item!.closing?.iso).toBe('2026-07-09T21:00:00Z');
+  });
+
+  it('reads MERX zone-less times as Eastern', () => {
+    const html = `<p><a href="https://www.merx.com/public/solicitations/123">Landscape maintenance services for a federal site</a><br>Closing Date: 2026/07/09 14:00</p>`;
+    const [item] = parseAlertEmail(mail('MERX <alerts@merx.example>', 'New opportunities', html), opts);
+    expect(item!.closing?.iso).toBe('2026-07-09T18:00:00Z');
+    expect(item!.bcSource).toBe(false);
+  });
+});

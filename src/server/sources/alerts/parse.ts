@@ -2,6 +2,7 @@ import * as cheerio from 'cheerio';
 import type { AnyNode, Element } from 'domhandler';
 import { extractReference } from '../../matching/notice.js';
 import { findClosingDate, parseDate, type ParseOptions } from '../../util/dates.js';
+import { BUYERS } from '../../../shared/buyers.js';
 import { collapse, truncate } from '../../util/text.js';
 import { blockText, labelledFields } from '../extract.js';
 import type { RawOpportunity } from '../types.js';
@@ -35,12 +36,16 @@ export interface AlertEmail {
   date: Date | null;
 }
 
-export type AlertSender = 'bcbid' | 'bonfire';
+export type AlertSender = 'bcbid' | 'bonfire' | 'canadabuys' | 'bidsandtenders' | 'merx' | 'biddingo';
 
 /** Words searched for in the From line on the mail server (case-insensitive substrings). */
-export const ALERT_FROM_SEARCHES = ['bcbid', 'bonfire', 'euna'];
+export const ALERT_FROM_SEARCHES = ['bcbid', 'bc bid', 'bonfire', 'gobonfire', 'bonfirehub', 'euna', 'canadabuys', 'bidsandtenders', 'merx', 'biddingo'];
 
 export function alertSender(from: string): AlertSender | null {
+  if (/canadabuys|achatscanada/i.test(from)) return 'canadabuys';
+  if (/bidsandtenders|bids\s*(?:&|&amp;|and)\s*tenders/i.test(from)) return 'bidsandtenders';
+  if (/\bmerx\b/i.test(from)) return 'merx';
+  if (/biddingo/i.test(from)) return 'biddingo';
   if (/bc\s*bid|bcbid/i.test(from)) return 'bcbid';
   if (/bonfire|gobonfire|euna/i.test(from)) return 'bonfire';
   return null;
@@ -49,7 +54,22 @@ export function alertSender(from: string): AlertSender | null {
 const SITE_HREF: Record<AlertSender, RegExp> = {
   bcbid: /(?:^|\.)bcbid\.gov\.bc\.ca$/i,
   bonfire: /(?:^|\.)bonfirehub\.(?:ca|com)$/i,
+  canadabuys: /(?:^|\.)(?:canadabuys|achatscanada)\.canada\.ca$/i,
+  bidsandtenders: /(?:^|\.)bidsandtenders\.(?:ca|net|com)$/i,
+  merx: /(?:^|\.)merx\.com$/i,
+  biddingo: /(?:^|\.)biddingo\.com$/i,
 };
+
+/**
+ * Times written without a zone: national services in Eastern time (the
+ * cautious reading, as for CanadaBuys; MERX per D9), BC services in Pacific.
+ */
+const SENDER_ZONE: Partial<Record<AlertSender, string>> = { canadabuys: 'America/Toronto', merx: 'America/Toronto' };
+/** Senders that only carry BC public bodies. */
+const BC_SENDERS = new Set<AlertSender>(['bcbid', 'bonfire']);
+/** Words that place a national notice in British Columbia. */
+const BC_CUE =
+  /\b(?:British Columbia|Colombie-Britannique|B\.C\.|BC|Vancouver Island|Victoria|Saanich|Esquimalt|Oak Bay|Langford|Colwood|View Royal|Sooke|Sidney|Metchosin|Highlands|Nanaimo)\b/;
 
 /** Links that are never a notice. */
 const BOILERPLATE =
@@ -63,24 +83,13 @@ const ID_LIKE = /^(?=.*\d)(?!.*[A-Za-z]{4})[A-Z0-9][A-Z0-9 ./#_-]{0,30}$/i;
 const NOT_AN_ALERT =
   /\b(?:password|verify your (?:e-?mail|account)|account (?:activation|locked|created|update|registration)|activate your account|security code|sign-?in code|one-time (?:code|passcode)|newsletter|webinar|register now for|product update|what'?s new in|customer story|survey)\b/i;
 
-export const BONFIRE_BUYERS: Record<string, string> = {
-  victoria: 'City of Victoria',
-  saanich: 'District of Saanich',
-  centralsaanich: 'District of Central Saanich',
-  northsaanich: 'District of North Saanich',
-  uvic: 'University of Victoria',
-  crd: 'Capital Regional District',
-  esquimalt: 'Township of Esquimalt',
-  oakbay: 'District of Oak Bay',
-  langford: 'City of Langford',
-  colwood: 'City of Colwood',
-  viewroyal: 'Town of View Royal',
-  sidney: 'Town of Sidney',
-  sooke: 'District of Sooke',
-  metchosin: 'District of Metchosin',
-  camosun: 'Camosun College',
-  royalroads: 'Royal Roads University',
-};
+/** Portal subdomain → buyer name, from the shared buyer registry (each buyer's id and its Bonfire / bids&tenders subdomains). */
+export const BONFIRE_BUYERS: Record<string, string> = Object.fromEntries(
+  BUYERS.flatMap((b) => [
+    [b.id, b.name] as [string, string],
+    ...b.channels.flatMap((c) => (/^(?:bonfire|bidsandtenders):/.test(c) ? [[c.slice(c.indexOf(':') + 1), b.name] as [string, string]] : [])),
+  ]),
+);
 
 const ORG_LABEL = /^(?:organi[sz]ation|buyer|issued by|owner|agency|entity|department|public body|municipality|client)$/;
 const REF_LABEL = /^(?:opportunity (?:id|no|number|#)|reference(?: (?:no|number|#))?|ref(?:erence)? ?#?|solicitation (?:no|number)|project (?:id|no|number)|bid (?:no|number|#)|competition (?:no|number))$/;
@@ -189,8 +198,9 @@ function buyerFromSubject(subject: string): string {
   return m ? collapse(m[1]).replace(/[.:!]+$/, '') : '';
 }
 
-function bonfireBuyer(host: string): string {
-  const sub = host.toLowerCase().replace(/\.bonfirehub\.(?:ca|com)$/, '');
+/** The buyer named by a portal subdomain (victoria.bonfirehub.ca, sidney.bidsandtenders.ca). */
+function portalBuyer(host: string): string {
+  const sub = host.toLowerCase().replace(/\.(?:bonfirehub\.(?:ca|com)|bidsandtenders\.(?:ca|net|com))$/, '');
   if (!sub || sub === host.toLowerCase() || sub === 'www') return '';
   return BONFIRE_BUYERS[sub] ?? sub.replace(/(^|-)([a-z])/g, (_, s: string, c: string) => `${s ? ' ' : ''}${c.toUpperCase()}`);
 }
@@ -230,9 +240,11 @@ function kindOf(subject: string, text: string): AlertKind {
 }
 
 /** Read one alert e-mail: what it announces, and the notices it is about. */
-export function readAlertEmail(mail: AlertEmail, opts: ParseOptions = {}): AlertReading {
+export function readAlertEmail(mail: AlertEmail, baseOpts: ParseOptions = {}): AlertReading {
   const sender = alertSender(mail.from);
   if (!sender) return { kind: 'other', items: [] };
+  const zone = SENDER_ZONE[sender];
+  const opts: ParseOptions = zone ? { ...baseOpts, zone } : baseOpts;
   const html = mail.html.trim() ? mail.html : textToHtml(mail.text);
   const $ = cheerio.load(html);
   $('script, style, head, title').remove();
@@ -298,10 +310,18 @@ export function readAlertEmail(mail: AlertEmail, opts: ParseOptions = {}): Alert
       const found = findClosingDate(flat.replace(/\n/g, ' '), opts);
       return found ? { iso: found.iso, precision: found.precision } : null;
     })();
-    const organization = pick(fields, ORG_LABEL) || (sender === 'bonfire' && toSite ? bonfireBuyer(host) : '') || subjectBuyer;
+    const organization = pick(fields, ORG_LABEL) || ((sender === 'bonfire' || sender === 'bidsandtenders') && toSite ? portalBuyer(host) : '') || subjectBuyer;
     const reference = pick(fields, REF_LABEL);
 
-    const key = toSite ? `${host}${new URL(href).pathname}${new URL(href).search}` : `${keyOf(organization)}|${keyOf(title)}`;
+    // Bilingual mail (CanadaBuys) links the English and French pages of one
+    // notice: drop the language from the link, and prefer the reference.
+    const linkKey = (() => {
+      const u = new URL(href);
+      for (const p of ['lang', 'language', 'locale']) u.searchParams.delete(p);
+      return `${host}${u.pathname.replace(/\/(?:en|fr)(?=\/|$)/i, '')}${u.search}`;
+    })();
+    const key =
+      sender === 'canadabuys' && reference ? `ref:${keyOf(reference)}` : toSite ? linkKey : `${keyOf(organization)}|${keyOf(title)}`;
     if (byKey.has(key)) return;
     byKey.set(key, out.length);
     byHref.set(href, out.length);
@@ -318,7 +338,7 @@ export function readAlertEmail(mail: AlertEmail, opts: ParseOptions = {}): Alert
       closing,
       closingRaw: closingLabelled || '',
       status: 'open',
-      bcSource: true,
+      bcSource: BC_SENDERS.has(sender) || BC_CUE.test(`${organization}\n${flat}`),
     };
     if (kind === 'addendum') item.event = 'addendum';
     else if (kind === 'closing_change') item.event = 'closing_change';
