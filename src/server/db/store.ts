@@ -32,6 +32,7 @@ import {
   type RunStats,
   type SavedSearch,
   type ServiceKey,
+  SOURCE_KINDS,
   type SourceKind,
   type SourceRecord,
   type SourceStatus,
@@ -52,10 +53,14 @@ import type {
 import { organizationKey } from '../matching/geo.js';
 import { extractReference, referenceKey, titleKey } from '../matching/notice.js';
 import { nextLayoutHealth } from '../sources/health.js';
+import { connectorFor } from '../sources/registry.js';
 import type { RawOpportunity } from '../sources/types.js';
 import { nowIso } from '../util/dates.js';
 import { sha1 } from '../util/text.js';
 import type { Database } from './database.js';
+
+/** Source kinds whose readers only ever see a notice once (alert e-mails, hand-added bids). */
+const INCREMENTAL_KINDS = (): SourceKind[] => SOURCE_KINDS.filter((k) => connectorFor(k).incremental === true);
 
 /**
  * Repositories over the SQLite schema. Columns are snake_case and JSON lists
@@ -1267,9 +1272,13 @@ export function createStore(db: Database): Store {
         const ids = db
           .all<{ id: number }>(
             `SELECT id FROM opportunities
-             WHERE status = 'open' AND ((closes_at IS NOT NULL AND closes_at <= :at) OR (closes_at IS NULL AND last_seen_at < :stale))
+             WHERE status = 'open' AND ((closes_at IS NOT NULL AND closes_at <= :at) OR (closes_at IS NULL AND last_seen_at < :stale
+               -- An alert or hand-added notice is never "seen again", and a pursued bid is
+               -- being watched by a person: neither is closed just for being undated.
+               AND COALESCE(user_decision, '') <> 'pursue'
+               AND source_id NOT IN (SELECT id FROM sources WHERE kind IN (SELECT value FROM json_each(:incremental)))))
              ORDER BY id`,
-            { at, stale },
+            { at, stale, incremental: JSON.stringify(INCREMENTAL_KINDS()) },
           )
           .map((r) => r.id);
         for (const id of ids) db.run("UPDATE opportunities SET status = 'closed' WHERE id = :id", { id });

@@ -429,8 +429,13 @@ export function createPipeline(deps: AppDeps): Pipeline {
         read += 1;
       } catch (error) {
         // A page that is gone will stay gone; anything else is retried next run.
+        // A page that refuses automated reading (robots.txt or a bot check)
+        // will refuse again: stop asking and point the person to a browser.
         if (error instanceof HttpError && (error.status === 404 || error.status === 410)) store.applyDetail(id, null, now);
-        else failed += 1;
+        else if (error instanceof HttpError && error.blocked) {
+          store.applyDetail(id, null, now);
+          event('info', 'detail_blocked', `${source.name} does not allow its notice page to be read automatically. Open the notice in a browser to read the full details.`, { opportunityId: id, runId });
+        } else failed += 1;
       }
     }
     return { read, failed };
