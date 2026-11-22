@@ -838,6 +838,12 @@ const WATCHED_APP_STATUSES = ['needs_input', 'ready', 'submitted'];
 const AWARD_WORDS =
   /\b(?:notice of (?:contract )?award|award(?:ed)? notice|award notification|contract award(?:ed)?|awarded(?: to)?|award|(?:bid|tender|quotation|proposal)s? results?|results?|bid tabulations?)\b/gi;
 
+/** The keys an award or result notice is matched to its bid by, with the award words taken out of the title. */
+function awardKeys(notice: OppRow): { ref: string; title: string } {
+  const stripped = keysFor({ organization: notice.organization, reference_number: notice.reference_number, title: notice.title.replace(AWARD_WORDS, ' ') });
+  return { ref: notice.ref_key || stripped.ref_key, title: stripped.title_key };
+}
+
 export function createStore(db: Database): ChangeStore {
   function oppRow(id: number): OppRow | undefined {
     return db.get<OppRow>(`${OPP_SELECT} WHERE o.id = :id`, { id });
@@ -2026,9 +2032,7 @@ export function createStore(db: Database): ChangeStore {
         const canon = db.get<OppRow>('SELECT * FROM opportunities WHERE id = :id', { id: notice.duplicate_of });
         if (canon && !isResult(canon)) return canon.id;
       }
-      const stripped = keysFor({ organization: notice.organization, reference_number: notice.reference_number, title: notice.title.replace(AWARD_WORDS, ' ') });
-      const ref = notice.ref_key || stripped.ref_key;
-      const title = stripped.title_key;
+      const { ref, title } = awardKeys(notice);
       if (!ref && !title) return null;
       const candidates = db
         .all<OppRow>(
@@ -2038,8 +2042,12 @@ export function createStore(db: Database): ChangeStore {
           { id: noticeId, ref, title },
         )
         .filter((c) => !isResult(c) && c.first_seen_at <= notice.first_seen_at);
-      // A matching reference number is decisive; a title alone is the fallback.
-      const match = candidates.find((c) => ref !== '' && c.ref_key === ref) ?? candidates.find((c) => title !== '' && c.title_key === title);
+      // A matching reference number is decisive; a title alone is the fallback,
+      // and never for a bid with another reference: title keys drop numbers and
+      // years, so last year's award would otherwise land on this year's bid.
+      const match =
+        candidates.find((c) => ref !== '' && c.ref_key === ref) ??
+        candidates.find((c) => title !== '' && c.title_key === title && (ref === '' || c.ref_key === '' || c.ref_key === ref));
       if (!match) return null;
       return match.duplicate_of ?? match.id;
     },
@@ -2052,7 +2060,12 @@ export function createStore(db: Database): ChangeStore {
           const c = pickContent(original);
           const status: OpportunityStatus = input.awarded ? 'awarded' : 'closed';
           // An award notice ends the bid whatever the listing said; a cancelled bid stays cancelled.
-          if (c.status !== status && c.status !== 'cancelled' && !(c.status === 'awarded' && status === 'closed')) {
+          // A notice linked by title alone ends it only once its closing has passed (or is not known):
+          // an open bid with a future closing is more likely a new round of the same work.
+          const passed = !c.closes_at || Date.parse(c.closes_at) <= now.getTime();
+          const noticeRef = notice ? awardKeys(notice).ref : '';
+          const linkedFirmly = !notice || notice.duplicate_of === original.id || (noticeRef !== '' && noticeRef === original.ref_key);
+          if (c.status !== status && c.status !== 'cancelled' && !(c.status === 'awarded' && status === 'closed') && (linkedFirmly || passed)) {
             c.status = status;
             commitContent(original, c, { now });
           }

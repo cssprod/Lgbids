@@ -84,6 +84,31 @@ describe('linking an award notice (store)', () => {
     expect(again).toMatchObject({ status: 'confirmed', winner: 'Coastal Turf Ltd.' });
     expect(store.listAwards()).toHaveLength(1);
   });
+
+  it('never links last year\'s award to this year\'s bid by title when the references differ', () => {
+    const store = createStore(openDatabase(':memory:'));
+    store.insertSource({ id: 'site', name: 'Site', kind: 'html_list', enabled: true, builtin: false, notes: '', config: sourceConfigSchema.parse({}) }, start);
+    const base = { organization: 'District of Saanich', closing: { iso: '2026-07-09T21:00:00Z', precision: 'datetime' as const } };
+    const open = store.upsertOpportunity('site', { ...base, externalId: '1', title: 'RFQ 26-010 Boulevard Mowing', url: 'https://saanich.example/1' }, true, start);
+    const award = store.upsertOpportunity('site', { ...base, externalId: '2', title: 'Award: Boulevard Mowing (RFQ 25-090)', url: 'https://saanich.example/2', closing: null }, true, at(1));
+    expect(store.findAwardOriginal(award.id)).toBeNull();
+    expect(store.getOpportunity(open.id)!.status).toBe('open');
+  });
+
+  it('ends a bid linked by title alone only once its closing has passed', () => {
+    const store = createStore(openDatabase(':memory:'));
+    store.insertSource({ id: 'site', name: 'Site', kind: 'html_list', enabled: true, builtin: false, notes: '', config: sourceConfigSchema.parse({}) }, start);
+    const org = { organization: 'District of Saanich' };
+    const open = store.upsertOpportunity('site', { ...org, externalId: '1', title: 'RFQ 26-010 Boulevard Mowing', url: 'https://saanich.example/1', closing: { iso: '2026-07-09T21:00:00Z', precision: 'datetime' } }, true, start);
+    const award = store.upsertOpportunity('site', { ...org, externalId: '2', title: 'Award: Boulevard Mowing', url: 'https://saanich.example/2', closing: null }, true, at(1));
+    expect(store.findAwardOriginal(award.id)).toBe(open.id);
+    const input = { originalId: open.id, noticeId: award.id, winner: 'Coastal Turf Ltd.', amount: 40_000, amountText: '$40,000', awardedOn: null, excerpt: 'x', awarded: true };
+    store.recordParsedAward(input, at(2));
+    expect(store.getOpportunity(open.id)!.status).toBe('open');
+    // After the closing (2:00 PM on 9 July, Pacific) the same notice ends the bid.
+    store.recordParsedAward(input, new Date('2026-07-10T18:00:00Z'));
+    expect(store.getOpportunity(open.id)!.status).toBe('awarded');
+  });
 });
 
 describe('award notices in a run (MAT-16)', () => {
