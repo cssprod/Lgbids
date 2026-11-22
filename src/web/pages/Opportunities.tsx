@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api, errorMessage } from '../api.js';
 import type { OpportunityList, OpportunityViewName } from '../../shared/api.js';
@@ -6,6 +6,7 @@ import type { Opportunity, SourceRecord } from '../../shared/schemas.js';
 import { NOTICE_TYPE_LABELS, SUBMISSION_METHOD_LABELS } from '../../shared/schemas.js';
 import { isNewSince, lastVisit, useDocumentTitle, useFormat, useResource } from '../hooks.js';
 import { ManualAddDialog } from '../components/ManualAddDialog.js';
+import { apiQuery, filterFromParams, MoreFilters, SavedSearches } from '../components/OpportunityToolbar.js';
 import { ChangedChip } from '../components/opportunity/ChangedChip.js';
 import { ReportMissedLink } from '../components/opportunity/ReportMissedLink.js';
 import { FEEDBACK_THANKS } from '../components/opportunity/FeedbackButtons.js';
@@ -47,17 +48,30 @@ export function OpportunitiesPage() {
   const q = params.get('q') ?? '';
   const closing = ['7', '14', '30'].includes(params.get('closing') ?? '') ? params.get('closing')! : '';
   const sourceId = params.get('source') ?? '';
+  const paramText = params.toString();
+  // Every filter, as the API and a saved search take it (UX-13).
+  const filter = useMemo(() => filterFromParams(new URLSearchParams(paramText)), [paramText]);
+  const filterKey = apiQuery(filter).toString();
+  const narrowed = !!(q || closing || sourceId || filter.minScore !== null || filter.service || filter.place);
   const sources = useResource<SourceRecord[]>('/api/sources');
   const since = lastVisit();
   const closingId = useId();
   const sourceSelectId = useId();
 
-  function setParam(key: string, value: string) {
-    const next = new URLSearchParams(params);
-    if (value) next.set(key, value);
-    else next.delete(key);
-    setParams(next, { replace: true });
-  }
+  const setParam = useCallback(
+    (key: string, value: string) => {
+      setParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          if (value) next.set(key, value);
+          else next.delete(key);
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setParams],
+  );
   const [search, setSearch] = useState(q);
   const [list, setList] = useState<OpportunityList | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -85,10 +99,7 @@ export function OpportunitiesPage() {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    const qs = new URLSearchParams({ view, limit: String(PAGE), offset: '0' });
-    if (q) qs.set('q', q);
-    if (closing) qs.set('closingWithinDays', closing);
-    if (sourceId) qs.set('sourceId', sourceId);
+    const qs = apiQuery(filter, { limit: String(PAGE), offset: '0' });
     api.get<OpportunityList>(`/api/opportunities?${qs}`).then(
       (l) => {
         if (!cancelled) {
@@ -106,16 +117,14 @@ export function OpportunitiesPage() {
     return () => {
       cancelled = true;
     };
-  }, [view, q, closing, sourceId, nonce]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterKey, nonce]);
 
   async function loadMore() {
     if (!list) return;
     setLoadingMore(true);
     try {
-      const qs = new URLSearchParams({ view, limit: String(PAGE), offset: String(list.items.length) });
-      if (q) qs.set('q', q);
-      if (closing) qs.set('closingWithinDays', closing);
-      if (sourceId) qs.set('sourceId', sourceId);
+      const qs = apiQuery(filter, { limit: String(PAGE), offset: String(list.items.length) });
       const more = await api.get<OpportunityList>(`/api/opportunities?${qs}`);
       setList({ ...more, items: [...list.items, ...more.items] });
     } catch (e) {
@@ -126,13 +135,7 @@ export function OpportunitiesPage() {
   }
 
   // The export takes the same filters as the list on screen.
-  const csvQuery = (() => {
-    const qs = new URLSearchParams({ view });
-    if (q) qs.set('q', q);
-    if (closing) qs.set('closingWithinDays', closing);
-    if (sourceId) qs.set('sourceId', sourceId);
-    return qs.toString();
-  })();
+  const csvQuery = apiQuery(filter, { include: 'awards' }).toString();
 
   function setView(v: OpportunityViewName) {
     const next = new URLSearchParams(params);
@@ -152,6 +155,7 @@ export function OpportunitiesPage() {
         }
       />
       <ManualAddDialog onAdded={() => setNonce((n) => n + 1)} />
+      <SavedSearches filter={filter} />
       <div className="toolbar">
         <nav aria-label="Filter opportunities" className="tabs">
           {VIEWS.map((v) => (
@@ -209,6 +213,7 @@ export function OpportunitiesPage() {
                 </option>
               ))}
           </select>
+          <MoreFilters filter={filter} onChange={setParam} />
         </div>
       </div>
 
@@ -224,8 +229,8 @@ export function OpportunitiesPage() {
             })()}
           </p>
           {list.items.length === 0 ? (
-            <Empty title={q || closing || sourceId ? 'Nothing matches these filters.' : 'Nothing here yet.'}>
-              <p>{q || closing || sourceId ? 'Try a shorter word, a wider closing window or all sources.' : EMPTY_TEXT[view]}</p>
+            <Empty title={narrowed ? 'Nothing matches these filters.' : 'Nothing here yet.'}>
+              <p>{narrowed ? 'Try a shorter word, a wider closing window, a lower score, any kind of work or all sources.' : EMPTY_TEXT[view]}</p>
             </Empty>
           ) : (
             <ul className="opp-list list-card">

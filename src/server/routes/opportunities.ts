@@ -1,9 +1,11 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { OpportunityList, OpportunityViewName } from '../../shared/api.js';
-import type { Opportunity } from '../../shared/schemas.js';
-import type { OpportunityRecord, OpportunityView } from '../contracts.js';
+import { SERVICE_KEYS, type Opportunity, type ServiceKey } from '../../shared/schemas.js';
+import { opportunitiesCsv } from '../../shared/csv.js';
+import type { OpportunityFilter, OpportunityRecord, OpportunityView } from '../contracts.js';
 import { opportunitiesCsvName, opportunitiesCsvText } from '../util/csv.js';
+import { formatLocal } from '../util/dates.js';
 import { ApiError, idParam, intQuery, notFound, opportunityDto, parseBody, query, type RouteContext } from './util.js';
 
 const VIEWS: OpportunityViewName[] = ['suitable', 'review', 'unsuitable', 'closed', 'dismissed', 'all'];
@@ -43,11 +45,18 @@ export function registerOpportunities(app: FastifyInstance, ctx: RouteContext): 
   }
 
   /** The filters the list accepts; the CSV export takes the same ones. */
-  function filterFrom(req: FastifyRequest) {
+  function filterFrom(req: FastifyRequest): OpportunityFilter & { limit: number; offset: number } {
     const q = query(req);
     const view = (q.view ?? 'all') as OpportunityView;
     if (!VIEWS.includes(view)) throw new ApiError(400, `“${q.view}” is not a list of opportunities. Use one of: ${VIEWS.join(', ')}.`);
+    if (q.minScore && !/^\d{1,3}$/.test(q.minScore)) throw new ApiError(400, 'The lowest score must be a whole number from 0 to 100.');
+    if (q.service && !(SERVICE_KEYS as readonly string[]).includes(q.service)) {
+      throw new ApiError(400, `“${q.service}” is not a kind of work Lgbids knows. Use one of: ${SERVICE_KEYS.join(', ')}.`);
+    }
     return {
+      minScore: q.minScore ? intQuery(q.minScore, 0, 0, 100) : undefined,
+      service: (q.service || undefined) as ServiceKey | undefined,
+      place: q.place?.trim().slice(0, 80) || undefined,
       view,
       q: q.q?.trim().slice(0, 200) || undefined,
       sourceId: q.sourceId || undefined,
@@ -68,18 +77,27 @@ export function registerOpportunities(app: FastifyInstance, ctx: RouteContext): 
   app.get('/api/opportunities.csv', async (req, reply) => {
     const filter = filterFrom(req);
     const at = now();
+    // `include=awards` adds who won (UX-13); the plain export keeps its v1 columns.
+    const withAwards = query(req).include === 'awards';
     const items: Opportunity[] = [];
     for (let offset = 0; offset < 20_000; offset += 500) {
       const page = store.listOpportunities({ ...filter, limit: 500, offset }, at);
-      items.push(...page.items.map(opportunityDto));
+      items.push(...page.items.map((r) => (withAwards ? { ...opportunityDto(r), award: store.getAwardFor(r.id) ?? null } : opportunityDto(r))));
       if (page.items.length < 500) break;
     }
     const zone = ctx.deps.config.timeZone;
+    const text = withAwards
+      ? opportunitiesCsv(
+          items,
+          { closes: (o) => formatLocal(o.closesAt, o.closesAtPrecision, zone), firstSeen: (o) => formatLocal(o.firstSeenAt, 'datetime', zone) },
+          { awards: true },
+        )
+      : opportunitiesCsvText(items, zone);
     return reply
       .header('content-type', 'text/csv; charset=utf-8')
       .header('content-disposition', `attachment; filename="${opportunitiesCsvName(at, zone)}"`)
       .header('cache-control', 'private, no-store')
-      .send(opportunitiesCsvText(items, zone));
+      .send(text);
   });
 
   app.get('/api/opportunities/:id', async (req) => detail(idParam(req, 'opportunity')));
