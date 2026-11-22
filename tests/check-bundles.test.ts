@@ -8,7 +8,7 @@ const script = new URL('../scripts/check-bundles.mjs', import.meta.url).pathname
 const appSource = readFileSync(new URL('../src/server/app.ts', import.meta.url), 'utf8');
 const serverCsp = /'content-security-policy':\s*"([^"]+)"/.exec(appSource)![1]!;
 const protoCsp = serverCsp.replace("img-src 'self' data:", "img-src 'self' data: blob:");
-const MARKERS = "const k='lgbids-prototype-v1'; function handleMock(){} const PrototypeBar=1; import('./prototypePdf-x.js'); 'beta-feedback'";
+const MARKERS = "const k='lgbids-prototype-v1'; function handleMock(){} const PrototypeBar=1; import('./prototypePdf-x.js'); 'beta-feedback'; 'notice-feedback'";
 
 const dirs: string[] = [];
 afterEach(() => {

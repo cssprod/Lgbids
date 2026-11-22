@@ -20,7 +20,7 @@ const protoDir = process.argv[3] ?? join(repo, 'dist/prototype');
 const MARKERS = [
   { marker: 'lgbids-prototype-', inPrototype: true }, // localStorage key, any version
   { marker: 'beta-feedback', inPrototype: true }, // Netlify feedback form
-  { marker: 'notice-feedback', inPrototype: false }, // per-notice Netlify form (UX-9/UX-16, not built yet)
+  { marker: 'notice-feedback', inPrototype: true }, // per-notice Netlify form (UX-16)
   { marker: 'handleMock', inPrototype: true }, // in-browser sample API
   { marker: 'PrototypeBar', inPrototype: true }, // tester bar
   { marker: 'prototypePdf', inPrototype: true }, // in-browser PDF downloads

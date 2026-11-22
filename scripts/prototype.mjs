@@ -13,7 +13,8 @@ await build({ configFile: fileURLToPath(new URL('../vite.config.ts', import.meta
 mkdirSync(outDir, { recursive: true });
 
 // Netlify finds forms by reading the deployed HTML, and the app renders its
-// feedback form with JavaScript, so a plain copy of the form lives here.
+// feedback forms with JavaScript, so plain copies of both forms live here:
+// the tester bar's "beta-feedback" and the per-notice "notice-feedback".
 writeFileSync(
   `${outDir}/feedback.html`,
   `<!doctype html>
@@ -28,6 +29,12 @@ writeFileSync(
   <p><label>Your name or company (optional) <input name="name"></label></p>
   <input type="hidden" name="page"><input type="hidden" name="screen"><input type="hidden" name="browser">
   <p><button type="submit">Send feedback</button></p>
+</form>
+<!-- Per-notice feedback (UX-16): the app posts these fields when someone says a bid is not relevant or reports a missed one. Never shown here. -->
+<form name="notice-feedback" method="POST" data-netlify="true" netlify-honeypot="bot-field" hidden>
+  <input type="hidden" name="verdict"><input type="hidden" name="reasons"><input type="hidden" name="note">
+  <input type="hidden" name="title"><input type="hidden" name="url"><input type="hidden" name="opportunity">
+  <input type="hidden" name="bot-field">
 </form>
 </body>
 </html>
