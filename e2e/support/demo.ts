@@ -24,3 +24,23 @@ export async function openApp(page: Page, path = '/'): Promise<void> {
   await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible();
   await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
 }
+
+/** Waits until the demo's first search has finished, read through `/api/runs`. */
+export async function waitForFirstRun(page: Page): Promise<void> {
+  await expect
+    .poll(
+      async () => {
+        const runs = (await (await page.request.get('/api/runs')).json()) as Array<{ status: string }>;
+        return runs.length > 0 && runs.every((r) => r.status !== 'running');
+      },
+      { timeout: 90_000, intervals: [500, 1000] },
+    )
+    .toBe(true);
+}
+
+/** One line of the demo mail log written by `DEMO_MAIL_LOG` (TST-2). */
+export interface DemoMailLine {
+  subject: string;
+  to: string[];
+  attachments: Array<{ filename: string; contentType: string; size: number }>;
+}
