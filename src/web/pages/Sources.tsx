@@ -1,6 +1,6 @@
 import { useId, useState } from 'react';
-import { api } from '../api.js';
-import type { ActionResult, RunState, SourceTest } from '../../shared/api.js';
+import { api, importAlertFile } from '../api.js';
+import type { AlertImportResult, RunState, SourceTest } from '../../shared/api.js';
 import type { SourceRecord } from '../../shared/schemas.js';
 import { SOURCE_KIND_LABELS } from '../../shared/schemas.js';
 import { useAction, useDocumentTitle, useFormat, useResource } from '../hooks.js';
@@ -240,19 +240,20 @@ function AlertImport({ source, onImported }: { source: SourceRecord; onImported:
       return;
     }
     const done = await action.run(async () => {
-      let n = 0;
+      const results: AlertImportResult[] = [];
       for (const f of files) {
         const form = new FormData();
         form.append('file', f, f.name);
-        await api.upload<ActionResult>('/api/alerts/import', form);
-        n += 1;
+        results.push(await importAlertFile(form));
       }
       // Read them now rather than at the next scheduled check.
-      await api.post<RunState>('/api/runs').catch(() => null);
-      return n;
+      if (results.some((r) => r.recognised)) await api.post<RunState>('/api/runs').catch(() => null);
+      return results;
     });
     if (done) {
-      action.setMessage({ ok: true, text: `${plural(done, 'e-mail')} imported. Lgbids is reading ${done === 1 ? 'it' : 'them'} now; new bids appear under Opportunities.` });
+      // The server says per file what it found ("Found 2 notices: …" or
+      // "Not recognised: …"), so the user knows at once whether it worked.
+      action.setMessage({ ok: done.every((r) => r.recognised), text: done.map((r) => r.message).join(' ') });
       if (!source.enabled) onImported({ ...source, enabled: true });
     }
   }

@@ -10,6 +10,7 @@ import type {
   PushSettingsView,
   TelegramChatResult,
   ActionResult,
+  AlertImportResult,
   DashboardResponse,
   EmailSettingsView,
   OpportunityList,
@@ -852,7 +853,26 @@ async function route(method: string, fullPath: string, rawBody: unknown): Promis
     }
     return ok(push);
   }
-  if (path === '/api/alerts/import') return ok({ ok: true, message: 'The e-mail was imported. It is read on the next check.' } satisfies ActionResult);
+  if (path === '/api/alerts/import') {
+    const file = rawBody instanceof FormData ? rawBody.get('file') : null;
+    if (!(file instanceof File)) return fail(400, 'Please choose a saved e-mail (.eml file). In Gmail: open the alert, ⋮ menu, “Download message”.');
+    // A light stand-in for the server's alert reader: an e-mail whose subject
+    // looks like a bid alert counts as one notice titled after the subject.
+    const head = (await file.text()).slice(0, 16_384);
+    if (!/^from:/im.test(head)) return fail(400, 'This file does not look like a saved e-mail.');
+    const subject = /^subject:[ \t]*(.+)$/im.exec(head)?.[1]?.trim() ?? '';
+    const name = file.name || 'The e-mail';
+    if (!/bid|bonfire|opportunit|tender|solicitation/i.test(`${subject} ${head}`)) {
+      return ok({
+        ok: true,
+        recognised: false,
+        titles: [],
+        message: `Not recognised: ${name} does not look like a bid alert Lgbids can read. It is kept so it can be checked.`,
+      } satisfies AlertImportResult);
+    }
+    const title = subject.replace(/^(?:new\s+)?(?:opportunity|bid|alert)s?\s*[:\-–]\s*/i, '') || 'Sample bid from an alert e-mail';
+    return ok({ ok: true, recognised: true, titles: [title], message: `Found 1 notice: “${title}”. It is added on the next check.` } satisfies AlertImportResult);
+  }
   if (path === '/api/settings/email/test') {
     email = { ...email, verifiedAt: new Date().toISOString() };
     return ok({ ok: true, message: `A test e-mail was sent to ${String(body.to ?? email.fromEmail)}. Check that it arrived.` } satisfies ActionResult);
