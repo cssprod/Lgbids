@@ -106,8 +106,27 @@ describe('linking an award notice (store)', () => {
     store.recordParsedAward(input, at(2));
     expect(store.getOpportunity(open.id)!.status).toBe('open');
     // After the closing (2:00 PM on 9 July, Pacific) the same notice ends the bid.
+    // Until then the winner is kept with the notice only, not on the open bid.
+    expect(store.listAwards()).toMatchObject([{ opportunityId: null, noticeOpportunityId: award.id, winner: 'Coastal Turf Ltd.' }]);
     store.recordParsedAward(input, new Date('2026-07-10T18:00:00Z'));
     expect(store.getOpportunity(open.id)!.status).toBe('awarded');
+    expect(store.listAwards()).toMatchObject([{ opportunityId: open.id, noticeOpportunityId: award.id }]);
+  });
+
+  it('never links a referenced award by title to an open bid with no reference', () => {
+    const store = createStore(openDatabase(':memory:'));
+    store.insertSource({ id: 'site', name: 'Site', kind: 'html_list', enabled: true, builtin: false, notes: '', config: sourceConfigSchema.parse({}) }, start);
+    const org = { organization: 'District of Saanich' };
+    const open = store.upsertOpportunity('site', { ...org, externalId: '1', title: 'Boulevard Mowing', url: 'https://saanich.example/1', closing: { iso: '2026-07-09T21:00:00Z', precision: 'datetime' } }, true, start);
+    const award = store.upsertOpportunity('site', { ...org, externalId: '2', title: 'Award: Boulevard Mowing (RFQ 25-090)', url: 'https://saanich.example/2', closing: null }, true, at(24));
+    expect(store.findAwardOriginal(award.id)).toBeNull();
+    // Even when a caller passes the open bid, the winner stays with the notice.
+    const saved = store.recordParsedAward(
+      { originalId: open.id, noticeId: award.id, winner: 'Coastal Turf Ltd.', amount: 40_000, amountText: '$40,000', awardedOn: null, excerpt: 'x', awarded: true },
+      at(25),
+    )!;
+    expect(saved).toMatchObject({ opportunityId: null, noticeOpportunityId: award.id });
+    expect(store.getOpportunity(open.id)!.status).toBe('open');
   });
 });
 

@@ -544,7 +544,8 @@ export function createPipeline(deps: AppDeps): Pipeline {
           },
           now,
         );
-        if (!original || !award || award.status !== 'suggested' || award.origin !== 'parsed' || !award.winner) continue;
+        // A result kept with the notice only (not yet tied to the bid) says nothing about the bid.
+        if (!original || !award || award.opportunityId !== original.id || award.status !== 'suggested' || award.origin !== 'parsed' || !award.winner) continue;
 
         // A won or lost suggestion only: the person confirms the result on the bid page.
         const app = store.getApplicationByOpportunity(original.id);

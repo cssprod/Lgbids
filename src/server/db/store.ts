@@ -2057,37 +2057,44 @@ export function createStore(db: Database): ChangeStore {
       // A matching reference number is decisive; a title alone is the fallback,
       // and never for a bid with another reference: title keys drop numbers and
       // years, so last year's award would otherwise land on this year's bid.
+      // A notice with a reference links by title to a bid without one only once
+      // that bid has closed by the time the notice is seen; an open bid is more
+      // likely this year's round of the work last year's award was for.
+      const closedBy = (c: OppRow) => c.closes_at !== null && Date.parse(c.closes_at) <= Date.parse(notice.last_seen_at);
       const match =
         candidates.find((c) => ref !== '' && c.ref_key === ref) ??
-        candidates.find((c) => title !== '' && c.title_key === title && (ref === '' || c.ref_key === '' || c.ref_key === ref));
+        candidates.find((c) => title !== '' && c.title_key === title && (ref === '' || c.ref_key === ref || (c.ref_key === '' && closedBy(c))));
       if (!match) return null;
       return match.duplicate_of ?? match.id;
     },
 
     recordParsedAward(input, now) {
       return db.tx(() => {
-        const original = input.originalId !== null ? oppRow(input.originalId) : undefined;
+        const proposed = input.originalId !== null ? oppRow(input.originalId) : undefined;
         const notice = input.noticeId !== null ? oppRow(input.noticeId) : undefined;
+        // A notice linked by title alone counts for the bid only once its closing has passed
+        // (or is not known): an open bid with a future closing is more likely a new round of
+        // the same work. Until then the notice's result is kept with the notice only.
+        const firm = (o: OppRow) => {
+          const noticeRef = notice ? awardKeys(notice).ref : '';
+          const linkedFirmly = !notice || notice.duplicate_of === o.id || (noticeRef !== '' && noticeRef === o.ref_key);
+          return linkedFirmly || !o.closes_at || Date.parse(o.closes_at) <= now.getTime();
+        };
+        const original = proposed && firm(proposed) ? proposed : undefined;
         if (original) {
           const c = pickContent(original);
           const status: OpportunityStatus = input.awarded ? 'awarded' : 'closed';
           // An award notice ends the bid whatever the listing said; a cancelled bid stays cancelled.
-          // A notice linked by title alone ends it only once its closing has passed (or is not known):
-          // an open bid with a future closing is more likely a new round of the same work.
-          const passed = !c.closes_at || Date.parse(c.closes_at) <= now.getTime();
-          const noticeRef = notice ? awardKeys(notice).ref : '';
-          const linkedFirmly = !notice || notice.duplicate_of === original.id || (noticeRef !== '' && noticeRef === original.ref_key);
-          if (c.status !== status && c.status !== 'cancelled' && !(c.status === 'awarded' && status === 'closed') && (linkedFirmly || passed)) {
+          if (c.status !== status && c.status !== 'cancelled' && !(c.status === 'awarded' && status === 'closed')) {
             c.status = status;
             commitContent(original, c, { now });
           }
         }
         if (!input.winner && input.amount === null) return null;
-        const existing = original
-          ? db.get<AwardRow>('SELECT * FROM awards WHERE opportunity_id = :id', { id: original.id })
-          : notice
-            ? db.get<AwardRow>('SELECT * FROM awards WHERE notice_opportunity_id = :id AND opportunity_id IS NULL', { id: notice.id })
-            : undefined;
+        const noticeOnly = () =>
+          notice ? db.get<AwardRow>('SELECT * FROM awards WHERE notice_opportunity_id = :id AND opportunity_id IS NULL', { id: notice.id }) : undefined;
+        // Once the bid is linked, a result first kept with the notice alone moves onto it.
+        const existing = original ? (db.get<AwardRow>('SELECT * FROM awards WHERE opportunity_id = :id', { id: original.id }) ?? noticeOnly()) : noticeOnly();
         // A result the user confirmed or typed in is theirs; a notice never overwrites it.
         if (existing && (existing.status === 'confirmed' || existing.origin === 'manual')) return toAward(existing);
         if (existing && existing.opportunity_id === null) db.run('DELETE FROM awards WHERE id = :id', { id: existing.id });
