@@ -29,6 +29,23 @@ export interface LayoutHealthAfter {
   raised: boolean;
 }
 
+/** Title of the warning callout, e.g. on Today and Sources. */
+export function layoutWarningTitle(name: string): string {
+  return `${name} listed no bids this time`;
+}
+
+/** Shown under the warning: why it may clear on its own. */
+export const LAYOUT_WARNING_FOOTNOTE = 'If the site has nothing open right now, this goes away when bids are listed again.';
+
+/** The callout body in the v2 wording (title and footnote are added where it is shown). */
+export function layoutWarningBody(previousCount: number): string {
+  return `Last time it listed ${previousCount}. The site may have changed how it shows bids, so Lgbids could be missing some. Open the site and look for open bids, then press Test.`;
+}
+
+/**
+ * The stored text keeps its v1 wording for now, because frozen tests and
+ * existing rows read it; the UI shows the v2 wording built from the count.
+ */
 export function layoutWarningText(previousCount: number): string {
   const had = previousCount === 1 ? '1 notice' : `${previousCount} notices`;
   return `This site returned no notices this time but listed ${had} last time — its layout may have changed. Open it and check, then press “Test”. If the buyer simply has nothing open, this warning clears once the site lists notices again.`;

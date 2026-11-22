@@ -418,7 +418,9 @@ describe('applications', () => {
 
     h.deps.store.transitionApplication(appId, ['needs_input'], 'submitted', NOW);
     expect((await post('lost')).json().status).toBe('lost');
-    expect((await post('won')).statusCode).toBe(409);
+    // UX-5: a result can be corrected (lost <-> won) and undone back to submitted.
+    expect((await post('won')).json().status).toBe('won');
+    expect((await post('submitted')).json().status).toBe('submitted');
     expect((await post('bogus')).statusCode).toBe(400);
   });
 
@@ -645,6 +647,7 @@ describe('dashboard', () => {
       ['email', false],
       ['documents', false],
       ['run', false],
+      ['push', false],
     ]);
     expect(d.sources.filter((s: { enabled: boolean }) => s.enabled).length).toBe(d.counts.sourcesEnabled);
   });

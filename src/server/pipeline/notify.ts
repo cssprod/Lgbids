@@ -23,16 +23,21 @@ function closes(opp: Pick<Opportunity, 'closesAt' | 'closesAtPrecision'> | undef
   return `closes ${formatLocal(opp.closesAt, opp.closesAtPrecision, zone)}`;
 }
 
-function oppLine(opp: OpportunityRecord, zone: string): string {
-  const who = opp.organization ? ` — ${opp.organization}` : '';
-  const score = opp.suitabilityScore !== null ? `, score ${opp.suitabilityScore}` : '';
-  return `• ${opp.title}${who}\n  ${closes(opp, zone)}${score}\n  ${opp.url}`;
+/** "Open in Lgbids" link, only when the user told us where the app is reached. */
+function appLink(appUrl: string, path: string): string {
+  return appUrl ? `\n  Open in Lgbids: ${appUrl}${path}` : '';
 }
 
-function appLine(app: Application, zone: string, extra = ''): string {
+function oppLine(opp: OpportunityRecord, zone: string, appUrl = ''): string {
+  const who = opp.organization ? ` — ${opp.organization}` : '';
+  const score = opp.suitabilityScore !== null ? `, score ${opp.suitabilityScore}` : '';
+  return `• ${opp.title}${who}\n  ${closes(opp, zone)}${score}\n  ${opp.url}${appLink(appUrl, `/opportunities/${opp.id}`)}`;
+}
+
+function appLine(app: Application, zone: string, extra = '', appUrl = ''): string {
   const opp = app.opportunity;
   const who = opp?.organization ? ` — ${opp.organization}` : '';
-  return `• ${opp?.title ?? 'Untitled notice'}${who}\n  ${closes(opp, zone)}${extra}`;
+  return `• ${opp?.title ?? 'Untitled notice'}${who}\n  ${closes(opp, zone)}${extra}${appLink(appUrl, `/applications/${app.id}`)}`;
 }
 
 export async function sendDigest(deps: AppDeps, run: RunRecord): Promise<boolean> {
@@ -44,14 +49,15 @@ export async function sendDigest(deps: AppDeps, run: RunRecord): Promise<boolean
     const to = automation.notifyEmail.trim();
     // The e-mail and the phone alert are separate choices; either one is enough to go on.
     const push = settings.getPush();
-    const emailOn = automation.notifyOnNew && isEmail(to) && emailConfigured(email);
+    // notifyOnNew only controls the new-bids section, not the whole e-mail.
+    const emailOn = isEmail(to) && emailConfigured(email);
     const pushOn = pushConfigured(push);
     if (!emailOn && !pushOn) return false;
     const now = deps.now();
 
     // New suitable opportunities nobody has been told about yet.
     const fresh: OpportunityRecord[] = [];
-    for (let offset = 0; ; offset += 500) {
+    for (let offset = 0; automation.notifyOnNew; offset += 500) {
       const page = store.listOpportunities({ view: 'suitable', limit: 500, offset }, now);
       fresh.push(...page.items.filter((o) => o.notifiedAt === null));
       if (page.items.length < 500) break;
@@ -71,7 +77,7 @@ export async function sendDigest(deps: AppDeps, run: RunRecord): Promise<boolean
     const horizon = now.getTime() + automation.deadlineReminderDays * 86_400_000;
     const reminded = new Set(events.filter((e) => e.kind === REMINDER_KIND && e.applicationId !== null).map((e) => e.applicationId));
     const closingSoon =
-      automation.deadlineReminderDays > 0
+      automation.notifyReminders && automation.deadlineReminderDays > 0
         ? store.listApplications({ status: ['ready', 'needs_input'] }).filter((a) => {
             const closesAt = a.opportunity?.closesAt;
             if (!closesAt || a.opportunity?.status !== 'open' || reminded.has(a.id)) return false;
@@ -95,22 +101,23 @@ export async function sendDigest(deps: AppDeps, run: RunRecord): Promise<boolean
     if (closingSoon.length) summary.push(`${closingSoon.length} closing soon`);
     if (changedSites.length) summary.push(`${plural(changedSites.length, 'source', 'sources')} to check`);
     const subject = `Lgbids: ${summary.join(', ')}`;
+    const appUrl = automation.appUrl;
 
     const sections: string[] = ['Here is what the latest check of the bid sites found.'];
-    if (fresh.length) sections.push(`New suitable opportunities:\n\n${fresh.map((o) => oppLine(o, zone)).join('\n\n')}`);
+    if (fresh.length) sections.push(`New suitable opportunities:\n\n${fresh.map((o) => oppLine(o, zone, appUrl)).join('\n\n')}`);
     if (autoSent.length) {
       sections.push(
-        `Sent automatically (a copy is in your sent mail):\n\n${autoSent.map((a) => appLine(a, zone, `\n  sent to ${a.toEmail}`)).join('\n\n')}`,
+        `Sent automatically (a copy is in your sent mail):\n\n${autoSent.map((a) => appLine(a, zone, `\n  sent to ${a.toEmail}`, appUrl)).join('\n\n')}`,
       );
     }
     if (needsInput.length) {
       sections.push(
-        `New drafts that need your input:\n\n${needsInput.map((a) => appLine(a, zone, a.missing.length ? `\n  still needed: ${a.missing.join(' ')}` : '')).join('\n\n')}`,
+        `New drafts that need your input:\n\n${needsInput.map((a) => appLine(a, zone, a.missing.length ? `\n  still needed: ${a.missing.join(' ')}` : '', appUrl)).join('\n\n')}`,
       );
     }
-    if (readyToApprove.length) sections.push(`New drafts ready for you to approve and send:\n\n${readyToApprove.map((a) => appLine(a, zone)).join('\n\n')}`);
+    if (readyToApprove.length) sections.push(`New drafts ready for you to approve and send:\n\n${readyToApprove.map((a) => appLine(a, zone, '', appUrl)).join('\n\n')}`);
     if (closingSoon.length) {
-      sections.push(`Closing soon and not yet submitted:\n\n${closingSoon.map((a) => appLine(a, zone, `\n  ${a.status === 'ready' ? 'ready to send' : 'needs your input'}`)).join('\n\n')}`);
+      sections.push(`Closing soon and not yet submitted:\n\n${closingSoon.map((a) => appLine(a, zone, `\n  ${a.status === 'ready' ? 'ready to send' : 'needs your input'}`, appUrl)).join('\n\n')}`);
     }
     if (changedSites.length) sections.push(`Sources to check:\n\n${changedSites.map((s) => `• ${s.name}: ${s.layoutWarning}`).join('\n')}`);
     sections.push('Open Lgbids to review them. You can change or switch off these e-mails in Settings.');

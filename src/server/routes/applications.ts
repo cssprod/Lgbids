@@ -17,7 +17,11 @@ const markSubmittedSchema = z.object({
   note: z.string().trim().max(2000).optional(),
 });
 
-const statusSchema = z.object({ status: z.enum(['withdrawn', 'won', 'lost', 'needs_input']) });
+// The same sentences are used by the prototype mock (src/web/mock/awards.ts).
+const RESULT_CONFLICT = 'Only a submitted application can be marked as won or not awarded.';
+const UNDO_CONFLICT = 'Only an application with a result can have its result undone.';
+const WITHDRAW_RESULT_CONFLICT = 'This application already has a result, so it cannot be withdrawn. Undo the result first.';
+const statusSchema = z.object({ status: z.enum(['withdrawn', 'won', 'lost', 'needs_input', 'submitted']) });
 
 /** Addresses may be a comma or semicolon separated list; each one has to be valid. */
 function checkAddresses(field: string, value: string | undefined): void {
@@ -135,15 +139,30 @@ export function registerApplications(app: FastifyInstance, ctx: RouteContext): v
     const at = now();
 
     if (status === 'won' || status === 'lost') {
-      if (!store.transitionApplication(current.id, ['submitted'], status, at)) {
-        throw new ApiError(409, 'Only a submitted application can be marked as won or not awarded.');
+      // A result can be corrected: won ↔ not awarded is allowed directly.
+      if (!store.transitionApplication(current.id, ['submitted', 'won', 'lost'], status, at)) {
+        throw new ApiError(409, RESULT_CONFLICT);
       }
       event(current, `application_${status}`, `${title(current)} was marked as ${status === 'won' ? 'won' : 'not awarded'}.`);
+    } else if (status === 'submitted') {
+      // "Undo result": back to submitted, for a result recorded by mistake.
+      if (!store.transitionApplication(current.id, ['won', 'lost'], 'submitted', at)) {
+        throw new ApiError(409, UNDO_CONFLICT);
+      }
+      event(current, 'application_result_undone', `The result for ${title(current)} was undone.`);
     } else if (status === 'withdrawn') {
       // Not while it is being sent: the outcome of that attempt has to be recorded first.
+      // Not after a result either: a won or lost bid was not withdrawn.
       const from = APPLICATION_STATUSES.filter((s) => !FINAL.includes(s) && s !== 'sending');
       if (!store.transitionApplication(current.id, from, 'withdrawn', at)) {
-        throw new ApiError(409, current.status === 'sending' ? 'This application is being sent right now. Try again in a moment.' : 'This application is already closed.');
+        throw new ApiError(
+          409,
+          current.status === 'sending'
+            ? 'This application is being sent right now. Try again in a moment.'
+            : current.status === 'won' || current.status === 'lost'
+              ? WITHDRAW_RESULT_CONFLICT
+              : 'This application is already closed.',
+        );
       }
       event(current, 'application_withdrawn', `${title(current)} was withdrawn.`);
     } else {

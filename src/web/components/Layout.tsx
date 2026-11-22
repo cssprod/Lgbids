@@ -56,7 +56,14 @@ const NAV: { heading: string; items: NavItem[] }[] = [
         to: '/sources',
         label: 'Sources',
         icon: 'globe',
-        badge: (c) => (c.sourcesFailing > 0 ? { value: c.sourcesFailing, label: `${c.sourcesFailing} failing`, tone: 'bad' } : null),
+        badge: (c) => {
+          // Failing and warned sites both need a look; red if anything is failing.
+          const warned = c.sourcesWarning ?? 0;
+          const n = c.sourcesFailing + warned;
+          if (n === 0) return null;
+          const parts = [c.sourcesFailing ? `${c.sourcesFailing} failing` : '', warned ? `${warned} to check` : ''].filter(Boolean);
+          return { value: n, label: parts.join(', '), tone: c.sourcesFailing > 0 ? 'bad' : 'warn' };
+        },
       },
       { to: '/settings', label: 'Settings', icon: 'settings' },
       { to: '/help', label: 'Help', icon: 'help' },

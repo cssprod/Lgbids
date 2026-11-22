@@ -21,6 +21,8 @@ const TASKS: { title: string; detail: string }[] = [
   { title: 'Find new bids', detail: 'Press “Run now” on Today and wait a few seconds. Did you notice the new bid?' },
   { title: 'Set up your company', detail: 'Fill in the company profile and upload a document. Was anything unclear or missing?' },
   { title: 'Alert inbox', detail: 'Settings → Bid alert inbox: follow the Gmail steps and press “Test connection” (nothing is really connected here).' },
+  { title: 'Phone alerts', detail: 'Settings → Phone alerts: choose ntfy, then press “Send test alert”. Was it clear what to do on the phone?' },
+  { title: 'Spreadsheet', detail: 'On Opportunities, filter the list, then press “Download CSV”. Does the file open and hold what you expected?' },
   { title: 'On your phone', detail: 'Try any of the above on a phone. Note anything hard to tap or read.' },
 ];
 

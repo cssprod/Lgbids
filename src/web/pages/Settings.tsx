@@ -28,6 +28,7 @@ export function SettingsPage() {
         <a href="#automation">Automation</a>
         <a href="#email">Outgoing e-mail</a>
         <a href="#alerts">Bid alert inbox</a>
+        <a href="#notifications">Notifications</a>
         <a href="#push">Phone alerts</a>
         <a href="#area">Service area (advanced)</a>
         <a href="#appearance">Appearance</a>
@@ -35,6 +36,7 @@ export function SettingsPage() {
       <AutomationForm />
       <EmailForm />
       <AlertInboxForm />
+      <NotificationsForm />
       <PushForm />
       <RegionForm />
       <AppearanceForm />
@@ -62,6 +64,93 @@ function TypeChecklist({ legend, hint, value, onChange }: { legend: string; hint
         ))}
       </div>
     </fieldset>
+  );
+}
+
+/** Full sender domains of the alert services Lgbids reads (keep in step with the alert parser). */
+const ALERT_SENDER_DOMAINS = ['bcbid.gov.bc.ca', 'bonfirehub.ca', 'canadabuys.canada.ca', 'bidsandtenders.ca', 'merx.com', 'biddingo.com'];
+const ALERT_FILTER = ALERT_SENDER_DOMAINS.join(' OR ');
+
+const NOTIFY_KEYS = ['notifyEmail', 'notifyOnNew', 'notifyReminders', 'notifyChanges', 'appUrl', 'deadlineReminderDays'] as const;
+type NotifyKey = (typeof NOTIFY_KEYS)[number];
+type NotifyDraft = Pick<AutomationSettings, NotifyKey>;
+
+function pick(a: AutomationSettings, keys: readonly NotifyKey[]): NotifyDraft {
+  return Object.fromEntries(keys.map((k) => [k, a[k]])) as NotifyDraft;
+}
+
+function appUrlHint(v: string): string | undefined {
+  if (!v) return undefined;
+  return /^https?:\/\/[^\s]+$/i.test(v) ? undefined : 'Enter an address that starts with http:// or https://.';
+}
+
+/** Who is told about what: the three kinds of alert e-mail and the app's own address for links. */
+function NotificationsForm() {
+  const res = useResource<AutomationSettings>('/api/settings/automation');
+  const [v, setV] = useState<NotifyDraft | null>(null);
+  const save = useAction();
+
+  useEffect(() => {
+    if (res.data) setV(pick(res.data, NOTIFY_KEYS));
+  }, [res.data]);
+
+  const dirty = !!v && !!res.data && JSON.stringify(v) !== JSON.stringify(pick(res.data, NOTIFY_KEYS));
+  useUnsavedWarning(dirty);
+
+  if (res.loading && !v) return <Loading />;
+  if (res.error && !v) return <ErrorBox message={res.error} onRetry={res.reload} />;
+  if (!v) return null;
+
+  const set = <K extends NotifyKey>(k: K, val: NotifyDraft[K]) => setV({ ...v, [k]: val });
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    const r = await save.run(async () => {
+      // Merge into the latest saved settings, so the Automation card's last save is kept.
+      const latest = await api.get<AutomationSettings>('/api/settings/automation');
+      return api.put<AutomationSettings>('/api/settings/automation', { ...latest, ...v });
+    }, 'Notification settings saved.');
+    if (r) res.setData(r);
+  }
+
+  return (
+    <form className="card form-card" id="notifications" aria-labelledby="notifications-title" onSubmit={submit}>
+      <div className="card-head">
+        <h2 id="notifications-title">Notifications</h2>
+      </div>
+      <p className="muted">Choose what Lgbids e-mails you about. Phone alerts are set up in the next section.</p>
+      <Field label="Send notifications to" hint="Leave empty for no e-mail notifications." optional error={emailProblem(v.notifyEmail)}>
+        <input type="email" value={v.notifyEmail} onChange={(e) => set('notifyEmail', e.target.value)} />
+      </Field>
+      <Check label="New suitable bids" hint="A summary after each check that finds new suitable bids." checked={v.notifyOnNew} onChange={(b) => set('notifyOnNew', b)} />
+      <Check
+        label="Closing reminders"
+        hint="72 h and 24 h before closing, for bids you pursue that are not yet submitted. Sent even when automation is off."
+        checked={v.notifyReminders}
+        onChange={(b) => set('notifyReminders', b)}
+      />
+      <Check
+        label="Changes to bids you pursue"
+        hint="A moved closing date, an addendum, a cancellation or an award."
+        checked={v.notifyChanges}
+        onChange={(b) => set('notifyChanges', b)}
+      />
+      <Field
+        label="Address of this app (optional)"
+        hint="For example http://192.168.1.20:8080. When it is filled in, alerts include an “Open in Lgbids” link."
+        optional
+        error={appUrlHint(v.appUrl)}
+      >
+        <input type="url" value={v.appUrl} onChange={(e) => set('appUrl', e.target.value)} />
+      </Field>
+      <div className="form-footer">
+        <button type="submit" className="btn btn-primary" disabled={save.busy}>
+          {save.busy ? 'Saving…' : 'Save notification settings'}
+        </button>
+        {dirty ? <p className="small text-warn">You have unsaved changes.</p> : null}
+        <Live message={save.message} />
+      </div>
+    </form>
   );
 }
 
@@ -94,7 +183,11 @@ function AutomationForm() {
   async function submit(e: FormEvent) {
     e.preventDefault();
     if (needsAck) return;
-    const r = await save.run(() => api.put<AutomationSettings>('/api/settings/automation', v), 'Automation settings saved.');
+    // The Notifications card saves the same settings; keep whatever it saved.
+    const r = await save.run(async () => {
+      const latest = await api.get<AutomationSettings>('/api/settings/automation');
+      return api.put<AutomationSettings>('/api/settings/automation', { ...v, ...pick(latest, NOTIFY_KEYS) });
+    }, 'Automation settings saved.');
     if (r) res.setData(r);
   }
 
@@ -170,19 +263,6 @@ function AutomationForm() {
         </fieldset>
       ) : null}
 
-      <fieldset className="sub-fieldset">
-        <legend>Notifications</legend>
-        <div className="grid-2">
-          <Field label="Send notifications to" hint="Leave empty for no e-mail notifications." optional error={emailProblem(v.notifyEmail)}>
-            <input type="email" value={v.notifyEmail} onChange={(e) => set('notifyEmail', e.target.value)} />
-          </Field>
-          <Field label="Deadline reminder (days before closing)" hint="0 turns reminders off.">
-            <NumberInput value={v.deadlineReminderDays} min={0} max={30} step={1} onChange={(n) => set('deadlineReminderDays', Math.round(num(n, 3)))} />
-          </Field>
-        </div>
-        <Check label="E-mail me when new suitable bids are found" checked={v.notifyOnNew} onChange={(b) => set('notifyOnNew', b)} />
-      </fieldset>
-
       <details className="advanced">
         <summary>Advanced: bid types, keywords and how sites are read</summary>
         <p className="hint">The defaults suit most landscaping businesses. Change these only if Lgbids keeps missing bids or picking up the wrong ones.</p>
@@ -218,18 +298,10 @@ function AutomationForm() {
           checked={v.readDocuments}
           onChange={(b) => set('readDocuments', b)}
         />
-        <Check
-          label="Respect each site’s robots.txt"
-          hint="Recommended. Turning this off may get Lgbids blocked."
-          checked={v.respectRobots}
-          onChange={(b) => set('respectRobots', b)}
-        />
+        <p className="hint">Lgbids always follows each site’s robots.txt rules and names itself as Lgbids when it reads a site.</p>
         <div className="grid-2">
           <Field label="Pause between requests (milliseconds)" hint="At least 250. Slower is kinder to the sites.">
             <NumberInput value={v.requestDelayMs} min={250} max={60000} step={250} onChange={(n) => set('requestDelayMs', Math.round(num(n, 1500)))} />
-          </Field>
-          <Field label="Browser name sent to sites (user agent)">
-            <input type="text" value={v.userAgent} minLength={3} maxLength={200} onChange={(e) => set('userAgent', e.target.value)} />
           </Field>
         </div>
         </fieldset>
@@ -433,12 +505,27 @@ function AlertInboxForm() {
         <summary>How to set it up in Gmail (about 10 minutes)</summary>
         <ol className="setup-steps">
           <li>
-            Turn on the alerts: in <strong>BC Bid</strong>, subscribe to e-mail notifications for landscaping and grounds-maintenance
-            commodities; on each buyer’s <strong>Bonfire</strong> portal, sign in with a free vendor account and follow the buyer.
+            Turn on the alerts. You hear only from the buyers and services you sign up with, so set up each one:
+            <ul>
+              <li>
+                <strong>BC Bid</strong>: in your supplier account, subscribe to e-mail notifications for the grounds maintenance and landscaping
+                commodities.
+              </li>
+              <li>
+                <strong>Bonfire</strong>: make a free vendor account and follow each buyer: City of Victoria, District of Saanich, District of
+                Central Saanich, District of North Saanich and the University of Victoria.
+              </li>
+              <li>
+                <strong>CanadaBuys</strong>: save a search for landscaping and grounds work in British Columbia and turn on e-mail alerts for it.
+              </li>
+              <li>
+                <strong>bids&amp;tenders</strong>: register as a bidder and follow the Town of Sidney.
+              </li>
+            </ul>
           </li>
           <li>
-            In Gmail, make a filter for mail from <code>bcbid</code> or <code>bonfire</code> and apply a label such as <code>Bid alerts</code>{' '}
-            (optional, but it keeps the alerts together).
+            In Gmail, make a filter that keeps the alerts together (optional). Paste this into the “From” box and apply a label such as{' '}
+            <code>Bid alerts</code>: <code>{ALERT_FILTER}</code>
           </li>
           <li>
             Create an <strong>app password</strong>: Google Account → Security → 2-Step Verification (must be on) → App passwords. Paste the
@@ -567,7 +654,7 @@ function PushForm() {
       </div>
       <p className="muted">
         Get a short alert on your phone after each check that finds new suitable bids, with the closing dates and links. It is sent as well as the
-        summary e-mail, and also works without it.
+        summary e-mail, and also works without it. Alerts are sent by Lgbids itself, so they arrive only while it is running and the computer is awake.
       </p>
       {view.provider !== 'off' && view.verifiedAt ? (
         <Callout tone="good" title={`A test alert went through on ${fmt.dateTime(view.verifiedAt)}.`} />

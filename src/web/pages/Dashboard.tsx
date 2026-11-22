@@ -5,7 +5,7 @@ import { api } from '../api.js';
 import type { DashboardResponse, RunState } from '../../shared/api.js';
 import type { AutomationMode, RunRecord } from '../../shared/schemas.js';
 import { useAction, useDocumentTitle, useFormat, useInterval, useResource } from '../hooks.js';
-import { ApplicationChip, SourceChip, TRIGGER_TEXT } from '../components/status.js';
+import { ApplicationChip, LayoutWarningCallout, SourceChip, TRIGGER_TEXT } from '../components/status.js';
 import { Callout, Empty, ErrorBox, Live, PageHeader, Section, SkeletonList } from '../components/ui.js';
 import { AwaitingResult } from '../components/dashboard/AwaitingResult.js';
 import { plural } from '../format.js';
@@ -77,6 +77,19 @@ export function DashboardPage({ onTimeZone }: { onTimeZone: (tz: string) => void
     polling,
   );
 
+  const [testing, setTesting] = useState<string | null>(null);
+  async function testSource(id: string) {
+    setTesting(id);
+    try {
+      await api.post(`/api/sources/${id}/test`);
+    } catch {
+      // The Sources page shows the details; Today just refreshes.
+    } finally {
+      setTesting(null);
+      dash.reload();
+    }
+  }
+
   async function runNow() {
     const res = await run.run(() => api.post<RunState>('/api/runs'), 'Checking the bid sites now. This usually takes a minute or two.');
     if (res) setPolling(true);
@@ -88,7 +101,10 @@ export function DashboardPage({ onTimeZone }: { onTimeZone: (tz: string) => void
 
   const mode = MODE_TEXT[d.mode];
   const running = polling || d.running;
-  const setupLeft = d.setup.filter((s) => !s.done);
+  // Optional steps are listed but never counted, so the card can finish without them.
+  const required = d.setup.filter((s) => !s.optional);
+  const setupLeft = required.filter((s) => !s.done);
+  const warned = d.sources.filter((s) => s.enabled && s.layoutWarning !== '' && s.lastStatus !== 'error' && s.lastStatus !== 'blocked');
   const failing = d.sources.filter((s) => s.enabled && (s.lastStatus === 'error' || s.lastStatus === 'blocked'));
   const tiles: { label: string; value: number; to: string; tone?: string }[] = [
     { label: 'Suitable and open', value: d.counts.openSuitable, to: '/opportunities?view=suitable' },
@@ -99,7 +115,7 @@ export function DashboardPage({ onTimeZone }: { onTimeZone: (tz: string) => void
     { label: 'Closing within 7 days', value: d.counts.closingSoon, to: '/opportunities?view=suitable' },
   ];
 
-  const setupDone = d.setup.length - setupLeft.length;
+  const setupDone = required.length - setupLeft.length;
   const isDone = (key: string) => d.setup.find((s) => s.key === key)?.done ?? false;
   // A brand-new install: show three clear first steps instead of empty counts and lists.
   const fresh = !d.lastRun && d.attention.length === 0 && d.counts.openSuitable === 0 && !d.demo;
@@ -230,6 +246,9 @@ export function DashboardPage({ onTimeZone }: { onTimeZone: (tz: string) => void
               </button>
             </li>
           </ol>
+          <p className="small">
+            <Link to="/settings#push">Optional: alerts on your phone</Link>
+          </p>
         </Section>
       ) : null}
 
@@ -247,16 +266,16 @@ export function DashboardPage({ onTimeZone }: { onTimeZone: (tz: string) => void
       </ul>
 
       {setupLeft.length > 0 ? (
-        <Section title="Finish setting up" actions={<span className="muted small">{setupDone} of {d.setup.length} done</span>}>
+        <Section title="Finish setting up" actions={<span className="muted small">{setupDone} of {required.length} done</span>}>
           <div
             className="progress"
             role="progressbar"
             aria-label="Setup progress"
             aria-valuemin={0}
-            aria-valuemax={d.setup.length}
+            aria-valuemax={required.length}
             aria-valuenow={setupDone}
           >
-            <span style={{ width: `${(setupDone / Math.max(1, d.setup.length)) * 100}%` }} />
+            <span style={{ width: `${(setupDone / Math.max(1, required.length)) * 100}%` }} />
           </div>
           <p className="muted">These steps make your submissions complete and let Lgbids send e-mail for you.</p>
           <ul className="setup-list">
@@ -407,6 +426,14 @@ export function DashboardPage({ onTimeZone }: { onTimeZone: (tz: string) => void
               Lgbids has nowhere to look for bids. <Link to="/sources">Turn on a source</Link>.
             </p>
           </Callout>
+        ) : null}
+        {warned.map((s) => (
+          <LayoutWarningCallout key={s.id} name={s.name} warning={s.layoutWarning} url={s.config.url} onTest={() => void testSource(s.id)} testing={testing === s.id} />
+        ))}
+        {failing.length > 0 || d.counts.sourcesEnabled === 0 ? null : warned.length > 0 ? (
+          <p className="small">
+            <Link to="/sources">Check the sources</Link>
+          </p>
         ) : otherSources.length > 0 && otherSources.every((s) => s.lastStatus === 'never') ? (
           <p className="muted">
             {plural(otherSources.length, 'bid site')} {otherSources.length === 1 ? 'is' : 'are'} turned on. {otherSources.length === 1 ? 'It is' : 'They are'} read on the first check.
@@ -426,7 +453,7 @@ export function DashboardPage({ onTimeZone }: { onTimeZone: (tz: string) => void
               {otherSources.map((s) => (
                   <li key={s.id}>
                     <span className="source-mini-name">{s.name}</span>
-                    <SourceChip status={s.lastStatus} />
+                    <SourceChip status={s.lastStatus} warning={s.layoutWarning !== ''} />
                   </li>
                 ))}
             </ul>
