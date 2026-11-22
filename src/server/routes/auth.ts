@@ -1,7 +1,8 @@
-import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { SessionInfo } from '../../shared/api.js';
+import type { AppDeps } from '../contracts.js';
 import { ApiError, parseBody, type RouteContext } from './util.js';
 
 export const SESSION_COOKIE = 'lgbids_session';
@@ -28,6 +29,45 @@ function digest(value: string): Buffer {
 /** Comparing fixed-length digests keeps the time taken independent of where the passwords differ. */
 export function passwordMatches(given: string, expected: string): boolean {
   return timingSafeEqual(digest(given), digest(expected));
+}
+
+/** Meta key for the fingerprint of the password the current sessions were made with. */
+export const PASSWORD_FINGERPRINT_KEY = 'app_password_fingerprint';
+
+/**
+ * Sessions are stored by their SHA-256, so a copy of the database (a backup,
+ * say) holds nothing that signs anyone in. The cookie carries the token itself.
+ */
+export function sessionKey(token: string): string {
+  return createHash('sha256').update(token, 'utf8').digest('hex');
+}
+
+/** A salted, slow fingerprint: it shows whether the password changed without revealing it. */
+export function passwordFingerprint(password: string, salt: Buffer = randomBytes(16)): string {
+  if (password === '') return 'none';
+  return `scrypt:${salt.toString('hex')}:${scryptSync(password, salt, 32).toString('hex')}`;
+}
+
+function fingerprintMatches(stored: string | undefined, password: string): boolean {
+  if (stored === undefined) return false;
+  if (stored === 'none' || password === '') return stored === 'none' && password === '';
+  const [scheme, saltHex, hashHex] = stored.split(':');
+  if (scheme !== 'scrypt' || !saltHex || !hashHex) return false;
+  const expected = Buffer.from(hashHex, 'hex');
+  const actual = scryptSync(password, Buffer.from(saltHex, 'hex'), expected.length || 32);
+  return expected.length === actual.length && timingSafeEqual(expected, actual);
+}
+
+/**
+ * When APP_PASSWORD is not the one the stored sessions were made with,
+ * everyone is signed out: changing the password must lock out a lost or
+ * shared device. Returns how many sessions were removed.
+ */
+export function signOutIfPasswordChanged(store: Pick<AppDeps['store'], 'getMeta' | 'setMeta' | 'deleteAllSessions'>, password: string): number {
+  if (fingerprintMatches(store.getMeta(PASSWORD_FINGERPRINT_KEY), password)) return 0;
+  const removed = store.deleteAllSessions();
+  store.setMeta(PASSWORD_FINGERPRINT_KEY, passwordFingerprint(password));
+  return removed;
 }
 
 function isLoopbackHost(host: string): boolean {
@@ -61,6 +101,8 @@ export function registerAuth(app: FastifyInstance, ctx: RouteContext): void {
 
   const weak = weakPasswordWarning(config);
   if (weak) app.log.warn(weak);
+  const signedOut = signOutIfPasswordChanged(store, config.appPassword);
+  if (signedOut > 0) app.log.info(`The app password changed, so ${signedOut} signed-in session${signedOut === 1 ? ' was' : 's were'} signed out.`);
 
   function recordFailure(ip: string, at: number): void {
     const current = failures.get(ip);
@@ -81,7 +123,7 @@ export function registerAuth(app: FastifyInstance, ctx: RouteContext): void {
   function signedIn(req: FastifyRequest): boolean {
     if (!authRequired) return true;
     const token = req.cookies[SESSION_COOKIE];
-    return !!token && /^[0-9a-f]{64}$/.test(token) && store.sessionValid(token, now());
+    return !!token && /^[0-9a-f]{64}$/.test(token) && store.sessionValid(sessionKey(token), now());
   }
 
   function info(authenticated: boolean): SessionInfo {
@@ -135,14 +177,14 @@ export function registerAuth(app: FastifyInstance, ctx: RouteContext): void {
     const token = randomBytes(32).toString('hex');
     const nowDate = now();
     const expires = new Date(nowDate.getTime() + SESSION_DAYS * 86_400_000);
-    store.createSession(token, expires, nowDate);
+    store.createSession(sessionKey(token), expires, nowDate);
     reply.setCookie(SESSION_COOKIE, token, { ...cookieOptions(req), expires });
     return info(true);
   });
 
   app.post('/api/logout', async (req, reply) => {
     const token = req.cookies[SESSION_COOKIE];
-    if (token) store.deleteSession(token);
+    if (token) store.deleteSession(sessionKey(token));
     reply.clearCookie(SESSION_COOKIE, cookieOptions(req));
     return info(!authRequired);
   });

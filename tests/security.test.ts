@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { allowedHosts, loadConfig, trustProxy } from '../src/server/config.js';
-import { weakPasswordWarning } from '../src/server/routes/auth.js';
-import { closeHarnesses, harness, multipart } from './helpers/apiHarness.js';
+import { buildApp } from '../src/server/app.js';
+import { PASSWORD_FINGERPRINT_KEY, SESSION_COOKIE, sessionKey, weakPasswordWarning } from '../src/server/routes/auth.js';
+import { closeHarnesses, harness, multipart, NOW } from './helpers/apiHarness.js';
 
 afterEach(closeHarnesses);
 
@@ -116,5 +117,50 @@ describe('security headers', () => {
     expect(csv.headers['content-security-policy']).toBe("sandbox; default-src 'none'");
     const page = await app.inject({ method: 'GET', url: '/api/session' });
     expect(page.headers['content-security-policy']).toContain("default-src 'self'");
+  });
+});
+
+describe('sessions', () => {
+  const PASSWORD = 'correct horse battery';
+
+  async function signIn(app: Awaited<ReturnType<typeof harness>>['app']): Promise<string> {
+    const res = await app.inject({ method: 'POST', url: '/api/login', payload: { password: PASSWORD } });
+    expect(res.statusCode).toBe(200);
+    const cookie = res.cookies.find((c) => c.name === SESSION_COOKIE);
+    expect(cookie).toBeDefined();
+    return cookie!.value;
+  }
+
+  const authed = (token: string) => ({ cookie: `${SESSION_COOKIE}=${token}` });
+
+  it('stores only a hash of the session token', async () => {
+    const { app, deps } = await harness({ appPassword: PASSWORD });
+    const token = await signIn(app);
+    expect(deps.store.sessionValid(token, NOW)).toBe(false);
+    expect(deps.store.sessionValid(sessionKey(token), NOW)).toBe(true);
+    expect(deps.store.getMeta(PASSWORD_FINGERPRINT_KEY)).toMatch(/^scrypt:[0-9a-f]+:[0-9a-f]+$/);
+    expect(deps.store.getMeta(PASSWORD_FINGERPRINT_KEY)).not.toContain(PASSWORD);
+    expect((await app.inject({ method: 'GET', url: '/api/settings/automation', headers: authed(token) })).statusCode).toBe(200);
+  });
+
+  it('signs everyone out when the password changes at restart, and keeps sessions when it does not', async () => {
+    const first = await harness({ appPassword: PASSWORD });
+    const token = await signIn(first.app);
+
+    const same = await buildApp(first.deps, first.pipeline, first.scheduler);
+    expect((await same.inject({ method: 'GET', url: '/api/settings/automation', headers: authed(token) })).statusCode).toBe(200);
+    await same.close();
+
+    const changed = await buildApp({ ...first.deps, config: { ...first.deps.config, appPassword: 'a different password' } }, first.pipeline, first.scheduler);
+    expect((await changed.inject({ method: 'GET', url: '/api/settings/automation', headers: authed(token) })).statusCode).toBe(401);
+    await changed.close();
+  });
+
+  it('deletes the session on sign-out', async () => {
+    const { app, deps } = await harness({ appPassword: PASSWORD });
+    const token = await signIn(app);
+    expect((await app.inject({ method: 'POST', url: '/api/logout', headers: authed(token) })).statusCode).toBe(200);
+    expect(deps.store.sessionValid(sessionKey(token), NOW)).toBe(false);
+    expect((await app.inject({ method: 'GET', url: '/api/settings/automation', headers: authed(token) })).statusCode).toBe(401);
   });
 });
