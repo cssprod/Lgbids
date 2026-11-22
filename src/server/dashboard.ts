@@ -31,7 +31,13 @@ export function buildDashboard(deps: AppDeps, pipeline: Pipeline, scheduler: Sch
   const open = store.listApplications({ status: [...attentionStatuses] });
   const byStatus = (status: Application['status']) => open.filter((a) => a.status === status).length;
   const attention = [...open].sort((a, b) => closingTime(a.opportunity) - closingTime(b.opportunity) || a.id - b.id).slice(0, LIST_MAX);
-  const submitted = store.listApplications({ status: ['submitted'] }).length;
+  const submittedApps = store.listApplications({ status: ['submitted'] });
+  const submitted = submittedApps.length;
+  // Still "submitted" (no won/lost recorded) two weeks after the closing date.
+  const awaitingResult = submittedApps.filter((a) => {
+    const closesAt = a.opportunity?.closesAt;
+    return !!closesAt && nowMs - new Date(closesAt).getTime() >= 14 * DAY_MS;
+  }).length;
 
   const sources = store.listSources();
   const enabled = sources.filter((s) => s.enabled);
@@ -50,9 +56,10 @@ export function buildDashboard(deps: AppDeps, pipeline: Pipeline, scheduler: Sch
       href: '/settings#alerts',
     },
     { key: 'services', label: 'Choose the services you offer', done: store.getSetting('profile') !== undefined, href: '/profile' },
-    { key: 'email', label: 'Set up outgoing e-mail', done: emailConfigured(email) && !!email.verifiedAt, href: '/settings' },
+    { key: 'email', label: 'Set up outgoing e-mail', done: emailConfigured(email) && !!email.verifiedAt, href: '/settings#email' },
     { key: 'documents', label: 'Upload your insurance and WorkSafeBC documents', done: store.listDocuments().length > 0, href: '/documents' },
     { key: 'run', label: 'Run the first search', done: lastRun !== null, href: '/' },
+    { key: 'push', label: 'Get alerts on your phone (optional)', optional: true, done: settings.getPush().verifiedAt !== null, href: '/settings#push' },
   ];
 
   return {
@@ -71,8 +78,7 @@ export function buildDashboard(deps: AppDeps, pipeline: Pipeline, scheduler: Sch
       sourcesEnabled: enabled.length,
       sourcesWarning: enabled.filter((s) => s.layoutWarning !== '').length,
       unseenChanges: store.countUnseenChanges(),
-      // Worked out by UX-2 (submitted, 14 or more days past closing, no result).
-      awaitingResult: 0,
+      awaitingResult,
     },
     attention,
     deadlines: upcoming.slice(0, LIST_MAX),

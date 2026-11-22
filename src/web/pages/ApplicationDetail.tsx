@@ -149,7 +149,7 @@ export function ApplicationDetailPage() {
     }
   }
 
-  async function setStatus(status: 'withdrawn' | 'won' | 'lost' | 'needs_input', message: string) {
+  async function setStatus(status: 'withdrawn' | 'won' | 'lost' | 'needs_input' | 'submitted', message: string) {
     const updated = await quick.run(() => api.post<Application>(`/api/applications/${a!.id}/status`, { status }), message);
     if (updated) res.setData(updated);
   }
@@ -310,9 +310,15 @@ export function ApplicationDetailPage() {
                 <button type="button" className="btn btn-secondary" disabled={quick.busy || a.status === 'lost'} onClick={() => setStatus('lost', 'Recorded as not awarded.')}>
                   Not awarded
                 </button>
-                <button type="button" className="btn btn-secondary" disabled={quick.busy} onClick={() => setStatus('withdrawn', 'Recorded as withdrawn.')}>
-                  Withdrawn
-                </button>
+                {a.status === 'submitted' ? (
+                  <button type="button" className="btn btn-secondary" disabled={quick.busy} onClick={() => setStatus('withdrawn', 'Recorded as withdrawn.')}>
+                    Withdrawn
+                  </button>
+                ) : (
+                  <button type="button" className="btn btn-ghost" disabled={quick.busy} onClick={() => setStatus('submitted', 'The result was undone. The bid shows as submitted again.')}>
+                    Undo result
+                  </button>
+                )}
               </div>
               {o ? <AwardSection opportunity={o} application={a} onChange={res.reload} /> : null}
             </>

@@ -5,7 +5,7 @@ import type { SourceRecord } from '../../shared/schemas.js';
 import { SOURCE_KIND_LABELS } from '../../shared/schemas.js';
 import { useAction, useDocumentTitle, useFormat, useResource } from '../hooks.js';
 import { ConfirmDialog } from '../components/Dialog.js';
-import { SourceChip } from '../components/status.js';
+import { LayoutWarningCallout, SourceChip } from '../components/status.js';
 import { Callout, Check, Empty, ErrorBox, ExternalLink, Live, Loading, PageHeader } from '../components/ui.js';
 import { CoverageSection } from '../components/sources/CoverageSection.js';
 import { formatBytes, formatDuration, plural } from '../format.js';
@@ -123,7 +123,7 @@ function SourceCard({ s, onChange, onDeleted }: { s: SourceRecord; onChange: (s:
       </div>
 
       <div className="source-health">
-        <SourceChip status={s.lastStatus} />
+        <SourceChip status={s.lastStatus} warning={s.enabled && s.layoutWarning !== ''} />
         <span className="small">
           {s.lastRunAt ? `Last read ${fmt.dateTime(s.lastRunAt)}` : 'Never read'}
           {s.lastItemCount !== null ? ` · ${plural(s.lastItemCount, 'notice')} listed` : ''}
@@ -131,9 +131,7 @@ function SourceCard({ s, onChange, onDeleted }: { s: SourceRecord; onChange: (s:
         </span>
       </div>
       {s.layoutWarning && s.enabled ? (
-        <Callout tone="warn" title="The site may have changed">
-          <p className="small">{s.layoutWarning}</p>
-        </Callout>
+        <LayoutWarningCallout name={s.name} warning={s.layoutWarning} url={s.config.url} onTest={runTest} testing={test.busy} />
       ) : null}
       {s.lastMessage ? <p className={`small ${failing ? 'text-bad' : 'muted'}`}>{s.lastMessage}</p> : null}
       {failing && s.lastOkAt ? <p className="small muted">Last worked {fmt.dateTime(s.lastOkAt)}.</p> : null}

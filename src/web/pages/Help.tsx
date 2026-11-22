@@ -6,6 +6,9 @@ import { PageHeader, Section } from '../components/ui.js';
 const TOPICS = [
   { id: 'start', title: 'Getting started' },
   { id: 'alerts', title: 'How bids reach Lgbids' },
+  { id: 'phone', title: 'Alerts on your phone and by e-mail' },
+  { id: 'csv', title: 'Download to a spreadsheet' },
+  { id: 'changed', title: 'When a site may have changed' },
   { id: 'scores', title: 'What “Suitable” means' },
   { id: 'submitting', title: 'Preparing and submitting' },
   { id: 'never', title: 'What Lgbids never does' },
@@ -50,11 +53,58 @@ export function HelpPage() {
           Most Greater Victoria landscaping work is posted on <strong>BC Bid</strong> and on each buyer’s <strong>Bonfire</strong> portal. Those
           sites ask automated tools not to read them, and Lgbids respects that. Instead it reads the alert e-mails they send you: turn on BC Bid
           notifications for your landscaping commodities, follow each buyer on Bonfire, and connect the Gmail they arrive in. Lgbids opens that
-          mailbox read-only and only looks at messages from BC Bid and Bonfire.
+          mailbox read-only and only looks at messages from the alert services.
+        </p>
+        <p>You hear only from the buyers and services you sign up with, so set up each one:</p>
+        <ul>
+          <li>
+            <strong>BC Bid</strong>: subscribe to e-mail notifications for the grounds maintenance and landscaping commodities.
+          </li>
+          <li>
+            <strong>Bonfire</strong>: follow the City of Victoria, the District of Saanich, the District of Central Saanich, the District of North
+            Saanich and the University of Victoria.
+          </li>
+          <li>
+            <strong>CanadaBuys</strong>: save a search for landscaping and grounds work in British Columbia with e-mail alerts, for federal work
+            such as CFB Esquimalt and Parks Canada.
+          </li>
+          <li>
+            <strong>bids&amp;tenders</strong>: follow the Town of Sidney.
+          </li>
+        </ul>
+        <p>
+          The steps, and a Gmail filter that keeps the alerts together, are under <Link to="/settings#alerts">Settings → Bid alert inbox</Link>.
         </p>
         <p>
           It also reads the District of Saanich and Township of Esquimalt bid pages directly. The <Link to="/sources">Sources</Link> page shows
           each source and whether it worked on the last check.
+        </p>
+      </Section>
+
+      <Section title="Alerts on your phone and by e-mail" id="phone" className="help">
+        <p>
+          Lgbids can tell you about new suitable bids, closing reminders and changes to bids you pursue. Choose which of these you get by e-mail
+          under <Link to="/settings#notifications">Settings → Notifications</Link>.
+        </p>
+        <p>
+          For alerts on your phone, open <Link to="/settings#push">Settings → Phone alerts</Link>, choose ntfy or Telegram, follow the steps and
+          press “Send test alert”. Both are free. Alerts are sent by Lgbids itself, so they arrive only while it is running and the computer is
+          awake.
+        </p>
+      </Section>
+
+      <Section title="Download to a spreadsheet" id="csv" className="help">
+        <p>
+          On <Link to="/opportunities">Opportunities</Link>, filter the list the way you want, then press “Download CSV”. The file opens in Excel,
+          Numbers or Google Sheets and holds the bids you see, with their scores and closing dates.
+        </p>
+      </Section>
+
+      <Section title="When a site may have changed" id="changed" className="help">
+        <p>
+          If a bid site listed bids on one check and none on the next, Lgbids shows “Check needed” on <Link to="/sources">Sources</Link> and a
+          warning on Today. The site may have changed how it shows bids, so Lgbids could be missing some. Open the site and look for open bids,
+          then press “Test again”. If the site simply has nothing open, the warning goes away when bids are listed again.
         </p>
       </Section>
 

@@ -424,7 +424,21 @@ function ymd(days: number): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-let sources: SourceRecord[] = initialSources();
+/** One "layout may have changed" sample, so testers see how Today and Sources show it. */
+function withWarningSample(list: SourceRecord[]): SourceRecord[] {
+  return list.map((s) =>
+    s.id === 'oakbay'
+      ? {
+          ...s,
+          enabled: true,
+          layoutWarning:
+            'This site returned no notices this time but listed 4 notices last time — its layout may have changed. Open it and check, then press “Test”. If the buyer simply has nothing open, this warning clears once the site lists notices again.',
+        }
+      : s,
+  );
+}
+
+let sources: SourceRecord[] = withWarningSample(initialSources());
 
 let automation: AutomationSettings = automationSchema.parse({ notifyEmail: 'office@garryoak.example' });
 let region: RegionSettings = {
@@ -573,15 +587,22 @@ function dashboard(): DashboardResponse {
       sourcesEnabled: sources.filter((s) => s.enabled).length,
       sourcesWarning: sources.filter((s) => s.enabled && s.layoutWarning).length,
       unseenChanges: opportunities.reduce((n, o) => n + (o.unseenChanges ?? 0), 0),
-      awaitingResult: 0,
+      awaitingResult: applications.filter((a) => {
+        const closesAt = opportunities.find((o) => o.id === a.opportunityId)?.closesAt;
+        return a.status === 'submitted' && !!closesAt && Date.now() - new Date(closesAt).getTime() >= 14 * DAY;
+      }).length,
     },
     attention: applications.filter((a) => ['needs_input', 'ready', 'failed'].includes(a.status)).map(withOpp),
     deadlines: open.filter((o) => o.closesAt).sort((a, b) => (a.closesAt! < b.closesAt! ? -1 : 1)),
     setup: [
       { key: 'profile', label: 'Fill in your company profile', done: profileMissing().length === 0, href: '/profile' },
       { key: 'alerts', label: 'Connect your bid alert inbox (BC Bid and Bonfire)', done: alertInbox.verifiedAt !== null || (sources.find((s) => s.kind === 'email_alerts')?.lastItemCount ?? 0) > 0, href: '/settings#alerts' },
+      // Same keys, order and links as src/server/dashboard.ts.
+      { key: 'services', label: 'Choose the services you offer', done: profileMissing().length === 0, href: '/profile' },
       { key: 'email', label: 'Set up outgoing e-mail', done: email.verifiedAt !== null, href: '/settings#email' },
       { key: 'documents', label: 'Upload your insurance and WorkSafeBC documents', done: documents.length > 0, href: '/documents' },
+      { key: 'run', label: 'Run the first search', done: runs.length > 0, href: '/' },
+      { key: 'push', label: 'Get alerts on your phone (optional)', optional: true, done: push.verifiedAt !== null, href: '/settings#push' },
     ],
     sources,
   };

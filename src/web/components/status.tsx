@@ -1,6 +1,6 @@
 import { APPLICATION_STATUS_LABELS } from '../../shared/schemas.js';
 import type { ApplicationStatus, Decision, RunRecord, SourceStatus, UserDecision, AnalysisReason } from '../../shared/schemas.js';
-import { Chip, type Tone } from './ui.js';
+import { Callout, Chip, type Tone } from './ui.js';
 import { Popover } from './Popover.js';
 
 const APP_TONE: Record<ApplicationStatus, [Tone, string]> = {
@@ -32,8 +32,9 @@ export const SOURCE_STATUS_TEXT: Record<SourceStatus, [Tone, string, string]> = 
   never: ['neutral', '–', 'Not checked yet'],
 };
 
-export function SourceChip({ status }: { status: SourceStatus }) {
-  const [tone, symbol, text] = SOURCE_STATUS_TEXT[status];
+export function SourceChip({ status, warning = false }: { status: SourceStatus; warning?: boolean }) {
+  // A layout warning outranks a working-but-empty status: the user needs to look.
+  const [tone, symbol, text] = warning && (status === 'ok' || status === 'empty') ? (['warn', '!', 'Check needed'] as const) : SOURCE_STATUS_TEXT[status];
   return (
     <Chip tone={tone} symbol={symbol}>
       {text}
@@ -127,5 +128,48 @@ export function ScoreWithReasons({ score, reasons }: { score: number | null; rea
       <span className="popover-title">Why {score}/100</span>
       <ReasonList reasons={top} />
     </Popover>
+  );
+}
+
+/**
+ * The stored warning carries the count from the last good check; the v2
+ * wording is rebuilt from it here, falling back to the stored text.
+ */
+export function layoutWarningBody(stored: string): string {
+  const m = /listed (\d+)/.exec(stored);
+  if (!m) return stored;
+  return `Last time it listed ${m[1]}. The site may have changed how it shows bids, so Lgbids could be missing some. Open the site and look for open bids, then press Test.`;
+}
+
+export function LayoutWarningCallout({
+  name,
+  warning,
+  url,
+  onTest,
+  testing = false,
+}: {
+  name: string;
+  warning: string;
+  url: string;
+  onTest?: () => void;
+  testing?: boolean;
+}) {
+  return (
+    <Callout tone="warn" title={`${name} listed no bids this time`}>
+      <p className="small">{layoutWarningBody(warning)}</p>
+      <p className="small muted">If the site has nothing open right now, this goes away when bids are listed again.</p>
+      <div className="button-row">
+        {url ? (
+          <a className="btn btn-secondary" href={url} target="_blank" rel="noreferrer noopener">
+            Open the site
+          </a>
+        ) : null}
+        {onTest ? (
+          <button type="button" className="btn btn-ghost" onClick={onTest} disabled={testing}>
+            {testing ? 'Testing…' : 'Test again'}
+          </button>
+        ) : null}
+      </div>
+    </Callout>
   );
 }
