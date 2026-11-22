@@ -450,6 +450,17 @@ function reopensPast(c: OppContent, status: OpportunityStatus, now: Date): boole
   return closingDeadline(c.closes_at, (c.closes_at_precision as DatePrecision | null) ?? null).getTime() <= now.getTime();
 }
 
+/**
+ * A bid closed at its old closing (closeExpired) whose closing has just been
+ * moved into the future was extended: it is open to bids again. Only a move
+ * counts, so a notice the buyer closed early is not reopened just for having
+ * a future date. Callers skip this when the same update states a status.
+ */
+function reopensExtended(c: OppContent, previousClosing: string | null, now: Date): boolean {
+  if (c.status !== 'closed' || !c.closes_at || c.closes_at === previousClosing) return false;
+  return closingDeadline(c.closes_at, (c.closes_at_precision as DatePrecision | null) ?? null).getTime() > now.getTime();
+}
+
 function snapshotOf(c: OppContent): NoticeSnapshot {
   return {
     closesAt: c.closes_at,
@@ -978,6 +989,7 @@ export function createStore(db: Database): ChangeStore {
     }
     const status = statusForEvent(raw.event);
     if (status) c.status = status;
+    else if (reopensExtended(c, target.closes_at, now)) c.status = 'open';
     fillFrom(c, raw);
     const result = commitContent(target, c, { now, bcSource });
     return { id: target.id, isNew: false, ...result };
@@ -1234,11 +1246,10 @@ export function createStore(db: Database): ChangeStore {
         if (title) c.title = title;
         const url = str(raw.url);
         if (url) c.url = url;
-        const eventStatus = statusForEvent(raw.event ?? classifyNoticeEvent(c.title));
-        if (eventStatus) c.status = eventStatus;
-        else if (raw.status && !isStale(existing.id, ['status_changed'], raw.status, c.status) && !reopensPast(c, raw.status, now)) c.status = raw.status;
         const published = normIso(raw.publishedAt);
         if (published) c.published_at = published;
+        // The closing is taken before the status is decided, so a bid extended
+        // after it was closed is judged by its new closing, not the old one.
         if (closing?.iso) {
           // A listing that shows only the date must not undo the exact time read
           // from the notice page for that same day; that would look like a change every run.
@@ -1251,6 +1262,10 @@ export function createStore(db: Database): ChangeStore {
         } else if (!c.closes_at_raw && str(raw.closingRaw)) {
           c.closes_at_raw = str(raw.closingRaw);
         }
+        const eventStatus = statusForEvent(raw.event ?? classifyNoticeEvent(c.title));
+        if (eventStatus) c.status = eventStatus;
+        else if (raw.status && !isStale(existing.id, ['status_changed'], raw.status, c.status) && !reopensPast(c, raw.status, now)) c.status = raw.status;
+        if (!eventStatus && (raw.status ?? 'open') === 'open' && reopensExtended(c, existing.closes_at, now)) c.status = 'open';
         fillFrom(c, raw);
         if (!c.reference_number) c.reference_number = extractReference(c.title);
 
@@ -1272,11 +1287,10 @@ export function createStore(db: Database): ChangeStore {
         if (!c.title && str(detail.title)) c.title = str(detail.title);
         if (!c.url && str(detail.url)) c.url = str(detail.url);
         if (!c.published_at) c.published_at = normIso(detail.publishedAt);
-        // A notice page may report that the notice was cancelled or awarded.
-        if (detail.status && !isStale(id, ['status_changed'], detail.status, c.status) && !reopensPast(c, detail.status, now)) c.status = detail.status;
 
         // The notice page is the buyer's own word, so a new closing date there is
         // taken (an addendum often moves it before the listing catches up).
+        // It is taken before the status, so an extension is judged by the new date.
         const closing = detail.closing ? { iso: normIso(detail.closing.iso), precision: detail.closing.precision } : null;
         if (closing?.iso && !sameDayCoarser(c, closing) && !isStale(id, ['closing_moved'], closing.iso, c.closes_at)) {
           c.closes_at = closing.iso;
@@ -1284,6 +1298,9 @@ export function createStore(db: Database): ChangeStore {
           if (str(detail.closingRaw)) c.closes_at_raw = str(detail.closingRaw);
         }
         if (!c.closes_at_raw && str(detail.closingRaw)) c.closes_at_raw = str(detail.closingRaw);
+        // A notice page may report that the notice was cancelled or awarded.
+        if (detail.status && !isStale(id, ['status_changed'], detail.status, c.status) && !reopensPast(c, detail.status, now)) c.status = detail.status;
+        if ((detail.status ?? 'open') === 'open' && reopensExtended(c, existing.closes_at, now)) c.status = 'open';
         fillFrom(c, detail);
         if (!c.reference_number) c.reference_number = extractReference(c.title);
 

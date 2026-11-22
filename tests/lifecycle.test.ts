@@ -43,6 +43,70 @@ describe('undated rows and closeExpired (MAT-11)', () => {
   });
 });
 
+describe('a closed bid whose closing is moved into the future reopens', () => {
+  let store: Store;
+  const firstClosing = { iso: '2026-06-20T21:00:00Z', precision: 'datetime' as const };
+  const extended = { iso: '2026-07-09T21:00:00Z', precision: 'datetime' as const };
+  const afterClose = new Date('2026-06-22T18:00:00Z');
+  const notice = (over: Partial<RawOpportunity> = {}): RawOpportunity => ({
+    externalId: 'n-1',
+    title: 'RFQ 26-210 Boulevard Mowing Services',
+    url: 'https://bids.example/n-1',
+    organization: 'District of Saanich',
+    closing: firstClosing,
+    ...over,
+  });
+  beforeEach(() => {
+    store = createStore(openDatabase(':memory:'));
+    store.insertSource({ id: 'alerts', name: 'Alert e-mails', kind: 'email_alerts', enabled: true, builtin: false, notes: '', config: sourceConfigSchema.parse({}) }, now);
+    store.insertSource({ id: 'list', name: 'Listing', kind: 'html_list', enabled: true, builtin: false, notes: '', config: sourceConfigSchema.parse({}) }, now);
+  });
+  const closedRow = () => {
+    const id = store.upsertOpportunity('list', notice(), false, now).id;
+    expect(store.closeExpired(new Date('2026-06-21T18:00:00Z'))).toEqual([id]);
+    return id;
+  };
+
+  it('on the listing, with or without a stated status', () => {
+    const id = closedRow();
+    store.upsertOpportunity('list', notice({ closing: extended }), false, afterClose);
+    expect(store.getOpportunity(id)).toMatchObject({ status: 'open', closesAt: extended.iso });
+
+    const other = store.upsertOpportunity('list', notice({ externalId: 'n-2', url: 'https://bids.example/n-2' }), false, now).id;
+    store.closeExpired(new Date('2026-06-21T18:00:00Z'));
+    store.upsertOpportunity('list', notice({ externalId: 'n-2', url: 'https://bids.example/n-2', closing: extended, status: 'open' }), false, afterClose);
+    expect(store.getOpportunity(other)!.status).toBe('open');
+  });
+
+  it('on the notice page', () => {
+    const id = closedRow();
+    store.applyDetail(id, { closing: extended }, afterClose);
+    expect(store.getOpportunity(id)).toMatchObject({ status: 'open', closesAt: extended.iso });
+  });
+
+  it('on an alert e-mail about the notice', () => {
+    const id = closedRow();
+    store.upsertOpportunity('alerts', { externalId: 'alert-1', title: 'Addendum 1', url: 'https://bids.example/n-1', event: 'addendum', closing: extended }, false, afterClose);
+    expect(store.getOpportunity(id)).toMatchObject({ status: 'open', closesAt: extended.iso });
+  });
+
+  it('stays closed when the buyer says closed, or the new closing has passed too', () => {
+    const id = closedRow();
+    store.upsertOpportunity('list', notice({ closing: extended, status: 'closed' }), false, afterClose);
+    expect(store.getOpportunity(id)!.status).toBe('closed');
+
+    const past = store.upsertOpportunity('list', notice({ externalId: 'n-3', url: 'https://bids.example/n-3' }), false, now).id;
+    store.closeExpired(new Date('2026-06-21T18:00:00Z'));
+    store.upsertOpportunity('list', notice({ externalId: 'n-3', url: 'https://bids.example/n-3', closing: { iso: '2026-06-21T21:00:00Z', precision: 'datetime' } }), false, afterClose);
+    expect(store.getOpportunity(past)!.status).toBe('closed');
+
+    const cancelled = store.upsertOpportunity('list', notice({ externalId: 'n-4', url: 'https://bids.example/n-4' }), false, now).id;
+    store.closeExpired(new Date('2026-06-21T18:00:00Z'));
+    store.upsertOpportunity('alerts', { externalId: 'alert-4', title: 'Cancelled', url: 'https://bids.example/n-4', event: 'cancellation', closing: extended }, false, afterClose);
+    expect(store.getOpportunity(cancelled)!.status).toBe('cancelled');
+  });
+});
+
 describe('notice pages that refuse automated reading (COV-17)', () => {
   let server: Server;
   let base = '';
