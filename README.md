@@ -23,10 +23,11 @@ Checked against the live sites on 2026-11-17:
 
 | Source | Covers | Status |
 | --- | --- | --- |
-| **Bid alert e-mails** (BC Bid and Bonfire) | Everything BC Bid and the Bonfire portals e-mail you about | **New, off until set up.** Reads the alert e-mails in your Gmail (read-only) or `.eml` files you import. The reader is tested on invented sample alerts only; send real ones to confirm it (see below). |
+| **Bid alert e-mails** (BC Bid, Bonfire, CanadaBuys, bids&tenders, MERX, Biddingo) | Everything those services e-mail you about | **Off until set up.** Reads the alert e-mails in your Gmail (read-only) or `.eml` files you import. The reader is tested on invented sample alerts only; send real ones to confirm it (see below). |
 | District of Saanich feed | Saanich quotation requests and RFPs | **Works.** Titles, references, closing times and links checked against saanich.ca. |
 | Township of Esquimalt page | Esquimalt's own postings | **Works.** Titles, types, closing times, status (open/awarded/cancelled) and documents checked against esquimalt.ca. |
-| District of Oak Bay page | Oak Bay's own postings | On, **not yet checked**: the address moved to www.oakbay.ca and could not be reached from the development environment. |
+| District of Oak Bay page | Oak Bay's own postings | **Off until its Test passes**: the address moved to www.oakbay.ca and could not be reached from the development environment. |
+| Sooke, Langford, Colwood, View Royal, Sidney pages | Each town's own postings | **Off, not yet checked.** Turn one on and press Test. |
 | BC Bid notices (via CanadaBuys) | Most municipalities, school districts and public bodies | **Off.** canadabuys.canada.ca asks automated tools not to read it (robots.txt). Use BC Bid's own e-mail notifications. |
 | Government of Canada open data | Federal sites: CFB Esquimalt, Parks Canada | **Off**, same reason. Use a saved CanadaBuys search with e-mail alerts. |
 | Bonfire portals | City of Victoria, Saanich, Central Saanich, North Saanich, UVic | **Off.** Bonfire's robots.txt disallows all automated reading. Follow each buyer on Bonfire with a free vendor account. |
@@ -40,9 +41,9 @@ Lgbids does not work around a site's robots.txt or browser checks. Instead, BC B
 3. Create a Gmail **app password** (Google Account → Security → 2-Step Verification → App passwords).
 4. In Lgbids: **Settings → Bid alert inbox** — Gmail address, app password, folder or label → Save → Test connection.
 
-Lgbids opens the folder read-only, fetches only messages from BC Bid and Bonfire, and never marks, moves or deletes mail. It never opens the links in the alerts. Without an inbox, you can drop saved alerts (`.eml`, Gmail ⋮ → "Download message") on the **Sources** page. Outlook.com / Microsoft 365 no longer allow app-password sign-in; forward the alerts to Gmail instead.
+Lgbids opens the folder read-only, fetches only messages from the bid services above, and never marks, moves or deletes mail. It never opens the links in the alerts. "Test connection" shows how many alert e-mails it found per sender. Without an inbox, you can drop saved alerts (`.eml`, Gmail ⋮ → "Download message") on the **Sources** page, or use **Opportunities → Paste an alert**. A bid you heard about another way goes in with **Opportunities → Add a bid by hand**. Outlook.com / Microsoft 365 no longer allow app-password sign-in; forward the alerts to Gmail instead.
 
-**Not yet proven:** the alert reader was written without real BC Bid or Bonfire alert e-mails and is tested on invented ones. Import a few real alerts and check the titles and closing dates it shows; if something is wrong, the alert's layout needs a small fix.
+**Not yet proven:** the alert reader was written without real alert e-mails and is tested on invented ones. Import a few real alerts and check the titles and closing dates it shows; if something is wrong, the alert's layout needs a small fix.
 
 On the Sources page you can turn each source on or off and test it, and each turned-off source says why. Adding your own sources is not offered in this beta.
 
@@ -86,6 +87,14 @@ WantedBy=default.target
 
 To hear about new suitable bids and close deadlines on your phone, turn them on under **Settings → Phone alerts**; the page walks you through it. Alerts go out from the app on your computer, so they only arrive while it is running.
 
+### Day to day
+
+- **Closing reminders**: pursued bids and unsent applications get a phone alert 72 and 24 hours before the deadline, in every automation mode. Turn on **Settings → Notifications → Closing reminders** for an e-mail copy.
+- **Changes**: a bid page has the switch "Remind me before it closes and tell me about changes". For a bid you pursue or have an application for, a moved closing, an addendum or a cancellation sends one phone alert (and an e-mail with **Changes to bids you pursue** on) and shows under "What changed".
+- **Saved searches**: filter Opportunities by score, service and place, then **Save this search**.
+- **Scoring feedback**: mark a bid "Not relevant" or "Missed this one", or **Report a bid Lgbids missed**. **Insights → Scoring** shows what went wrong and can add a word to your excluded words.
+- **Results**: **Record the result** (won or not awarded) on an application. Award notices found by Lgbids appear on the bid as a suggestion to confirm, edit or ignore.
+
 ## Getting started
 
 Requires [Node.js](https://nodejs.org) 22.13 or newer (use the latest 22.x: closing times depend on up-to-date time zone data).
@@ -112,9 +121,11 @@ To look around first with invented sample notices (nothing real is read or sent)
 | `PORT` / `HOST` | `3000` / `127.0.0.1` | Where the app listens |
 | `DATA_DIR` | `./data` | Database and uploaded files — back this folder up |
 | `APP_PASSWORD` | (none) | Required before the app will listen beyond localhost |
+| `ALLOWED_HOSTS` | (none) | Host names the app answers to when it listens beyond localhost, for example `bids.example.com` |
 | `TRUST_PROXY` | (off) | Set to `1` behind an HTTPS reverse proxy so sign-in cookies are marked secure |
 | `TZ_LOCAL` | `America/Vancouver` | Time zone for closing dates |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM_NAME`, `SMTP_FROM_EMAIL` | (none) | Outgoing mail, instead of the Settings page |
+| `ALERT_IMAP_PASS`, `TELEGRAM_TOKEN`, `NTFY_TOKEN` | (none) | Alert inbox and phone alert secrets, instead of the saved ones |
 
 ### Running on a server
 
@@ -135,7 +146,7 @@ and run the app with `TRUST_PROXY=1`. `GET /api/health` answers `{"ok":true}` wi
 
 ### Backups and updates
 
-Everything (database, uploaded documents, settings including the mail password) lives in `DATA_DIR`. Back that folder up, and keep it private. To update: stop the app, `git pull`, `npm install`, `npm run build`, start it again. Keep Node.js on the latest 22.x release: British Columbia has been on UTC−7 all year since 2026, and older releases show closing times an hour off (the app warns at start-up if yours is affected).
+Everything (database, uploaded documents, settings including the mail password) lives in `DATA_DIR`, readable only by you. `npm run backup` copies it to `DATA_DIR/backups/<stamp>`; stop Lgbids and run `npm run restore -- <that folder>` to put it back. Backups contain your passwords, so keep them private. A snapshot is also taken before each database upgrade. To update: stop the app, `git pull`, `npm install`, `npm run build`, start it again. Keep Node.js on the latest 22.x release: British Columbia has been on UTC−7 all year since 2026, and older releases show closing times an hour off (the app warns at start-up if yours is affected).
 
 ## Beta testing
 
@@ -148,6 +159,8 @@ During the beta, keep **Settings → Automation** on "Find, score & draft applic
 
 Before the first real run, check the sources: `npm run check-sources`, or **Sources → Test** for each. Saanich and Esquimalt were checked against the live sites; Oak Bay was not (see the Sources table).
 
+**Live check for the developers.** On your own computer, run `npm run live-check -- --include-blocked --save-html --alerts` (or `--eml <folder>` instead of `--alerts`). It reads the bid sites (only robots.txt for blocked ones) and your saved alert inbox read-only, and writes `live-check-YYYY-MM-DD/report.md` and a scrubbed `bundle.json`. Read both, then send them back.
+
 ### Hosted prototype for testers (Netlify)
 
 `npm run build:prototype` builds the web UI as a static site in `dist/prototype`, running on invented sample data in the browser (`src/web/mock.ts`). There is no server: nothing is read from bid sites and nothing is sent. Testers get a bar at the top with **What to try** (a short task list), **Send feedback** and **Start over**. Their changes are kept in their own browser (localStorage) until they press Start over; files they upload last until the tab is closed. The package PDF and calendar downloads are built in the browser.
@@ -157,7 +170,7 @@ Deploy on Netlify, either way:
 - **From the repository**: *Add new site → Import an existing project*, pick this repository and the branch to publish. `netlify.toml` already sets the build command (`npm run build:prototype`), the folder (`dist/prototype`) and Node 22.
 - **By hand**: run `npm run build:prototype` and drag the `dist/prototype` folder onto *Sites → Deploy manually*.
 
-Feedback arrives under **Forms → beta-feedback** in the Netlify site (Netlify detects the form on the first deploy; turn on form detection under *Forms* if it asks). Each entry carries the kind, the message, the page, the screen size and the browser. Set up a form notification there to get each one by e-mail. The prototype sends `noindex` headers and a `robots.txt` so search engines leave it alone; share the link only with your testers.
+Feedback arrives under **Forms → beta-feedback** (and per-bid score feedback under **Forms → notice-feedback**) in the Netlify site (Netlify detects the form on the first deploy; turn on form detection under *Forms* if it asks). Each entry carries the kind, the message, the page, the screen size and the browser. Set up a form notification there to get each one by e-mail. The prototype sends `noindex` headers and a `robots.txt` so search engines leave it alone; share the link only with your testers.
 
 ## Development
 
@@ -165,9 +178,13 @@ Feedback arrives under **Forms → beta-feedback** in the Netlify site (Netlify 
 npm run dev          # server + web UI with reload
 npm test             # unit and integration tests
 npm run typecheck
+npm run eval         # score the labelled corpus (--check is the CI gate)
+npm run verify       # typecheck, tests (also shuffled), both builds, bundle check
+npm run verify:full  # verify, plus coverage and the Playwright end-to-end tests
 npm run check-sources
+npm run live-check   # see "Beta testing"
 ```
 
-Every push and pull request runs the type check, the tests and both builds on GitHub Actions (`.github/workflows/ci.yml`).
+Pull requests and pushes to `main`, `wave2/**` branches and tags run the checks, the end-to-end tests, a Node 22.13 floor job, a production smoke test, a Docker build and an audit on GitHub Actions (`.github/workflows/ci.yml`). Release notes: `CHANGELOG.md`.
 
 Code layout: `src/server/sources` (readers), `src/server/matching` (scoring), `src/server/applications` (drafting), `src/server/pipeline` (the scheduled run), `src/server/routes` (API), `src/web` (UI), `src/server/demo` (sample sites).

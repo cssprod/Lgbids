@@ -23,9 +23,33 @@ Node >= 22.13, TypeScript (ESM, `.js` import suffixes), Fastify 5, built-in `nod
 - Activity is not in the menu (it is a log, not part of the find → qualify → apply flow); it is linked from Today's "Last check".
 - Built-in source start modes: `on`, `off` (off on a new install, stays on once the user turns it on), `blocked` (`forceOff`: switched off at every start-up — robots/bot-check sources only).
 - Phone alerts: Telegram or ntfy only (no SMS gateways, no paid services); push failure never fails a run.
-- Beta scope (2026-11-17, user decision): the UI hides fully automatic mode (shown only if the saved mode is already `auto`, so the user can switch away), offers no "Add a source"/"Edit" on Sources (on/off, Test, health only; user-added sources can still be deleted), and folds bid types, keywords, site-reading options and the service-area lists into collapsed "Advanced" sections. Server/API support for all of these stays, with its tests.
+- Beta scope (2026-11-17, user decision): the UI hides fully automatic mode (shown only if the saved mode is already `auto`, so the user can switch away), offers no "Add a source"/"Edit" on Sources (on/off, Test, health only; user-added sources can still be deleted), and folds bid types, keywords, site-reading options and the service-area lists into collapsed "Advanced" sections. Server/API support for all of these stays, with its tests. Wave 2 additions (D6, D21): Opportunities offers "Add a bid by hand" and "Paste an alert"; Insights offers one-click "Add to excluded words" with a confirm dialog and Undo.
 
-## Done (288 tests passing; demo verified in a browser)
+### Wave 2 decisions (docs/WAVE-2.md §5.1; recommended defaults used, 2026-11-22)
+- D2: no "Respect robots.txt" switch or user-agent field; robots.txt is always respected and the user agent is `Lgbids/<version>`.
+- D3: Oak Bay ships off until its Test passes. D4 (CRD bids page URL) is still open, so CRD stays off.
+- D5: CanadaBuys and bids&tenders alerts are parsed in full; MERX and Biddingo get sender recognition and generic parsing until real samples arrive. D9: zone-less MERX times = Eastern.
+- D7: "Who you hear from" is a collapsed, read-only section on Sources (UI moved to v2.1; `/api/coverage` still answers 501).
+- D10: service area is strictly Sooke to Sidney: Jordan River, Shirley and Port Renfrew out; Willis Point, Otter Point and East Sooke in; boat-access islands (James, Sidney, Piers) `unknown`.
+- D11: bundled-trade notices (janitorial, multi-trade, civil works with sod) go to review with a reason and a lower score, never suitable.
+- D12: watched bid = pursued, or an application in needs_input, ready or submitted (copies count). Watched bids get notice re-reads (every 12 h, at most 10 per source per run) and change alerts: one push per change, plus e-mail when "Changes to bids you pursue" is on; `closing_refined` is never alerted.
+- D13: awards are recorded for every in-area relevant notice; a parsed award never overwrites a confirmed or manual one, and a company-name match only suggests "won" (the application status never changes by itself).
+- D15: no multi-user in v2; per-person recipients (UX-14) move to v3 with accounts.
+- D16, D17: closing reminders run on their own 15-minute tick in every automation mode, with their own e-mail switch. Thresholds 72 h and 24 h (`reminderHours`), counted from `closingDeadline`, each sent once per closing instant; only pursued bids and unsent applications (needs_input, ready, failed) that are open, unmuted and have a known closing. Submitted bids get none.
+- D18-D21: "Not relevant" also dismisses (one tap, Undo, optional "Tell us why"); "Report a bid Lgbids missed" is feedback only, never a source; Insights is a lazy nav item under "Your company" with a Scoring tab; it may offer "Add to excluded words" (confirm + Undo).
+- D22: the prototype posts per-notice feedback to the Netlify form `notice-feedback`.
+- D23: no bid-value filter in v2 (v3); filters are score, service and place.
+- D24: secrets stay plain text in SQLite, data files 0600 and folders 0700, with optional env overlays (`SMTP_*`, `ALERT_IMAP_PASS`, `TELEGRAM_TOKEN`, `NTFY_TOKEN`); backups contain secrets and the docs say so.
+- D25: the v2 beta runs on the owner's computer; Docker is checked in CI only.
+- D29: if 2.2 live results are not back, tag `v0.2.0-beta` with honest statuses (unverified sources off) and ship 2.2 as `v0.2.1-beta`.
+- D30: accessibility-tree snapshots would block merges and pixel diffs run in CI only, non-blocking (TST-6 itself is cut, so none exist yet).
+- D31: Node floor stays >= 22.13; a CI job runs 22.13.0 and skips winter tz assertions when the tz data still shows UTC-8.
+- D32: corpus gate (`npm run eval -- --check`): pinned rows pass and metrics may not drop; the v2 exit needs suitable recall >= 0.95 and precision >= 0.70.
+- FLAG-1 (D14) not approved: an addendum adds no checklist item and does not hold auto-send.
+- Lean cuts (§8.9): UX-14 recipients and the UX-12 Insights Results tab → v3; the COV-14 "Who you hear from" UI → v2.1; dropped: the MAT-13 tuning CLI, TST-6, TST-9, UX-17 award extras, OPS-10 log rotation and OPS-8 daily snapshots (the pre-migration snapshot and backup CLI stay).
+
+## Done (613 tests passing; demo verified in a browser)
+- Wave 2 (v0.2.0-beta, 2026-11-22): 2.0, 2.1 and the 2.3 integration, review fixes and contract requests are done; details in CHANGELOG.md, open items in docs/WAVE-2-STATUS.md. `npm run verify` / `verify:full` are the gates; `npm run backup` / `restore`, `live-check`, `eval`.
 - v1 build-out from the uploaded bid-scanner plan (2026-11-21): new built-in sources Sooke, Langford, Colwood, View Royal, Sidney (start off, unverified — sandbox cannot reach them); per-source "layout may have changed" warning (`sources/health.ts`, migration v2, shown on Sources + in the digest; never for incremental sources like `email-alerts`); phone push alerts via Telegram or ntfy (`pipeline/push.ts`, Settings → Phone alerts, tokens write-only); CSV export `GET /api/opportunities.csv` (shared `src/shared/csv.ts`, BOM, formula-injection guard); double-click launchers + `npm run app` (`scripts/launch.mjs`); CI (`.github/workflows/ci.yml`). Roadmap: docs/ROADMAP.md.
 - Everything in docs/PLAN.md phases 1–3. App builds, runs, and works end to end in demo mode.
 - UI design & usability pass (docs/PLAN.md, phases A–F): tokens, icons, nav badges, redesigned pages; verified in the browser (light/dark, 1280/390, keyboard, golden paths).
@@ -42,7 +66,7 @@ Node >= 22.13, TypeScript (ESM, `.js` import suffixes), Fastify 5, built-in `nod
 - Tests: tests/dates, matching, connectors.
 
 ## Remaining work
-Next wave: docs/WAVE-2.md (v2 plan, lean mode §8.9). Current progress and what is left: docs/WAVE-2-STATUS.md. Older phases: docs/PLAN.md.
+Wave 2 is left with user checks (2.2) and the release (2.4): see docs/WAVE-2-STATUS.md. Plan: docs/WAVE-2.md (lean mode §8.9). Older phases: docs/PLAN.md.
 
 ## Conventions
 - Token efficiency (user rule, 2026-11-21): always choose the cheapest approach that keeps quality. Do small tasks inline; use workflows only for real multi-lane work, with few agents (scout/build lanes + one verify; skip separate critic/fix agents unless the change is risky), tight prompts, read-only scouts returning structured data, `budget` guards on every loop, and no re-reading of files already summarised.
