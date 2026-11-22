@@ -823,7 +823,45 @@ export function recomputeKeys(db: Database): number {
 export type ChangeStore = Omit<Store, 'upsertOpportunity' | 'applyDetail'> & {
   upsertOpportunity(sourceId: string, raw: RawOpportunity, bcSource: boolean, now: Date): UpsertResult & { changes: NoticeChange[] };
   applyDetail(id: number, detail: Partial<RawOpportunity> | null, now: Date): { closingChanged: boolean; changes: NoticeChange[] };
+  /**
+   * Open rows of one source whose notice page was last read before `readBefore`
+   * and whose bid is watched (D12: pursued, or with an application that needs
+   * input, is ready or was submitted). Copies of a watched bid count too. Oldest read first.
+   */
+  watchedForRefetch(sourceId: string, readBefore: string, limit: number): { id: number; raw: RawOpportunity }[];
+  /**
+   * The bid an award or result notice is about: same reference or title key,
+   * the same source allowed, never another award or result notice. Canonical id, or null.
+   */
+  findAwardOriginal(noticeId: number): number | null;
+  /**
+   * Record what an award notice says. A linked original becomes `awarded`; the
+   * values are saved as a `suggested` award, never over a confirmed or hand-entered one.
+   */
+  recordParsedAward(input: ParsedAwardInput, now: Date): Award | null;
 };
+
+/** What the pipeline read from one award or result notice. */
+export interface ParsedAwardInput {
+  /** The bid it is about (canonical), when found. */
+  originalId: number | null;
+  /** The award or result notice row, when it is a row of its own. */
+  noticeId: number | null;
+  winner: string;
+  amount: number | null;
+  amountText: string;
+  awardedOn: string | null;
+  excerpt: string;
+  /** Result notices without a winner only close the bid; award notices mark it awarded. */
+  awarded: boolean;
+}
+
+/** Statuses whose application makes a bid watched (D12). */
+const WATCHED_APP_STATUSES = ['needs_input', 'ready', 'submitted'];
+
+/** Award words removed before comparing titles, so "Award – Boulevard Mowing" finds "Boulevard Mowing". */
+const AWARD_WORDS =
+  /\b(?:notice of (?:contract )?award|award(?:ed)? notice|award notification|contract award(?:ed)?|awarded(?: to)?|award|(?:bid|tender|quotation|proposal)s? results?|results?|bid tabulations?)\b/gi;
 
 export function createStore(db: Database): ChangeStore {
   function oppRow(id: number): OppRow | undefined {
@@ -1968,6 +2006,107 @@ export function createStore(db: Database): ChangeStore {
 
     listAwards() {
       return db.all<AwardRow>('SELECT * FROM awards ORDER BY updated_at DESC, id DESC').map(toAward);
+    },
+
+    watchedForRefetch(sourceId, readBefore, limit) {
+      const statuses = inList('s', WATCHED_APP_STATUSES);
+      const rows = db.all<OppRow>(
+        `SELECT o.* FROM opportunities o
+         JOIN opportunities c ON c.id = COALESCE(o.duplicate_of, o.id)
+         WHERE o.source_id = :source AND o.status = 'open' AND o.url != ''
+           AND o.detail_fetched_at IS NOT NULL AND o.detail_fetched_at < :before
+           AND (c.user_decision = 'pursue'
+                OR EXISTS (SELECT 1 FROM applications a WHERE a.opportunity_id = c.id AND a.status IN (${statuses.sql})))
+         ORDER BY o.detail_fetched_at, o.id LIMIT :limit`,
+        { ...statuses.params, source: sourceId, before: readBefore, limit },
+      );
+      return rows.map((r) => ({
+        id: r.id,
+        raw: {
+          externalId: r.external_id,
+          title: r.title,
+          url: r.url,
+          organization: r.organization,
+          referenceNumber: r.reference_number,
+          closing: r.closes_at ? { iso: r.closes_at, precision: (r.closes_at_precision as DatePrecision | null) ?? 'datetime' } : null,
+        },
+      }));
+    },
+
+    findAwardOriginal(noticeId) {
+      const notice = db.get<OppRow>('SELECT * FROM opportunities WHERE id = :id', { id: noticeId });
+      if (!notice) return null;
+      const isResult = (r: OppRow) => {
+        const kind = classifyNoticeEvent(r.title);
+        return kind === 'award' || kind === 'result';
+      };
+      // Already linked to its bid as a copy on another site.
+      if (notice.duplicate_of !== null) {
+        const canon = db.get<OppRow>('SELECT * FROM opportunities WHERE id = :id', { id: notice.duplicate_of });
+        if (canon && !isResult(canon)) return canon.id;
+      }
+      const stripped = keysFor({ organization: notice.organization, reference_number: notice.reference_number, title: notice.title.replace(AWARD_WORDS, ' ') });
+      const ref = notice.ref_key || stripped.ref_key;
+      const title = stripped.title_key;
+      if (!ref && !title) return null;
+      const candidates = db
+        .all<OppRow>(
+          `SELECT * FROM opportunities WHERE id != :id
+             AND ((ref_key != '' AND ref_key = :ref) OR (title_key != '' AND title_key = :title))
+           ORDER BY duplicate_of IS NOT NULL, first_seen_at DESC, id DESC`,
+          { id: noticeId, ref, title },
+        )
+        .filter((c) => !isResult(c) && c.first_seen_at <= notice.first_seen_at);
+      // A matching reference number is decisive; a title alone is the fallback.
+      const match = candidates.find((c) => ref !== '' && c.ref_key === ref) ?? candidates.find((c) => title !== '' && c.title_key === title);
+      if (!match) return null;
+      return match.duplicate_of ?? match.id;
+    },
+
+    recordParsedAward(input, now) {
+      return db.tx(() => {
+        const original = input.originalId !== null ? oppRow(input.originalId) : undefined;
+        const notice = input.noticeId !== null ? oppRow(input.noticeId) : undefined;
+        if (original) {
+          const c = pickContent(original);
+          const status: OpportunityStatus = input.awarded ? 'awarded' : 'closed';
+          // An award notice ends the bid whatever the listing said; a cancelled bid stays cancelled.
+          if (c.status !== status && c.status !== 'cancelled' && !(c.status === 'awarded' && status === 'closed')) {
+            c.status = status;
+            commitContent(original, c, { now });
+          }
+        }
+        if (!input.winner && input.amount === null) return null;
+        const existing = original
+          ? db.get<AwardRow>('SELECT * FROM awards WHERE opportunity_id = :id', { id: original.id })
+          : notice
+            ? db.get<AwardRow>('SELECT * FROM awards WHERE notice_opportunity_id = :id AND opportunity_id IS NULL', { id: notice.id })
+            : undefined;
+        // A result the user confirmed or typed in is theirs; a notice never overwrites it.
+        if (existing && (existing.status === 'confirmed' || existing.origin === 'manual')) return toAward(existing);
+        if (existing && existing.opportunity_id === null) db.run('DELETE FROM awards WHERE id = :id', { id: existing.id });
+        const from = original ?? notice;
+        const keys = from ? keysFor(pickContent(from)) : { ref_key: '', title_key: '' };
+        return store.saveAward(
+          {
+            opportunityId: original?.id ?? null,
+            noticeOpportunityId: notice?.id ?? null,
+            orgKey: from ? organizationKey(from.organization) : '',
+            refKey: keys.ref_key,
+            title: from?.title ?? '',
+            winner: input.winner,
+            amount: input.amount,
+            amountText: input.amountText,
+            awardedOn: input.awardedOn,
+            url: notice?.url ?? original?.url ?? '',
+            excerpt: input.excerpt,
+            origin: 'parsed',
+            status: 'suggested',
+            notes: '',
+          },
+          now,
+        );
+      });
     },
 
     // ---- v2: saved searches ----------------------------------------------

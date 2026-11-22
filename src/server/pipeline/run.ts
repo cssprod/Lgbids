@@ -17,11 +17,12 @@ import { assessReadiness, draftApplication, mergeChecklist } from '../applicatio
 import { transmittalText } from '../applications/templates.js';
 import { buildPackagePdf } from '../applications/pdf.js';
 import { packageFilename } from '../applications/templates.js';
-import type { AppDeps, ApplicationPatch, DraftContext, OpportunityRecord, OutgoingMail, Pipeline, SendResult, SourceTestResult } from '../contracts.js';
+import type { AppDeps, ApplicationPatch, DraftContext, OpportunityRecord, OutgoingMail, Pipeline, SendResult, SourceTestResult, Store } from '../contracts.js';
+import type { ChangeStore } from '../db/store.js';
 import { HttpError, type HttpClient } from '../http/client.js';
 import { analyse, type AnalyseInput } from '../matching/analyse.js';
 import { mightBeRelevant } from '../matching/relevance.js';
-import { connectorFor, listSource } from '../sources/registry.js';
+import { connectorFor, DEFAULT_SOURCES, listSource } from '../sources/registry.js';
 import type { AlertContext, RawOpportunity } from '../sources/types.js';
 import { buildSubmissionMail, emailConfigured } from '../submission/email.js';
 import { closingDeadline, formatLocal, nowIso } from '../util/dates.js';
@@ -41,6 +42,27 @@ import { sendDigest } from './notify.js';
 
 /** Notice pages opened per source per run, so one big listing cannot stall a run. */
 export const MAX_DETAILS_PER_SOURCE = 40;
+
+/** Watched notice pages re-read per source per run (MAT-9). */
+export const MAX_REFETCH_PER_SOURCE = 10;
+/** A watched notice page is read again at most this often. */
+export const REFETCH_INTERVAL_MS = 12 * 3_600_000;
+
+/**
+ * The lifecycle part of the store built in db/store.ts (re-reads, awards).
+ * The shared Store contract does not list it yet, so it is checked for at run time.
+ */
+type LifecycleStore = Pick<ChangeStore, 'watchedForRefetch' | 'findAwardOriginal' | 'recordParsedAward'>;
+
+function hasLifecycle(store: Store): store is Store & LifecycleStore {
+  const s = store as Store & Partial<LifecycleStore>;
+  return typeof s.watchedForRefetch === 'function' && typeof s.findAwardOriginal === 'function' && typeof s.recordParsedAward === 'function';
+}
+
+/** Sources switched off at every start-up because they refuse automated reading. */
+function forcedOff(source: SourceRecord): boolean {
+  return DEFAULT_SOURCES.some((d) => d.id === source.id && d.forceOff === true);
+}
 
 const CRASHED_WHILE_SENDING = 'The app stopped while this was being sent. Check your sent mail before sending again.';
 
@@ -441,6 +463,43 @@ export function createPipeline(deps: AppDeps): Pipeline {
     return { read, failed };
   }
 
+  /**
+   * Read the notice pages of watched bids again, so an addendum or a moved
+   * closing posted only there is noticed (MAT-9). The change log (MAT-8) records
+   * what is new. Only through the connector's own reader and HttpClient (robots,
+   * per-host delay), never for sources that refuse automated reading, and a
+   * failure here never fails the run: the page is tried again next run.
+   */
+  async function refetchWatched(source: SourceRecord, http: HttpClient, snap: Snapshot, runId: number, now: Date): Promise<number> {
+    const connector = connectorFor(source.kind);
+    if (!connector.detail || !source.config.fetchDetails || forcedOff(source) || !hasLifecycle(store)) return 0;
+    let read = 0;
+    let due: { id: number; raw: RawOpportunity }[] = [];
+    try {
+      due = store.watchedForRefetch(source.id, nowIso(new Date(now.getTime() - REFETCH_INTERVAL_MS)), MAX_REFETCH_PER_SOURCE);
+    } catch {
+      return 0;
+    }
+    for (const { id, raw } of due) {
+      try {
+        const detail = await connector.detail(source, raw, { http, now, region: snap.region, state: {}, note: () => undefined });
+        const { closingChanged } = store.applyDetail(id, detail, now);
+        if (closingChanged) closingChangedEvent(id, runId);
+        read += 1;
+      } catch (error) {
+        // A page that is gone or refuses automated reading is not asked again for 12 hours.
+        if (error instanceof HttpError && (error.status === 404 || error.status === 410 || error.blocked)) {
+          try {
+            store.applyDetail(id, null, now);
+          } catch {
+            // Best effort: the next run asks again.
+          }
+        }
+      }
+    }
+    return read;
+  }
+
   function closingChangedEvent(id: number, runId: number): void {
     const opp = store.getOpportunity(id);
     if (!opp) return;
@@ -522,6 +581,7 @@ export function createPipeline(deps: AppDeps): Pipeline {
           }
         }
         const details = await readDetails(source, listed, http, snap, runId, now);
+        await refetchWatched(source, http, snap, runId, now);
         const messages = [outcome.message];
         if (details.failed > 0) {
           messages.push(`${plural(details.failed, 'notice page', 'notice pages')} could not be read and will be tried again next run.`);
