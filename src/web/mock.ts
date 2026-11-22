@@ -32,7 +32,7 @@ import type {
   SourceRecord,
 } from '../shared/schemas.js';
 import { automationSchema, profileSchema } from '../shared/schemas.js';
-import { opportunitiesCsv, opportunitiesCsvFilename } from '../shared/csv.js';
+import { feedbackCsv, feedbackCsvFilename, opportunitiesCsv, opportunitiesCsvFilename } from '../shared/csv.js';
 import type { MockResponse } from './api.js';
 import { formatDate, formatDateTime } from './format.js';
 import { alerts } from './mock/alerts.js';
@@ -710,7 +710,7 @@ async function route(method: string, fullPath: string, rawBody: unknown): Promis
   }
   if ((r = m(/^\/api\/opportunities\/(\d+)$/))) {
     const o = opportunities.find((x) => x.id === Number(r![1]));
-    return o ? ok(o) : fail(404, 'That opportunity no longer exists.');
+    return o ? ok({ ...o, myFeedback: v2.feedback.find((f) => f.opportunityId === o.id) ?? null }) : fail(404, 'That opportunity no longer exists.');
   }
   if ((r = m(/^\/api\/opportunities\/(\d+)\/decision$/))) {
     const o = opportunities.find((x) => x.id === Number(r![1]));
@@ -1162,6 +1162,12 @@ export async function mockDownload(href: string): Promise<MockDownload | null> {
     });
     const day = new Intl.DateTimeFormat('en-CA', { timeZone: zone }).format(new Date());
     return { blob: new Blob([text], { type: 'text/csv;charset=utf-8' }), filename: opportunitiesCsvFilename(day) };
+  }
+  if (path === '/api/feedback.csv') {
+    const zone = 'America/Vancouver';
+    const day = new Intl.DateTimeFormat('en-CA', { timeZone: zone }).format(new Date());
+    const text = feedbackCsv(v2.feedback, (at) => formatDateTime(at, zone));
+    return { blob: new Blob([text], { type: 'text/csv;charset=utf-8' }), filename: feedbackCsvFilename(day) };
   }
   if ((r = /^\/api\/applications\/(\d+)\/package\.pdf$/.exec(path))) {
     const a = applications.find((x) => x.id === Number(r![1]));

@@ -101,8 +101,8 @@ export function OpportunityDetailPage() {
           </button>
         ) : null}
         {o.userDecision !== 'dismissed' && !o.application ? (
-          <button type="button" className="btn btn-secondary" disabled={action.busy} onClick={() => decide('dismissed', 'Dismissed. It will no longer show in your lists.')}>
-            Dismiss
+          <button type="button" className="btn btn-secondary" disabled={action.busy} onClick={() => decide('dismissed', 'Marked as not for us. It will no longer show in your lists.')}>
+            Not for us
           </button>
         ) : null}
         {o.userDecision ? (
