@@ -2,10 +2,8 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { OpportunityList, OpportunityViewName } from '../../shared/api.js';
 import { SERVICE_KEYS, type Opportunity, type ServiceKey } from '../../shared/schemas.js';
-import { opportunitiesCsv } from '../../shared/csv.js';
 import type { OpportunityFilter, OpportunityRecord, OpportunityView } from '../contracts.js';
 import { opportunitiesCsvName, opportunitiesCsvText } from '../util/csv.js';
-import { formatLocal } from '../util/dates.js';
 import { ApiError, idParam, intQuery, notFound, opportunityDto, parseBody, query, type RouteContext } from './util.js';
 
 const VIEWS: OpportunityViewName[] = ['suitable', 'review', 'unsuitable', 'closed', 'dismissed', 'all'];
@@ -77,22 +75,15 @@ export function registerOpportunities(app: FastifyInstance, ctx: RouteContext): 
   app.get('/api/opportunities.csv', async (req, reply) => {
     const filter = filterFrom(req);
     const at = now();
-    // `include=awards` adds who won (UX-13); the plain export keeps its v1 columns.
-    const withAwards = query(req).include === 'awards';
     const items: Opportunity[] = [];
     for (let offset = 0; offset < 20_000; offset += 500) {
       const page = store.listOpportunities({ ...filter, limit: 500, offset }, at);
-      items.push(...page.items.map((r) => (withAwards ? { ...opportunityDto(r), award: store.getAwardFor(r.id) ?? null } : opportunityDto(r))));
+      // Who won (UX-13) is a standard column, so each row carries its award.
+      items.push(...page.items.map((r) => ({ ...opportunityDto(r), award: store.getAwardFor(r.id) ?? null })));
       if (page.items.length < 500) break;
     }
     const zone = ctx.deps.config.timeZone;
-    const text = withAwards
-      ? opportunitiesCsv(
-          items,
-          { closes: (o) => formatLocal(o.closesAt, o.closesAtPrecision, zone), firstSeen: (o) => formatLocal(o.firstSeenAt, 'datetime', zone) },
-          { awards: true },
-        )
-      : opportunitiesCsvText(items, zone);
+    const text = opportunitiesCsvText(items, zone);
     return reply
       .header('content-type', 'text/csv; charset=utf-8')
       .header('content-disposition', `attachment; filename="${opportunitiesCsvName(at, zone)}"`)

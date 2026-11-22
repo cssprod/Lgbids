@@ -531,7 +531,7 @@ describe('opportunities spreadsheet', () => {
     expect(res.headers['content-disposition']).toBe('attachment; filename="lgbids-opportunities-2026-06-15.csv"');
     expect(res.rawPayload.subarray(0, 3)).toEqual(Buffer.from([0xef, 0xbb, 0xbf]));
     const lines = res.body.replace(/^\uFEFF/, '').trimEnd().split('\r\n');
-    expect(lines[0]).toBe('Title,Buyer,Source,Reference,Type,Decision,Score,Closes,Submission,Link,First seen');
+    expect(lines[0]).toBe('Title,Buyer,Source,Reference,Type,Decision,Score,Closes,Submission,Link,First seen,Winner,Winning price,Awarded on,Award status');
     expect(lines).toHaveLength(3);
     expect(res.body).toContain('"Boulevard mowing, phase 2",District of Saanich,Test source,RFQ 26-1,');
     expect(res.body).toContain(`"'=HYPERLINK(""https://evil.example"")"`);

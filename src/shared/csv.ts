@@ -27,7 +27,6 @@ export function toCsv(rows: (string | number | null | undefined)[][]): string {
   return CSV_BOM + rows.map((row) => row.map(csvCell).join(',')).join('\r\n') + '\r\n';
 }
 
-export const OPPORTUNITY_CSV_HEADERS = ['Title', 'Buyer', 'Source', 'Reference', 'Type', 'Decision', 'Score', 'Closes', 'Submission', 'Link', 'First seen'];
 
 /** The decision as the Opportunities page words it; the user's own choice wins. */
 export function decisionLabel(o: Pick<Opportunity, 'decision' | 'userDecision'>): string {
@@ -46,11 +45,13 @@ export interface CsvDates {
 }
 
 /**
- * Award columns (UX-13), added after the others. "Award status" says whether
- * the person confirmed the winner or Lgbids only read it from a notice, so a
- * suggestion is never passed off as fact.
+ * Award columns (UX-13), always after the others so the v1 columns keep their
+ * places. "Award status" says whether the person confirmed the winner or
+ * Lgbids only read it from a notice, so a suggestion is never passed off as fact.
  */
 export const AWARD_CSV_HEADERS = ['Winner', 'Winning price', 'Awarded on', 'Award status'];
+
+export const OPPORTUNITY_CSV_HEADERS = ['Title', 'Buyer', 'Source', 'Reference', 'Type', 'Decision', 'Score', 'Closes', 'Submission', 'Link', 'First seen', ...AWARD_CSV_HEADERS];
 
 function awardCells(o: Opportunity): (string | number | null)[] {
   const a = o.award;
@@ -58,12 +59,8 @@ function awardCells(o: Opportunity): (string | number | null)[] {
   return [a.winner, a.amount, a.awardedOn ?? '', a.status === 'confirmed' ? 'Confirmed' : 'Suggested from the award notice'];
 }
 
-export interface OpportunitiesCsvOptions {
-  /** Add the award columns, read from each item's `award`. */
-  awards?: boolean;
-}
-
-export function opportunitiesCsv(items: Opportunity[], dates: CsvDates, options: OpportunitiesCsvOptions = {}): string {
+/** The award cells are read from each item's `award` (empty when it has none). */
+export function opportunitiesCsv(items: Opportunity[], dates: CsvDates): string {
   const rows = items.map((o) => [
     o.title,
     o.organization,
@@ -76,9 +73,9 @@ export function opportunitiesCsv(items: Opportunity[], dates: CsvDates, options:
     [SUBMISSION_METHOD_LABELS[o.submissionMethod] ?? o.submissionMethod, o.submissionEmail].filter(Boolean).join(' — '),
     o.url,
     dates.firstSeen(o),
-    ...(options.awards ? awardCells(o) : []),
+    ...awardCells(o),
   ]);
-  return toCsv([options.awards ? [...OPPORTUNITY_CSV_HEADERS, ...AWARD_CSV_HEADERS] : OPPORTUNITY_CSV_HEADERS, ...rows]);
+  return toCsv([OPPORTUNITY_CSV_HEADERS, ...rows]);
 }
 
 /** lgbids-opportunities-YYYY-MM-DD.csv, dated by the caller's local day. */

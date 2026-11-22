@@ -64,12 +64,12 @@ describe('opportunities export', () => {
     );
     const lines = text.slice(CSV_BOM.length).split('\r\n');
     expect(lines[0]).toBe(OPPORTUNITY_CSV_HEADERS.join(','));
-    expect(lines[0]).toBe('Title,Buyer,Source,Reference,Type,Decision,Score,Closes,Submission,Link,First seen');
+    expect(lines[0]).toBe('Title,Buyer,Source,Reference,Type,Decision,Score,Closes,Submission,Link,First seen,Winner,Winning price,Awarded on,Award status');
     // 21:00Z is 2:00 PM in Victoria (UTC-7). The zone's short name depends on the tz data version.
     const zoneName = lines[1]!.match(/2:00 PM (\S+)"/)?.[1];
     expect(zoneName).toBeTruthy();
     expect(lines[1]).toBe(
-      `Boulevard mowing,District of Saanich,Saanich feed,RFQ 26-14,Request for quotations,Suitable,82,"Thu, Jul 2, 2026 at 2:00 PM ${zoneName}",Email — bids@saanich.example,https://saanich.example/bids/14,"Mon, Jun 15, 2026 at 9:30 AM ${zoneName}"`,
+      `Boulevard mowing,District of Saanich,Saanich feed,RFQ 26-14,Request for quotations,Suitable,82,"Thu, Jul 2, 2026 at 2:00 PM ${zoneName}",Email — bids@saanich.example,https://saanich.example/bids/14,"Mon, Jun 15, 2026 at 9:30 AM ${zoneName}",,,,`,
     );
     expect(lines[2]).toMatch(/^"Hedge, trimming",.*,Pursuing,82,"Thu, Jul 9, 2026",Bonfire/);
     expect(lines[3]).toMatch(/,Not scored yet,,Not stated,/);

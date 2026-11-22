@@ -1188,16 +1188,11 @@ export async function mockDownload(href: string): Promise<MockDownload | null> {
   }
   if (path === '/api/opportunities.csv') {
     const zone = 'America/Vancouver';
-    const awards = url.searchParams.get('include') === 'awards';
-    const items = filterOpportunities(url.searchParams).items.map((o) => (awards ? { ...o, award: v2.awards.find((a) => a.opportunityId === o.id) ?? null } : o));
-    const text = opportunitiesCsv(
-      items,
-      {
-        closes: (o) => (o.closesAtPrecision === 'date' ? formatDate(o.closesAt, zone) : formatDateTime(o.closesAt, zone)),
-        firstSeen: (o) => formatDateTime(o.firstSeenAt, zone),
-      },
-      { awards },
-    );
+    const items = filterOpportunities(url.searchParams).items.map((o) => ({ ...o, award: v2.awards.find((a) => a.opportunityId === o.id) ?? null }));
+    const text = opportunitiesCsv(items, {
+      closes: (o) => (o.closesAtPrecision === 'date' ? formatDate(o.closesAt, zone) : formatDateTime(o.closesAt, zone)),
+      firstSeen: (o) => formatDateTime(o.firstSeenAt, zone),
+    });
     const day = new Intl.DateTimeFormat('en-CA', { timeZone: zone }).format(new Date());
     return { blob: new Blob([text], { type: 'text/csv;charset=utf-8' }), filename: opportunitiesCsvFilename(day) };
   }

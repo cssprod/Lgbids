@@ -117,7 +117,7 @@ describe('list filters (UX-13)', () => {
       },
       NOW,
     );
-    const res = await h.app.inject({ method: 'GET', url: '/api/opportunities.csv?view=suitable&service=lawn&minScore=60&include=awards' });
+    const res = await h.app.inject({ method: 'GET', url: '/api/opportunities.csv?view=suitable&service=lawn&minScore=60' });
     const lines = res.body.replace(/^﻿/, '').trimEnd().split('\r\n');
     expect(lines[0]).toBe('Title,Buyer,Source,Reference,Type,Decision,Score,Closes,Submission,Link,First seen,Winner,Winning price,Awarded on,Award status');
     expect(lines).toHaveLength(3);

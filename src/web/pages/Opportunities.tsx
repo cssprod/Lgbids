@@ -135,7 +135,7 @@ export function OpportunitiesPage() {
   }
 
   // The export takes the same filters as the list on screen.
-  const csvQuery = apiQuery(filter, { include: 'awards' }).toString();
+  const csvQuery = apiQuery(filter).toString();
 
   function setView(v: OpportunityViewName) {
     const next = new URLSearchParams(params);
