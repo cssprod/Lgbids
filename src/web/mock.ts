@@ -710,7 +710,7 @@ async function route(method: string, fullPath: string, rawBody: unknown): Promis
   }
   if ((r = m(/^\/api\/opportunities\/(\d+)$/))) {
     const o = opportunities.find((x) => x.id === Number(r![1]));
-    return o ? ok({ ...o, myFeedback: v2.feedback.find((f) => f.opportunityId === o.id) ?? null }) : fail(404, 'That opportunity no longer exists.');
+    return o ? ok({ ...o, award: v2.awards.find((a) => a.opportunityId === o.id) ?? null, myFeedback: v2.feedback.find((f) => f.opportunityId === o.id) ?? null }) : fail(404, 'That opportunity no longer exists.');
   }
   if ((r = m(/^\/api\/opportunities\/(\d+)\/decision$/))) {
     const o = opportunities.find((x) => x.id === Number(r![1]));

@@ -30,7 +30,12 @@ export function registerOpportunities(app: FastifyInstance, ctx: RouteContext): 
   function detail(id: number): Opportunity {
     const record = store.getOpportunity(id);
     if (!record) throw notFound('opportunity');
-    const opp: Opportunity = { ...opportunityDto(record), changes: store.listChanges(id), myFeedback: store.getFeedbackFor(id) ?? null };
+    const opp: Opportunity = {
+      ...opportunityDto(record),
+      changes: store.listChanges(id),
+      award: store.getAwardFor(id) ?? null,
+      myFeedback: store.getFeedbackFor(id) ?? null,
+    };
     if (opp.analysis) {
       opp.analysis = { ...opp.analysis, alsoListed: store.duplicatesOf(id).map((d) => ({ source: d.sourceName, url: d.url })) };
     }

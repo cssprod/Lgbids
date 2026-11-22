@@ -376,8 +376,6 @@ describe('v2 routes', () => {
   it('registers every route not built yet, answering 501 "Not built yet."', async () => {
     const app = await testApp();
     for (const [method, url] of [
-      ['PUT', '/api/opportunities/1/award'],
-      ['DELETE', '/api/opportunities/1/award'],
       ['GET', '/api/saved-searches'],
       ['POST', '/api/saved-searches'],
       ['PATCH', '/api/saved-searches/1'],
