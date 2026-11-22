@@ -373,17 +373,9 @@ async function testApp() {
 }
 
 describe('v2 routes', () => {
-  it('registers every stub, answering 501 "Not built yet."', async () => {
+  it('registers every route not built yet, answering 501 "Not built yet."', async () => {
     const app = await testApp();
     for (const [method, url] of [
-      ['POST', '/api/opportunities/1/alerts'],
-      ['POST', '/api/opportunities/1/changes/seen'],
-      ['PUT', '/api/opportunities/1/feedback'],
-      ['DELETE', '/api/opportunities/1/feedback'],
-      ['POST', '/api/feedback/missed'],
-      ['GET', '/api/feedback'],
-      ['GET', '/api/feedback.csv'],
-      ['GET', '/api/feedback/corpus.jsonl'],
       ['PUT', '/api/opportunities/1/award'],
       ['DELETE', '/api/opportunities/1/award'],
       ['GET', '/api/saved-searches'],
@@ -391,8 +383,6 @@ describe('v2 routes', () => {
       ['PATCH', '/api/saved-searches/1'],
       ['DELETE', '/api/saved-searches/1'],
       ['GET', '/api/coverage'],
-      ['POST', '/api/opportunities/manual'],
-      ['POST', '/api/opportunities/paste-alert'],
       ['GET', '/api/recipients'],
       ['POST', '/api/recipients'],
       ['PATCH', '/api/recipients/1'],
