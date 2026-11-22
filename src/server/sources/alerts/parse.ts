@@ -51,7 +51,7 @@ const BOILERPLATE =
 const CALL_TO_ACTION = /^(?:view|see|open|go to|read|more|details|click here|here|learn more|respond|bid now|view (?:the )?(?:opportunity|project|notice|details|bid)|view opportunity details?)\b.{0,30}$/i;
 const NOT_TITLE_LINE = /^(?:[A-Za-z][A-Za-z /#.()'-]{1,40}:|https?:\/\/|new (?:opportunit|bid|notice)|you are receiving|hello|hi |dear )/i;
 
-const BONFIRE_BUYERS: Record<string, string> = {
+export const BONFIRE_BUYERS: Record<string, string> = {
   victoria: 'City of Victoria',
   saanich: 'District of Saanich',
   centralsaanich: 'District of Central Saanich',
