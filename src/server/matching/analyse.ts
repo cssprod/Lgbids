@@ -1,6 +1,7 @@
 import {
   NOTICE_TYPE_LABELS,
   SERVICE_LABELS,
+  type ServiceKey,
   type Analysis,
   type AnalysisReason,
   type AutomationSettings,
@@ -15,8 +16,8 @@ import {
 import { closingDeadline, formatLocal } from '../util/dates.js';
 import { normalize, phraseRegex } from '../util/text.js';
 import { assessArea } from './geo.js';
-import { detectNoticeType } from './notice.js';
-import { assessRelevance, BORDERLINE_AT, RELEVANT_AT } from './relevance.js';
+import { classifyNoticeEvent, detectNoticeTypeTraced } from './notice.js';
+import { assessRelevance, BORDERLINE_AT, LEXICON_VERSION, RELEVANT_AT } from './relevance.js';
 import { buildRequirements, extractFacts, type NoticeFacts, type PricingKind } from './requirements.js';
 
 /**
@@ -78,18 +79,20 @@ export function analyse(input: AnalyseInput, ctx: AnalyseContext): AnalyseResult
   const reasons: AnalysisReason[] = [];
   let blocked = false;
   let needsReview = false;
-  const block = (text: string) => {
+  const block = (text: string, code: string) => {
     blocked = true;
-    reasons.push({ tone: 'block', text });
+    reasons.push({ tone: 'block', text, code });
   };
-  const warn = (text: string, review = true) => {
+  const warn = (text: string, code: string, review = true) => {
     if (review) needsReview = true;
-    reasons.push({ tone: 'warn', text });
+    reasons.push({ tone: 'warn', text, code });
   };
-  const good = (text: string) => reasons.push({ tone: 'good', text });
+  const good = (text: string, code: string) => reasons.push({ tone: 'good', text, code });
 
   const fullText = [input.title, input.description, input.documentText].filter(Boolean).join('.\n');
-  const noticeType = detectNoticeType(input.title, input.description, input.noticeTypeHint);
+  const typed = detectNoticeTypeTraced(input.title, input.description, input.noticeTypeHint);
+  const noticeType = typed.type;
+  const event = classifyNoticeEvent(input.title, input.description);
   const relevance = assessRelevance(
     { title: input.title, description: `${input.description}\n${input.documentText}`, categories: input.categories },
     { includeKeywords: automation.includeKeywords },
@@ -111,69 +114,77 @@ export function analyse(input: AnalyseInput, ctx: AnalyseContext): AnalyseResult
   // --- Is it still open? ------------------------------------------------------
   let hoursLeft: number | null = null;
   if (input.status !== 'open') {
-    block(input.status === 'awarded' ? 'Already awarded.' : input.status === 'cancelled' ? 'Cancelled by the buyer.' : 'No longer open.');
+    block(input.status === 'awarded' ? 'Already awarded.' : input.status === 'cancelled' ? 'Cancelled by the buyer.' : 'No longer open.', 'closed');
   }
   if (input.closesAt) {
     const deadline = closingDeadline(input.closesAt, input.closesAtPrecision, zone);
     hoursLeft = (deadline.getTime() - now.getTime()) / 3_600_000;
     const closedAt = new Date(input.closesAt).getTime();
     if (closedAt <= now.getTime()) {
-      if (input.status === 'open') block(`Closed ${formatLocal(input.closesAt, input.closesAtPrecision, zone)}.`);
+      if (input.status === 'open') block(`Closed ${formatLocal(input.closesAt, input.closesAtPrecision, zone)}.`, 'closed');
     } else if (hoursLeft < automation.minLeadDays * 24) {
       warn(
         hoursLeft <= 0
           ? `Closes today (${formatLocal(input.closesAt, input.closesAtPrecision, zone)}) — the time is not stated, so treat it as due now.`
           : `Closes in ${timeLeft(hoursLeft)} (${formatLocal(input.closesAt, input.closesAtPrecision, zone)}) — little time to prepare.`,
+        'timing.short',
       );
     } else {
-      good(`Closes ${formatLocal(input.closesAt, input.closesAtPrecision, zone)} — ${timeLeft(hoursLeft)} left.`);
+      good(`Closes ${formatLocal(input.closesAt, input.closesAtPrecision, zone)} — ${timeLeft(hoursLeft)} left.`, 'timing.ok');
     }
   } else if (input.status === 'open') {
-    warn('Closing date not found — check the notice before relying on this.', false);
+    warn('Closing date not found — check the notice before relying on this.', 'timing.no_closing', false);
   }
 
   // --- Is it landscaping work? ------------------------------------------------
   const terms = relevance.matchedTerms.slice(0, 4).join(', ');
   if (relevance.score >= RELEVANT_AT) {
-    if (relevance.inTitle) good(`Gardening / landscaping work (${terms}).`);
-    else warn(`Landscaping is mentioned in the description but not the title (${terms}) — it may be a small part of a larger job.`);
+    if (relevance.bundledTrade)
+      warn(`The title names another trade as well (${terms}), so the landscaping is probably bundled with work you may not do.`, 'relevance.bundled_trade');
+    else if (relevance.inTitle) good(`Gardening / landscaping work (${terms}).`, 'relevance.title');
+    else warn(`Landscaping is mentioned in the description but not the title (${terms}) — it may be a small part of a larger job.`, 'relevance.body_only');
   } else if (relevance.score >= BORDERLINE_AT) {
-    warn(`Only loosely related to landscaping (${terms || 'weak wording'}).`);
+    warn(`Only loosely related to landscaping (${terms || 'weak wording'}).`, 'relevance.borderline');
   } else {
-    block('Not gardening or landscaping work.');
+    block('Not gardening or landscaping work.', 'relevance.none');
   }
 
   const haystack = normalize(`${input.title} ${input.description}`);
   const excluded = automation.excludeKeywords.find((k) => phraseRegex(k)?.test(haystack));
-  if (excluded) block(`Contains your excluded keyword “${excluded}”.`);
+  if (excluded) block(`Contains your excluded keyword “${excluded}”.`, 'keyword.excluded');
 
   // --- Is it in the service area? ---------------------------------------------
-  if (area.area === 'yes') good(area.note);
-  else if (area.area === 'unknown') warn(area.note);
-  else block(area.note);
+  if (area.area === 'yes') good(area.note, area.rule ?? 'area');
+  else if (area.area === 'unknown') warn(area.note, area.rule ?? 'area');
+  else block(area.note, area.rule ?? 'area');
 
   // --- Can it be bid on at all? -----------------------------------------------
-  if (noticeType === 'NOI') block('Notice of intent to award directly — not open to bids.');
-  else if (noticeType === 'AWARD') block('Award notice — the contract has already been let.');
-  else if (noticeType === 'RFI' && !automation.pursueTypes.includes('RFI')) block('Request for information only — no contract is being awarded.');
-  else if (!automation.pursueTypes.includes(noticeType)) block(`${NOTICE_TYPE_LABELS[noticeType]} — a type you chose not to pursue.`);
+  if (event === 'cancellation') block('Cancelled by the buyer — not open to bids.', 'type.cancelled');
+  else if (event === 'result') block('Bid results — the bidding has closed.', 'type.result');
+  else if (noticeType === 'NOI') block('Notice of intent to award directly — not open to bids.', 'type.noi');
+  else if (noticeType === 'AWARD') block('Award notice — the contract has already been let.', 'type.award');
+  else if (noticeType === 'RFI' && !automation.pursueTypes.includes('RFI')) block('Request for information only — no contract is being awarded.', 'type.rfi');
+  else if (!automation.pursueTypes.includes(noticeType)) block(`${NOTICE_TYPE_LABELS[noticeType]} — a type you chose not to pursue.`, 'type.not_pursued');
 
   // --- Is it work the company does? -------------------------------------------
   let serviceFit: 'offered' | 'partial' | 'none' | 'undetected' = 'undetected';
+  // "Supply only: plants, soil, mulch, sod" reads wrong for a mower purchase.
+  const serviceLabel = (k: ServiceKey) => (k === 'supply' && relevance.equipmentPurchase ? 'Equipment or materials purchase' : SERVICE_LABELS[k]);
   if (relevance.primary) {
     const offered = relevance.services.filter((s) => profile.services[s]);
     if (profile.services[relevance.primary]) {
       serviceFit = 'offered';
-      good(`${SERVICE_LABELS[relevance.primary]} — a service you offer.`);
+      good(`${serviceLabel(relevance.primary)} — a service you offer.`, 'service.offered');
     } else if (offered.length > 0) {
       serviceFit = 'partial';
       warn(
-        `Mainly ${SERVICE_LABELS[relevance.primary].toLowerCase()}, which you do not offer; also involves ${SERVICE_LABELS[offered[0]!].toLowerCase()}.`,
+        `Mainly ${serviceLabel(relevance.primary).toLowerCase()}, which you do not offer; also involves ${SERVICE_LABELS[offered[0]!].toLowerCase()}.`,
+        'service.partial',
       );
     } else {
       serviceFit = 'none';
       if (relevance.score >= BORDERLINE_AT) {
-        block(`${SERVICE_LABELS[relevance.primary]} — not a service in your profile.`);
+        block(`${serviceLabel(relevance.primary)} — not a service in your profile.`, 'service.not_offered');
       }
     }
   }
@@ -183,15 +194,15 @@ export function analyse(input: AnalyseInput, ctx: AnalyseContext): AnalyseResult
   for (const req of requirements) {
     if (req.met !== false) continue;
     unmet += 1;
-    if (req.key === 'site_meeting') block(`The mandatory site meeting has already been held (${req.detail.replace(' — already held', '')}).`);
-    else if (req.key === 'bid_bond') warn('Asks for a bid bond; your profile says bonding is not available.');
-    else if (req.key === 'performance_bond') warn('Asks for a performance bond if awarded; your profile says bonding is not available.');
-    else if (req.key === 'insurance') warn(`Insurance: ${req.detail}.`);
-    else if (req.key === 'certification') warn(`Asks for ${req.label}, which is not in your profile.`);
-    else if (req.key === 'references') warn(`Asks for ${req.label.toLowerCase()}; you have ${req.detail}.`);
+    if (req.key === 'site_meeting') block(`The mandatory site meeting has already been held (${req.detail.replace(' — already held', '')}).`, 'requirement.site_meeting_past');
+    else if (req.key === 'bid_bond') warn('Asks for a bid bond; your profile says bonding is not available.', 'requirement.bid_bond');
+    else if (req.key === 'performance_bond') warn('Asks for a performance bond if awarded; your profile says bonding is not available.', 'requirement.performance_bond');
+    else if (req.key === 'insurance') warn(`Insurance: ${req.detail}.`, 'requirement.insurance');
+    else if (req.key === 'certification') warn(`Asks for ${req.label}, which is not in your profile.`, 'requirement.certification');
+    else if (req.key === 'references') warn(`Asks for ${req.label.toLowerCase()}; you have ${req.detail}.`, 'requirement.references');
   }
   const upcomingMeeting = requirements.find((r) => r.key === 'site_meeting' && r.met === null && facts.siteMeeting?.mandatory);
-  if (upcomingMeeting) warn(`Mandatory site meeting: ${upcomingMeeting.detail}. You must attend before bidding.`, false);
+  if (upcomingMeeting) warn(`Mandatory site meeting: ${upcomingMeeting.detail}. You must attend before bidding.`, 'requirement.site_meeting', false);
 
   // --- Pricing basis ------------------------------------------------------------
   let pricing: PricingKind = facts.pricing;
@@ -208,6 +219,7 @@ export function analyse(input: AnalyseInput, ctx: AnalyseContext): AnalyseResult
   }
   const capabilityPoints = Math.max(0, 10 - unmet * 3);
   let score = Math.round(relevance.score * 0.4 + areaPoints + servicePoints + timingPoints + capabilityPoints);
+  if (relevance.bundledTrade) score -= 15;
   if (blocked) score = Math.min(score, 39);
   score = Math.max(0, Math.min(100, score));
 
@@ -235,6 +247,13 @@ export function analyse(input: AnalyseInput, ctx: AnalyseContext): AnalyseResult
       requirements,
       pricing,
       alsoListed: [],
+      trace: {
+        lexiconVersion: LEXICON_VERSION,
+        areaRule: area.rule ?? 'area',
+        typeRule: typed.rule,
+        maskHits: relevance.maskHits,
+        matches: relevance.matches.map((m) => ({ term: m.label, service: m.service, strength: m.strength, where: m.where })),
+      },
     },
   };
 }

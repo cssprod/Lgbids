@@ -1,12 +1,12 @@
 {
   "rows": 220,
   "metrics": {
-    "relevancePrecision": 0.9623,
-    "relevanceRecall": 0.9387,
-    "suitablePrecision": 0.8351,
-    "suitableRecall": 0.8617,
-    "areaAccuracy": 0.9591,
-    "typeAccuracy": 0.9818,
-    "decisionAccuracy": 0.85
+    "relevancePrecision": 0.9877,
+    "relevanceRecall": 0.9877,
+    "suitablePrecision": 0.9792,
+    "suitableRecall": 1,
+    "areaAccuracy": 0.9955,
+    "typeAccuracy": 1,
+    "decisionAccuracy": 0.9727
   }
 }

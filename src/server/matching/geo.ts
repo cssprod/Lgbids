@@ -124,6 +124,24 @@ export const LOCAL_PLACES = [
   'Mill Hill',
   'Mount Work',
   'Hartland',
+  'SEAPARC',
+  'Panorama Recreation',
+  'Juan de Fuca Recreation Centre',
+  'Saanich Commonwealth Place',
+  'Crystal Pool',
+  'Royal Athletic Park',
+  'Heals Range',
+  'HMC Dockyard',
+  'Willis Point',
+  'Durrance',
+  'Tod Inlet',
+  'Deep Cove',
+  'Dean Park',
+  'Ardmore',
+  'Matheson Lake',
+  'Mount Wells',
+  'Gorge Road Hospital',
+  'Aberdeen Hospital',
 ];
 
 /**
@@ -167,6 +185,23 @@ const UNAMBIGUOUS = new Set(
     'PKOLS',
     'Beacon Hill Park',
     'Royal BC Museum',
+    // Local hospitals and recreation centres name one site each (D10).
+    'SEAPARC',
+    'Panorama Recreation',
+    'Juan de Fuca Recreation Centre',
+    'Saanich Commonwealth Place',
+    'Crystal Pool',
+    'Royal Athletic Park',
+    'Heals Range',
+    'HMC Dockyard',
+    'Willis Point',
+    'Tod Inlet',
+    'Matheson Lake',
+    'Gorge Road Hospital',
+    'Aberdeen Hospital',
+    'Royal Jubilee',
+    'Victoria General Hospital',
+    'Otter Point',
   ].map((p) => normalize(p)),
 );
 
@@ -181,6 +216,8 @@ export const DEFAULT_EXCLUDE_PLACES = [
   'Saturna',
   'Gulf Islands',
   'Port Renfrew',
+  'Jordan River',
+  'Shirley',
   'Malahat',
   'Shawnigan',
   'Mill Bay',
@@ -262,6 +299,7 @@ export const DEFAULT_ORGANIZATIONS = [
   'Sooke School District',
   'School District 62',
   'School District No 62',
+  'Sooke School District No 62',
   'Saanich School District',
   'Saanich Schools',
   'School District 63',
@@ -311,6 +349,12 @@ const excludeCache = new WeakMap<string[], CompiledList>();
 
 // "Richmond Road", "Vernon Avenue" and "Langley Street" are streets in Greater
 // Victoria, not the cities of the same name.
+/**
+ * Islands reached only by boat: inside the region on the map, but whether the
+ * work suits a mainland crew is for a person to judge (D10).
+ */
+const BOAT_ISLANDS = /(?:^| )(?:sidney|james|piers|portland|coal|knapp|halibut|mandarte|discovery|chatham|trial) islands?(?= |$)/;
+
 const STREET_SUFFIX = '(?! (?:street|st|road|rd|avenue|ave|drive|dr|boulevard|blvd|way|lane|place|pl|crescent|cres|court|ct|highway|hwy)(?: |$))';
 
 function compile(list: string[], opts: { exclude?: boolean } = {}): CompiledList {
@@ -323,7 +367,10 @@ function compile(list: string[], opts: { exclude?: boolean } = {}): CompiledList
     if (!normalized) continue;
     const re = opts.exclude
       ? new RegExp(`(?:^| )${escapeRegex(normalized)}${STREET_SUFFIX}(?= |$)`)
-      : phraseRegex(phrase);
+      : UNAMBIGUOUS.has(normalized)
+        ? phraseRegex(phrase)
+        // "Victoria Road" in Nanaimo is not Victoria.
+        : new RegExp(`(?:^| )${escapeRegex(normalized)}${STREET_SUFFIX}(?= |$)`);
     if (re) entries.push({ phrase, normalized, re });
   }
   // Longest first, so "Central Saanich" wins over "Saanich".
@@ -359,6 +406,8 @@ export interface AreaResult {
   match: string;
   /** One sentence explaining the call, for the "why" list. */
   note: string;
+  /** Stable id of the branch that decided it (rule trace), e.g. `area.local_buyer`. */
+  rule?: string;
 }
 
 export function assessArea(input: AreaInput, region: RegionSettings): AreaResult {
@@ -390,42 +439,56 @@ export function assessArea(input: AreaInput, region: RegionSettings): AreaResult
   const excludedInLocation = firstHit(excludes, forExclude(location));
   const excludedInOrg = firstHit(excludes, forExclude(org));
 
+  const island = BOAT_ISLANDS.exec(title)?.[0]?.trim();
+  if (island) {
+    return { area: 'unknown', match: island, note: `The work is on ${island}, which is reached by boat; check whether it suits you.`, rule: 'area.boat_island' };
+  }
+
   if (input.localSource || orgHit) {
     const buyer = orgHit ?? input.organization ?? 'a local buyer';
-    if (excludedInTitle && !coreInTitle) {
-      return { area: 'no', match: excludedInTitle, note: `Posted by ${buyer}, but the work is in ${excludedInTitle}, outside your service area.` };
+    if (excludedInTitle && coreInTitle) {
+      return { area: 'unknown', match: coreInTitle, note: `The title names both ${coreInTitle} and ${excludedInTitle}; check where the work is.`, rule: 'area.place_and_excluded' };
+    }
+    if (excludedInTitle) {
+      return { area: 'no', match: excludedInTitle, note: `Posted by ${buyer}, but the work is in ${excludedInTitle}, outside your service area.`, rule: 'area.local_buyer_excluded_title' };
     }
     if (excludedInLocation && !placeInLocation && !placeInTitle) {
-      return { area: 'no', match: excludedInLocation, note: `Posted by ${buyer}, but the work is in ${excludedInLocation}, outside your service area.` };
+      return { area: 'no', match: excludedInLocation, note: `Posted by ${buyer}, but the work is in ${excludedInLocation}, outside your service area.`, rule: 'area.local_buyer_excluded_location' };
     }
-    return { area: 'yes', match: placeInTitle ?? buyer, note: `${buyer} is a Greater Victoria buyer.` };
+    return { area: 'yes', match: placeInTitle ?? buyer, note: `${buyer} is a Greater Victoria buyer.`, rule: 'area.local_buyer' };
   }
 
   const strongPlace = placeInTitle ?? placeInLocation ?? placeInOrg;
+  // A council or regional district buys for its own territory, so a non-local
+  // one beats a place name that also exists elsewhere.
+  if (strongPlace && !UNAMBIGUOUS.has(normalize(strongPlace)) && (excludedInOrg || LOCAL_GOVERNMENT.test(org))) {
+    return { area: 'no', match: input.organization ?? '', note: `${input.organization} is not a Greater Victoria buyer.`, rule: 'area.nonlocal_government' };
+  }
   if (strongPlace) {
-    if (excludedInTitle && !coreInTitle) {
+    if (excludedInTitle) {
       return {
         area: 'unknown',
         match: strongPlace,
         note: `Mentions ${strongPlace} but the title names ${excludedInTitle}; check where the work is.`,
+        rule: 'area.place_and_excluded',
       };
     }
-    return { area: 'yes', match: strongPlace, note: `Work location: ${strongPlace}.` };
+    return { area: 'yes', match: strongPlace, note: `Work location: ${strongPlace}.`, rule: 'area.place' };
   }
 
   if (excludedInTitle || excludedInLocation) {
     const where = excludedInTitle ?? excludedInLocation!;
-    return { area: 'no', match: where, note: `The work is in ${where}, outside your service area.` };
+    return { area: 'no', match: where, note: `The work is in ${where}, outside your service area.`, rule: 'area.excluded_place' };
   }
   // A municipality, regional district or school board buys for its own
   // territory. One that is not on the local list is somewhere else.
   if (excludedInOrg || LOCAL_GOVERNMENT.test(org)) {
-    return { area: 'no', match: input.organization ?? '', note: `${input.organization} is not a Greater Victoria buyer.` };
+    return { area: 'no', match: input.organization ?? '', note: `${input.organization} is not a Greater Victoria buyer.`, rule: 'area.nonlocal_government' };
   }
 
   const otherProvince = OTHER_PROVINCE.test(`${title} ${location}`) && !BC_CUE.test(`${title} ${location}`);
   if (otherProvince && !input.bcSource) {
-    return { area: 'no', match: '', note: 'The work is outside British Columbia.' };
+    return { area: 'no', match: '', note: 'The work is outside British Columbia.', rule: 'area.other_province' };
   }
 
   if (placeInDescription) {
@@ -435,15 +498,16 @@ export function assessArea(input: AreaInput, region: RegionSettings): AreaResult
         area: 'unknown',
         match: placeInDescription,
         note: 'Victoria is mentioned in the description, but that may be an office address rather than the work site.',
+        rule: 'area.description_victoria',
       };
     }
-    return { area: 'yes', match: placeInDescription, note: `The description places the work in ${placeInDescription}.` };
+    return { area: 'yes', match: placeInDescription, note: `The description places the work in ${placeInDescription}.`, rule: 'area.description_place' };
   }
 
   if (bc) {
-    return { area: 'unknown', match: '', note: 'A British Columbia notice that does not say where the work is.' };
+    return { area: 'unknown', match: '', note: 'A British Columbia notice that does not say where the work is.', rule: 'area.bc_unplaced' };
   }
-  return { area: 'no', match: '', note: 'Nothing places this work in Greater Victoria.' };
+  return { area: 'no', match: '', note: 'Nothing places this work in Greater Victoria.', rule: 'area.not_local' };
 }
 
 /**
@@ -462,8 +526,27 @@ export function mightBeLocal(text: string, region: RegionSettings): boolean {
  * two different sites: "The Corporation of the District of Saanich" and
  * "District of Saanich" both become "saanich".
  */
+// Buyers known by several names. Checked in order: the CRD's housing
+// corporation and hospital district are separate buyers and must be tested
+// before the plain CRD names.
+const ORG_ALIASES: [RegExp, string][] = [
+  [/\bcapital region(?:al)? housing\b|\bcrhc\b/, 'crhc'],
+  [/\bcapital region(?:al)? hospital\b|\bcrhd\b/, 'crhd'],
+  [/\bcapital regional district\b|\bcrd\b/, 'crd'],
+  [/\buniversity of victoria\b|\buvic\b/, 'uvic'],
+  [/\b(?:sd|school district)\s*(?:no|number)?\s*(6[123])\b/, 'sd$1'],
+  [/\bsooke school district\b/, 'sd62'],
+  [/\bgreater victoria school district\b/, 'sd61'],
+  [/\bsaanich (?:school district|schools)\b/, 'sd63'],
+];
+
 export function organizationKey(organization: string): string {
-  const n = normalize(organization)
+  const raw = normalize(organization);
+  for (const [re, key] of ORG_ALIASES) {
+    const m = re.exec(raw);
+    if (m) return key.replace('$1', m[1] ?? '');
+  }
+  const n = raw
     .replace(/\b(?:the|corporation|corp|of|city|district|township|town|municipality|village|regional|board|education|school|no|number|and|inc|ltd|society|authority|first nation|nation)\b/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();

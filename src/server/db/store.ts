@@ -32,6 +32,7 @@ import {
   type RunStats,
   type SavedSearch,
   type ServiceKey,
+  SOURCE_KINDS,
   type SourceKind,
   type SourceRecord,
   type SourceStatus,
@@ -52,10 +53,14 @@ import type {
 import { organizationKey } from '../matching/geo.js';
 import { extractReference, referenceKey, titleKey } from '../matching/notice.js';
 import { nextLayoutHealth } from '../sources/health.js';
+import { connectorFor } from '../sources/registry.js';
 import type { RawOpportunity } from '../sources/types.js';
 import { nowIso } from '../util/dates.js';
 import { sha1 } from '../util/text.js';
 import type { Database } from './database.js';
+
+/** Source kinds whose readers only ever see a notice once (alert e-mails, hand-added bids). */
+const INCREMENTAL_KINDS = (): SourceKind[] => SOURCE_KINDS.filter((k) => connectorFor(k).incremental === true);
 
 /**
  * Repositories over the SQLite schema. Columns are snake_case and JSON lists
@@ -356,7 +361,7 @@ function contentHash(c: OppContent): string {
   return sha1([c.title, c.description, c.closes_at ?? '', c.status, c.organization, c.documents, c.categories].join('|'));
 }
 
-function keysFor(c: OppContent): { ref_key: string; title_key: string } {
+function keysFor(c: Pick<OppContent, 'organization' | 'reference_number' | 'title'>): { ref_key: string; title_key: string } {
   const org = organizationKey(c.organization);
   const ref = referenceKey(c.reference_number);
   const title = titleKey(c.title);
@@ -724,6 +729,35 @@ const APP_PATCH_COLUMNS: Record<keyof ApplicationPatch, { column: string; json?:
 // ---------------------------------------------------------------------------
 // The store
 // ---------------------------------------------------------------------------
+
+/**
+ * Bump when organizationKey, referenceKey or titleKey change, so rows saved
+ * under the old rules get keys that match new rows (organization aliases, MAT-6).
+ */
+export const KEYS_VERSION = '2';
+
+/**
+ * Recompute stored dedupe keys once when the key rules changed; meant to run
+ * once at start-up, after openDatabase. Returns the number of rows rewritten.
+ */
+export function recomputeKeys(db: Database): number {
+  const current = db.get<{ value: string }>("SELECT value FROM meta WHERE key = 'keys_version'")?.value;
+  if (current === KEYS_VERSION) return 0;
+  return db.tx(() => {
+    const rows = db.all<{ id: number; title: string; organization: string; reference_number: string; ref_key: string; title_key: string }>(
+      'SELECT id, title, organization, reference_number, ref_key, title_key FROM opportunities',
+    );
+    let changed = 0;
+    for (const row of rows) {
+      const keys = keysFor(row);
+      if (keys.ref_key === row.ref_key && keys.title_key === row.title_key) continue;
+      db.run('UPDATE opportunities SET ref_key = :ref_key, title_key = :title_key WHERE id = :id', { id: row.id, ...keys });
+      changed += 1;
+    }
+    db.run("INSERT INTO meta (key, value) VALUES ('keys_version', :v) ON CONFLICT(key) DO UPDATE SET value = :v", { v: KEYS_VERSION });
+    return changed;
+  });
+}
 
 export function createStore(db: Database): Store {
   function oppRow(id: number): OppRow | undefined {
@@ -1267,9 +1301,13 @@ export function createStore(db: Database): Store {
         const ids = db
           .all<{ id: number }>(
             `SELECT id FROM opportunities
-             WHERE status = 'open' AND ((closes_at IS NOT NULL AND closes_at <= :at) OR (closes_at IS NULL AND last_seen_at < :stale))
+             WHERE status = 'open' AND ((closes_at IS NOT NULL AND closes_at <= :at) OR (closes_at IS NULL AND last_seen_at < :stale
+               -- An alert or hand-added notice is never "seen again", and a pursued bid is
+               -- being watched by a person: neither is closed just for being undated.
+               AND COALESCE(user_decision, '') <> 'pursue'
+               AND source_id NOT IN (SELECT id FROM sources WHERE kind IN (SELECT value FROM json_each(:incremental)))))
              ORDER BY id`,
-            { at, stale },
+            { at, stale, incremental: JSON.stringify(INCREMENTAL_KINDS()) },
           )
           .map((r) => r.id);
         for (const id of ids) db.run("UPDATE opportunities SET status = 'closed' WHERE id = :id", { id });
