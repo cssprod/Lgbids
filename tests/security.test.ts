@@ -59,6 +59,31 @@ describe('host allowlist (DNS rebinding)', () => {
   });
 });
 
+describe('sign-in on encoded addresses', () => {
+  it('needs sign-in for a percent-encoded /api path, which Fastify decodes before routing', async () => {
+    const { app } = await harness({ appPassword: 'correct horse battery' });
+    const read = await app.inject({ method: 'GET', url: '/%61pi/applications' });
+    expect(read.statusCode).toBe(401);
+    const write = await app.inject({ method: 'POST', url: '/%61pi/opportunities/manual', payload: { title: 'Park mowing' } });
+    expect(write.statusCode).toBe(401);
+    expect((await app.inject({ method: 'GET', url: '/api/%61pplications' })).statusCode).toBe(401);
+    expect((await app.inject({ method: 'GET', url: '/%61pi/nothing-here' })).statusCode).toBe(401);
+  });
+
+  it('keeps the public routes open, encoded or not', async () => {
+    const { app } = await harness({ appPassword: 'correct horse battery' });
+    expect((await app.inject({ method: 'GET', url: '/api/health' })).statusCode).toBe(200);
+    expect((await app.inject({ method: 'GET', url: '/%61pi/health' })).statusCode).toBe(200);
+    const session = await app.inject({ method: 'GET', url: '/api/session' });
+    expect(session.json()).toMatchObject({ authRequired: true, authenticated: false });
+    const login = await app.inject({ method: 'POST', url: '/api/login', payload: { password: 'correct horse battery' } });
+    expect(login.statusCode).toBe(200);
+    const cookie = login.cookies.find((c) => c.name === SESSION_COOKIE)!;
+    const signedIn = await app.inject({ method: 'GET', url: '/%61pi/applications', cookies: { [SESSION_COOKIE]: cookie.value } });
+    expect(signedIn.statusCode).toBe(200);
+  });
+});
+
 describe('sign-in throttling', () => {
   it('caps wrong passwords across all addresses, even with a rotating X-Forwarded-For behind a trusted proxy', async () => {
     const { app } = await harness({ appPassword: 'correct horse battery', trustProxy: trustProxy({ TRUST_PROXY: '1' }) });

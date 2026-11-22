@@ -85,10 +85,26 @@ function minutesUntil(at: number, now: number): number {
   return Math.max(1, Math.ceil((at - now) / 60000));
 }
 
-function pathOf(req: FastifyRequest): string {
-  const url = req.url;
-  const q = url.indexOf('?');
-  return q === -1 ? url : url.slice(0, q);
+function isApiPattern(path: string): boolean {
+  return path === '/api' || path.startsWith('/api/');
+}
+
+/**
+ * Whether this request may only be answered after sign-in. Fastify decodes the
+ * address before routing, so "/%61pi/applications" reaches the /api handlers:
+ * the decision is made on the route the request was matched to, never on the
+ * raw address. Only when nothing matched (a 404 or the single-page fallback)
+ * is the decoded path used; an address that cannot be decoded needs sign-in.
+ */
+function needsLogin(req: FastifyRequest): boolean {
+  const route = req.routeOptions.url;
+  if (route !== undefined) return isApiPattern(route) && !PUBLIC_ROUTES.has(`${req.method} ${route}`);
+  const raw = req.url.split('?', 1)[0] ?? '';
+  try {
+    return isApiPattern(decodeURIComponent(raw));
+  } catch {
+    return true;
+  }
 }
 
 export function registerAuth(app: FastifyInstance, ctx: RouteContext): void {
@@ -136,9 +152,7 @@ export function registerAuth(app: FastifyInstance, ctx: RouteContext): void {
   }
 
   app.addHook('onRequest', async (req: FastifyRequest, reply: FastifyReply) => {
-    const path = pathOf(req);
-    if (!authRequired || !(path === '/api' || path.startsWith('/api/'))) return;
-    if (PUBLIC_ROUTES.has(`${req.method} ${path}`)) return;
+    if (!authRequired || !needsLogin(req)) return;
     if (!signedIn(req)) {
       reply.code(401).send({ error: 'Please sign in to continue.' });
       return reply;
