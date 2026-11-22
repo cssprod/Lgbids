@@ -8,7 +8,7 @@ import type { AppConfig, AppDeps, Pipeline, Scheduler } from './contracts.js';
 import { openDatabase } from './db/database.js';
 import { createStore } from './db/store.js';
 import { createFileStore } from './files.js';
-import { HttpClient } from './http/client.js';
+import { HttpClient, USER_AGENT, type HttpClientOptions } from './http/client.js';
 import { createPipeline } from './pipeline/run.js';
 import { createScheduler } from './pipeline/scheduler.js';
 import { createSettings } from './settings.js';
@@ -31,7 +31,7 @@ export function createDeps(config: AppConfig, overrides: Partial<AppDeps> = {}):
   const files = overrides.files ?? createFileStore(inMemory ? mkdtempSync(join(tmpdir(), 'lgbids-files-')) : config.dataDir);
   const mailerFactory = overrides.mailerFactory ?? createMailer;
   const httpFactory =
-    overrides.httpFactory ?? ((a) => new HttpClient({ userAgent: a.userAgent, respectRobots: a.respectRobots, delayMs: a.requestDelayMs, allowPrivate: config.demo }));
+    overrides.httpFactory ?? ((a) => new HttpClient(httpOptionsFor(a, config)));
 
   const alertMailboxFactory = overrides.alertMailboxFactory ?? createImapMailbox;
   const alertImportDir = overrides.alertImportDir ?? (inMemory ? mkdtempSync(join(tmpdir(), 'lgbids-alerts-')) : join(config.dataDir, 'alert-inbox'));
@@ -41,6 +41,15 @@ export function createDeps(config: AppConfig, overrides: Partial<AppDeps> = {}):
   store.failStaleRuns(now());
 
   return { config, store, settings, files, mailerFactory, httpFactory, alertMailboxFactory, alertImportDir, now, ...(overrides.pushFetch ? { pushFetch: overrides.pushFetch } : {}) };
+}
+
+/**
+ * The stored "respect robots.txt" switch and user agent are ignored (decision
+ * D2): robots.txt is always obeyed and the user agent is the fixed
+ * `Lgbids/<version>`. Only the request delay comes from the settings.
+ */
+export function httpOptionsFor(a: { requestDelayMs: number }, config: Pick<AppConfig, 'demo'>): HttpClientOptions {
+  return { userAgent: USER_AGENT, delayMs: a.requestDelayMs, allowPrivate: config.demo };
 }
 
 export function isLoopback(host: string): boolean {

@@ -68,45 +68,70 @@ export function isAllowed(groups: Group[], userAgent: string, pathAndQuery: stri
   return best ? best.allow : true;
 }
 
+/**
+ * Fetches a robots.txt. It resolves with the status for a 2xx or 4xx answer
+ * and rejects for a 5xx answer, a network failure or a refused address.
+ */
 type Fetcher = (url: string) => Promise<{ status: number; text: string }>;
 
+export interface RobotsVerdict {
+  allowed: boolean;
+  /** True when the robots.txt could not be read, which also counts as "not allowed". */
+  unreadable: boolean;
+}
+
+interface Entry {
+  groups: Group[];
+  unreadable: boolean;
+  at: number;
+}
+
 export class RobotsCache {
-  private readonly cache = new Map<string, { groups: Group[]; at: number }>();
-  private readonly pending = new Map<string, Promise<Group[]>>();
+  private readonly cache = new Map<string, Entry>();
+  private readonly pending = new Map<string, Promise<Omit<Entry, 'at'>>>();
 
   constructor(
     private readonly userAgent: string,
     private readonly fetcher: Fetcher,
     private readonly ttlMs = 12 * 3600 * 1000,
+    /** An unreadable robots.txt is tried again sooner: the site may only be down for a moment. */
+    private readonly failureTtlMs = 15 * 60 * 1000,
   ) {}
 
-  private async load(origin: string): Promise<Group[]> {
+  private async load(origin: string): Promise<Omit<Entry, 'at'>> {
     try {
       const result = await this.fetcher(`${origin}/robots.txt`);
       // Only a real robots.txt counts; an HTML error page served with 200 does not.
-      if (result.status === 200 && !/<html/i.test(result.text.slice(0, 500))) return parseRobots(result.text);
+      if (result.status === 200 && !/<html/i.test(result.text.slice(0, 500))) return { groups: parseRobots(result.text), unreadable: false };
+      // A missing robots.txt (any 4xx) means the site sets no rules.
+      return { groups: [], unreadable: false };
     } catch {
-      // No robots.txt, or it could not be fetched: the convention is that
-      // nothing is disallowed.
+      // A server error or no answer at all: we cannot know the site's wishes,
+      // so we stay away until it can be read (the cautious reading).
+      return { groups: [], unreadable: true };
     }
-    return [];
   }
 
-  async allowed(url: string): Promise<boolean> {
+  async check(url: string): Promise<RobotsVerdict> {
     const target = new URL(url);
     const cached = this.cache.get(target.origin);
-    let groups: Group[];
-    if (cached && Date.now() - cached.at < this.ttlMs) {
-      groups = cached.groups;
+    let entry: Omit<Entry, 'at'>;
+    if (cached && Date.now() - cached.at < (cached.unreadable ? this.failureTtlMs : this.ttlMs)) {
+      entry = cached;
     } else {
       let pending = this.pending.get(target.origin);
       if (!pending) {
         pending = this.load(target.origin).finally(() => this.pending.delete(target.origin));
         this.pending.set(target.origin, pending);
       }
-      groups = await pending;
-      this.cache.set(target.origin, { groups, at: Date.now() });
+      entry = await pending;
+      this.cache.set(target.origin, { ...entry, at: Date.now() });
     }
-    return isAllowed(groups, this.userAgent, `${target.pathname}${target.search}`);
+    if (entry.unreadable) return { allowed: false, unreadable: true };
+    return { allowed: isAllowed(entry.groups, this.userAgent, `${target.pathname}${target.search}`), unreadable: false };
+  }
+
+  async allowed(url: string): Promise<boolean> {
+    return (await this.check(url)).allowed;
   }
 }
