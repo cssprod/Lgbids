@@ -29,6 +29,41 @@ function webDir(env: NodeJS.ProcessEnv): string {
   return candidates.find((dir) => existsSync(join(dir, 'index.html')) && existsSync(join(dir, 'assets'))) ?? '';
 }
 
+/** ALLOWED_HOSTS: a comma list of host names (a port, if given, is ignored). */
+export function allowedHosts(env: NodeJS.ProcessEnv): string[] {
+  return value(env, 'ALLOWED_HOSTS')
+    .split(',')
+    .map((h) => hostnameOf(h.trim()))
+    .filter((h) => h !== '');
+}
+
+/** The host name of a Host header value or bare name, lower-cased, without port or IPv6 brackets. */
+export function hostnameOf(host: string): string {
+  const h = host.trim().toLowerCase();
+  if (h.startsWith('[')) return h.slice(1, h.indexOf(']') === -1 ? undefined : h.indexOf(']'));
+  // A bare IPv6 address has several colons; anything else may end in ":port".
+  return (h.split(':').length > 2 ? h : h.replace(/:\d*$/, '')).replace(/\.$/, '');
+}
+
+/**
+ * TRUST_PROXY: "1" (or "true") trusts a reverse proxy on this computer only,
+ * so a client cannot pick its own address with X-Forwarded-For. A comma list
+ * of proxy addresses or ranges, or a hop count ("hops=2", or a number from 2
+ * up), is also accepted. Anything else, or nothing, trusts no proxy.
+ */
+export function trustProxy(env: NodeJS.ProcessEnv): boolean | number | string {
+  const raw = value(env, 'TRUST_PROXY');
+  if (raw === '' || raw === '0' || /^(false|no|off)$/i.test(raw)) return false;
+  if (raw === '1' || /^(true|yes|on)$/i.test(raw)) return '127.0.0.1,::1';
+  const hops = /^(?:hops=)?(\d+)$/i.exec(raw);
+  if (hops) return Number(hops[1]);
+  return raw
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join(',');
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const zone = value(env, 'TZ_LOCAL');
   return {
@@ -41,5 +76,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     timeZone: zone && IANAZone.isValidZone(zone) ? zone : DEFAULT_ZONE,
     demo: value(env, 'LGBIDS_DEMO') === '1',
     webDir: webDir(env),
+    allowedHosts: allowedHosts(env),
+    trustProxy: trustProxy(env),
   };
 }

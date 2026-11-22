@@ -4,7 +4,8 @@ import fastifyCookie from '@fastify/cookie';
 import fastifyMultipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
 import Fastify, { type FastifyError, type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
-import type { AppDeps, Pipeline, Scheduler } from './contracts.js';
+import { hostnameOf } from './config.js';
+import type { AppConfig, AppDeps, Pipeline, Scheduler } from './contracts.js';
 import { registerApplications } from './routes/applications.js';
 import { registerAuth } from './routes/auth.js';
 import { registerAwards } from './routes/awards.js';
@@ -73,11 +74,39 @@ function crossOrigin(req: FastifyRequest): boolean {
   }
 }
 
+function isLoopbackName(hostname: string): boolean {
+  return hostname === 'localhost' || hostname.endsWith('.localhost') || hostname === '::1' || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname);
+}
+
+/**
+ * Which Host header names the server answers to, or null for "any". A web
+ * page on another site can point its own name at 127.0.0.1 (DNS rebinding)
+ * and then talk to this server as if it were same-origin; checking the Host
+ * header stops that. A server bound to a public address without
+ * ALLOWED_HOSTS answers any name (a warning is logged at start).
+ */
+export function hostPolicy(config: Pick<AppConfig, 'host' | 'allowedHosts'>): ((hostname: string) => boolean) | null {
+  const listed = new Set((config.allowedHosts ?? []).map(hostnameOf).filter(Boolean));
+  const bind = hostnameOf(config.host);
+  const loopbackBind = isLoopbackName(bind);
+  if (!loopbackBind && listed.size === 0) return null;
+  // A specific bind address (not 0.0.0.0 / ::) is also a name the server can be reached by.
+  if (!loopbackBind && bind !== '0.0.0.0' && bind !== '::') listed.add(bind);
+  return (hostname) => isLoopbackName(hostname) || listed.has(hostname);
+}
+
+/** Fastify's `trustProxy` as its types accept it; a hop count trusts the nearest `n` proxies. */
+function proxyTrust(value: AppConfig['trustProxy']): boolean | string | ((address: string, hop: number) => boolean) {
+  if (Array.isArray(value)) return value.join(',');
+  if (typeof value === 'number') return (_address, hop) => hop < value;
+  return value ?? false;
+}
+
 export async function buildApp(deps: AppDeps, pipeline: Pipeline, scheduler: Scheduler): Promise<FastifyInstance> {
   const app = Fastify({
     logger: process.env.NODE_ENV === 'test' || process.env.VITEST ? false : { level: process.env.LOG_LEVEL ?? 'info' },
     // Behind a reverse proxy (TRUST_PROXY=1) the client address and https come from X-Forwarded-* headers.
-    trustProxy: process.env.TRUST_PROXY === '1',
+    trustProxy: proxyTrust(deps.config.trustProxy),
     bodyLimit: 2 * 1024 * 1024,
   });
 
@@ -97,8 +126,19 @@ export async function buildApp(deps: AppDeps, pipeline: Pipeline, scheduler: Sch
   await app.register(fastifyCookie);
   await app.register(fastifyMultipart, { limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 } });
 
+  const hostAllowed = hostPolicy(deps.config);
+  if (!hostAllowed) {
+    app.log.warn(
+      `The server listens on ${deps.config.host} and answers to any host name. Set ALLOWED_HOSTS to the name(s) you use to reach it (for example ALLOWED_HOSTS=bids.example.com).`,
+    );
+  }
+
   app.addHook('onRequest', async (req, reply) => {
     reply.headers(SECURITY_HEADERS);
+    if (hostAllowed && !hostAllowed(hostnameOf(req.headers.host ?? ''))) {
+      reply.code(403).send({ error: 'This server does not answer to that address. Open it at http://localhost or add the name to ALLOWED_HOSTS.' });
+      return reply;
+    }
     if (crossOrigin(req)) {
       reply.code(403).send({ error: 'This request came from another website and was refused.' });
       return reply;
