@@ -3,10 +3,11 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { ActionResult, SourceTest } from '../../shared/api.js';
+import type { AlertImportResult, SourceTest } from '../../shared/api.js';
 import { SOURCE_KINDS, sourceConfigSchema, sourceInputSchema, type SourceConfig, type SourceRecord } from '../../shared/schemas.js';
 import { slugify } from '../util/text.js';
 import { ALERT_SOURCE_ID } from '../settings.js';
+import { readAlertMessage } from '../sources/connectors/emailAlerts.js';
 import { ApiError, notFound, parseBody, readUpload, stringParam, zodSentence, type RouteContext } from './util.js';
 
 const patchSchema = z.object({
@@ -41,8 +42,9 @@ function sourceId(name: string): string {
 }
 
 export function registerSources(app: FastifyInstance, ctx: RouteContext): void {
-  // A saved BC Bid or Bonfire alert e-mail, read on the next check by the "Bid alert e-mails" source.
-  app.post('/api/alerts/import', async (req): Promise<ActionResult> => {
+  // A saved alert e-mail. It is read at once so the user hears straight away
+  // whether Lgbids understood it; the notices are added on the next check.
+  app.post('/api/alerts/import', async (req): Promise<AlertImportResult> => {
     const upload = await readUpload(req);
     const head = upload.content.subarray(0, 16_384).toString('utf8');
     if (!/\.eml$/i.test(upload.filename) && !/rfc822/i.test(upload.mime)) {
@@ -50,11 +52,32 @@ export function registerSources(app: FastifyInstance, ctx: RouteContext): void {
     }
     if (!/^from:/im.test(head) || !/^(?:subject|date):/im.test(head)) throw new ApiError(400, 'This file does not look like a saved e-mail.');
     const { alertImportDir, store, now } = ctx.deps;
+    const read = await readAlertMessage(upload.content, now());
+    const titles = (read?.items ?? []).map((item) => item.title);
+    const recognised = titles.length > 0;
+    // Saved either way: the next check reads it, and files one with no notice
+    // under "unrecognised" so it is kept for a bug report.
     await mkdir(alertImportDir, { recursive: true });
     // Generated name: the uploaded file name is never used on disk.
     await writeFile(join(alertImportDir, `${Date.now()}-${randomBytes(6).toString('hex')}.eml`), upload.content);
     store.updateSource(ALERT_SOURCE_ID, { enabled: true }, now());
-    return { ok: true, message: `${upload.filename || 'The e-mail'} was imported. It is read on the next check.` };
+    const name = upload.filename || 'The e-mail';
+    if (!recognised) {
+      return {
+        ok: true,
+        recognised: false,
+        titles: [],
+        message: `Not recognised: ${name} does not look like a bid alert Lgbids can read. It is kept so it can be checked.`,
+      };
+    }
+    const shown = titles.slice(0, 5).map((t) => `“${t}”`).join(', ');
+    const more = titles.length > 5 ? ` and ${titles.length - 5} more` : '';
+    return {
+      ok: true,
+      recognised: true,
+      titles,
+      message: `Found ${titles.length} ${titles.length === 1 ? 'notice' : 'notices'}: ${shown}${more}. ${titles.length === 1 ? 'It is' : 'They are'} added on the next check.`,
+    };
   });
 
   const { store, now } = ctx.deps;
