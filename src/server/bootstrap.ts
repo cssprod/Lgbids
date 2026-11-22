@@ -149,3 +149,27 @@ export async function startServer(config: AppConfig, given?: AppDeps): Promise<S
     },
   };
 }
+
+/** The running version, as in package.json (the user agent carries it too). */
+export const APP_VERSION = USER_AGENT.slice('Lgbids/'.length);
+
+/** How long a stop waits for a check that is under way, before closing anyway. */
+export const SHUTDOWN_WAIT_MS = 25_000;
+
+/**
+ * Stop without cutting a running check short: the schedule stops first so no
+ * new run starts, then up to `waitMs` for the current one, then the server and
+ * database close. A send interrupted half-way would leave a `sending` row.
+ */
+export async function shutdownGracefully(
+  server: Pick<StartedServer, 'pipeline' | 'scheduler' | 'stop'>,
+  opts: { waitMs?: number; pollMs?: number; log?: (line: string) => void } = {},
+): Promise<void> {
+  server.scheduler.stop();
+  const deadline = Date.now() + (opts.waitMs ?? SHUTDOWN_WAIT_MS);
+  if (server.pipeline.isRunning()) opts.log?.('Waiting for the check that is running to finish (press Ctrl+C again to stop at once).');
+  while (server.pipeline.isRunning() && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, opts.pollMs ?? 250));
+  }
+  await server.stop();
+}

@@ -1,4 +1,4 @@
-import { isLoopback, startServer, timeZoneWarning } from './bootstrap.js';
+import { APP_VERSION, isLoopback, shutdownGracefully, startServer, timeZoneWarning } from './bootstrap.js';
 import { loadConfig } from './config.js';
 
 /** `npm start`: read the configuration from the environment, start the server and the schedule. */
@@ -16,12 +16,16 @@ async function main(): Promise<void> {
   if (warning) console.warn(warning);
 
   const server = await startServer(config);
-  console.log(`Lgbids is running at ${server.url}${config.appPassword ? ' (sign-in required)' : ''}`);
+  console.log(`Lgbids ${APP_VERSION} is running at ${server.url}${config.appPassword ? ' (sign-in required)' : ''}`);
   if (!config.webDir) console.log('The web UI has not been built; run `npm run build` to build it.');
 
+  let stopping = false;
   const shutdown = (signal: string) => {
+    // A second Ctrl+C means "now".
+    if (stopping) process.exit(1);
+    stopping = true;
     console.log(`Received ${signal}, shutting down.`);
-    server.stop().then(
+    shutdownGracefully(server, { log: (line) => console.log(line) }).then(
       () => process.exit(0),
       (err: unknown) => {
         console.error(err);
@@ -29,9 +33,14 @@ async function main(): Promise<void> {
       },
     );
   };
-  process.once('SIGINT', () => shutdown('SIGINT'));
-  process.once('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
 }
+
+process.on('unhandledRejection', (reason: unknown) => {
+  console.error('Unexpected error:', reason instanceof Error ? reason.message : reason);
+  process.exit(1);
+});
 
 main().catch((err: unknown) => {
   console.error(err instanceof Error ? err.message : err);

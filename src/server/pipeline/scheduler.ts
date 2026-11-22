@@ -1,5 +1,6 @@
 import type { AppDeps, Pipeline, Scheduler } from '../contracts.js';
 import { nowIso } from '../util/dates.js';
+import { runReminders as defaultRunReminders } from './reminders.js';
 
 /**
  * Runs the pipeline every `intervalHours` while automation is switched on.
@@ -14,10 +15,47 @@ export const STARTUP_DELAY_MS = 20_000;
 /** setTimeout cannot wait longer than this; longer waits are done in steps. */
 const MAX_TIMEOUT_MS = 2 ** 31 - 1;
 
-export function createScheduler(deps: AppDeps, pipeline: Pipeline): Scheduler {
+/** How often the wall clock is compared with the next run time (a sleeping laptop can delay timers). */
+export const WATCHDOG_MS = 5 * 60_000;
+/** How often closing reminders are checked, whatever the automation mode (decision D16). */
+export const REMINDER_TICK_MS = 15 * 60_000;
+
+export interface SchedulerOptions {
+  watchdogMs?: number;
+  reminderMs?: number;
+  runReminders?: (deps: AppDeps, now: Date) => Promise<unknown>;
+}
+
+export function createScheduler(deps: AppDeps, pipeline: Pipeline, opts: SchedulerOptions = {}): Scheduler {
   let started = false;
   let timer: NodeJS.Timeout | null = null;
   let nextAt: Date | null = null;
+  let firing = false;
+  let reminding = false;
+  let watchdog: NodeJS.Timeout | null = null;
+  let reminderTick: NodeJS.Timeout | null = null;
+  const reminders = opts.runReminders ?? defaultRunReminders;
+
+  /** Timers can oversleep (suspend, clock changes); when the wall clock is past nextAt, run now. */
+  function checkWallClock(): void {
+    if (!started || firing || !nextAt || pipeline.isRunning()) return;
+    if (deps.now().getTime() < nextAt.getTime()) return;
+    if (timer) clearTimeout(timer);
+    timer = null;
+    void fire();
+  }
+
+  async function remind(): Promise<void> {
+    if (!started || reminding) return;
+    reminding = true;
+    try {
+      await reminders(deps, deps.now());
+    } catch {
+      // A failed reminder check is retried on the next tick; it never stops the schedule.
+    } finally {
+      reminding = false;
+    }
+  }
 
   const intervalMs = () => deps.settings.getAutomation().intervalHours * 3_600_000;
 
@@ -57,6 +95,16 @@ export function createScheduler(deps: AppDeps, pipeline: Pipeline): Scheduler {
   }
 
   async function fire(): Promise<void> {
+    if (firing) return;
+    firing = true;
+    try {
+      await fireOnce();
+    } finally {
+      firing = false;
+    }
+  }
+
+  async function fireOnce(): Promise<void> {
     timer = null;
     if (!started) return;
     let interval = 3_600_000;
@@ -98,10 +146,22 @@ export function createScheduler(deps: AppDeps, pipeline: Pipeline): Scheduler {
     start() {
       started = true;
       armFromSettings();
+      if (!watchdog) {
+        watchdog = setInterval(checkWallClock, opts.watchdogMs ?? WATCHDOG_MS);
+        watchdog.unref();
+      }
+      if (!reminderTick) {
+        reminderTick = setInterval(() => void remind(), opts.reminderMs ?? REMINDER_TICK_MS);
+        reminderTick.unref();
+      }
     },
     stop() {
       started = false;
       clear();
+      if (watchdog) clearInterval(watchdog);
+      if (reminderTick) clearInterval(reminderTick);
+      watchdog = null;
+      reminderTick = null;
     },
     reschedule() {
       armFromSettings();
