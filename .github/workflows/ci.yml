@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, 'wave2/**']
+    branches: [main, 'wave2/**', 'wave3/**']
     tags: ['*']
   pull_request:
   workflow_dispatch:

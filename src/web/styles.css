@@ -1578,14 +1578,20 @@ a.tile:hover {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .spinner,
-  .btn.is-busy::after {
-    animation-duration: 2.5s;
-  }
+  /* One global rule: every animation and transition ends at once. */
   *,
   *::before,
   *::after {
-    transition-duration: 0ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  /* The spinner is the one exception: a slow turn still shows that something is busy. */
+  .spinner,
+  .btn.is-busy::after {
+    animation-duration: 2.5s !important;
+    animation-iteration-count: infinite !important;
   }
   /* `.sidebar` raises the specificity: the phone-width rule that starts the
      drop-in comes later in this file and would otherwise win. */

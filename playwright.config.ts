@@ -20,6 +20,8 @@ const protoPort = Number(process.env.E2E_PROTO_PORT || 4318);
 const demoUrl = `http://127.0.0.1:${demoPort}`;
 const protoUrl = process.env.PROTOTYPE_URL || `http://127.0.0.1:${protoPort}`;
 const ci = Boolean(process.env.CI);
+// Reusing a running server is opt-in: lanes in parallel worktrees must never pick up another lane's server.
+const reuse = process.env.E2E_REUSE === '1';
 
 export default defineConfig({
   testDir: 'e2e',
@@ -31,7 +33,13 @@ export default defineConfig({
   retries: ci ? 1 : 0,
   timeout: 30_000,
   reporter: ci ? [['list'], ['html', { open: 'never', outputFolder: '.e2e/report' }]] : 'list',
-  use: { ...devices['Desktop Chrome'], trace: 'retain-on-failure', screenshot: 'only-on-failure' },
+  // Reduced motion everywhere, so axe never measures an element in the middle of a fade (the f450a30 flake).
+  use: {
+    ...devices['Desktop Chrome'],
+    trace: 'retain-on-failure',
+    screenshot: 'only-on-failure',
+    contextOptions: { reducedMotion: 'reduce' },
+  },
   projects: [
     { name: 'demo', use: { baseURL: demoUrl } },
     { name: 'prototype', use: { baseURL: protoUrl } },
@@ -41,7 +49,7 @@ export default defineConfig({
       command: 'npm run demo',
       url: `${demoUrl}/api/health`,
       env: { PORT: String(demoPort), HOST: '127.0.0.1', DEMO_DATA_DIR: '.e2e/data-demo', DEMO_MAIL_LOG: '.e2e/mail-demo.jsonl', APP_PASSWORD: '' },
-      reuseExistingServer: !ci,
+      reuseExistingServer: reuse,
       timeout: 120_000,
       stdout: 'ignore',
     },
@@ -52,7 +60,7 @@ export default defineConfig({
             command: 'node e2e/support/serve-prototype.mjs',
             url: `${protoUrl}/`,
             env: { E2E_PROTO_PORT: String(protoPort) },
-            reuseExistingServer: !ci,
+            reuseExistingServer: reuse,
             timeout: 30_000,
           },
         ]),
