@@ -110,6 +110,8 @@ Every binding Decision in CLAUDE.md still holds: no AI/LLM, no portal logins, ro
 ## 5. Decisions and user inputs
 
 ### 5.1 Decisions needed
+> **Answered 2026-11-23.** Use every recommended default below (D40-D85), including D55-D57 (owner signs in with `APP_PASSWORD`; only the owner presses Send; only the owner edits the profile), D65 (CalDAV only), D73 (add `undici`) and D82 (push `wave3/*` lane branches after each green package). D85: 2.2 has not landed, so Wave 3 branches from the v0.2.0-beta line. Scope: the full six lanes, not the §8.9 lean option. FLAGs approved: **FLAG-3, FLAG-4 and FLAG-9**; FLAG-2, FLAG-5, FLAG-6, FLAG-7 and FLAG-8 stay off. The approved FLAGs are built in their own 3.3 fix batch (§8.6 step 5), not in the 3.1 lanes. The `v0.2.0-beta` tag exists locally on 644df96, but this session may not push tags (HTTP 403), so you push it or create the release on GitHub.
+
 **Rule.** If you have not answered by the start of 3.1, the recommended default is used, and the docs agent records it in CLAUDE.md "Decisions" in 3.3. Every default respects the existing Decisions; anything that would not is in §5.2.
 
 | ID | Question | Recommended default | Blocks |
@@ -166,12 +168,12 @@ Every binding Decision in CLAUDE.md still holds: no AI/LLM, no portal logins, ro
 | Flag | What | Why flagged | Ready spec if approved |
 |---|---|---|---|
 | FLAG-2 (reopens FLAG-1 / D14) | Re-read documents and uploaded addenda after a `documents_added` change, so that a new site meeting, bond or forms clause adds required checklist items | Required items would hold auto-send. FLAG-1 was not approved. | Files: `pipeline/documents.ts`, `applications/draft.ts`, `tests/addenda-v3.test.ts` (new). A `documents_added` change clears `documents_read_at` for watched bids. The next run re-reads them and rebuilds an untouched draft, and only reassesses an edited draft. The test shows a new mandatory meeting appears as an item. It also lets an upload on a bid already read rebuild its required items (PRC-4 otherwise changes only the scope and the advisory rows). 3.3 fix pass. |
-| FLAG-3 | Make the PRC-3 rows (insurance shortfall, bond above `bondingLimit`, missing or expired WorkSafeBC letter) **required** items | Adds holds beyond forms, site meeting, bond and price. | `draft.ts` sets `required:true` for these keys when `met:false`; a test asserts auto mode refuses. 3.3 fix pass. |
-| FLAG-4 | Push or e-mail reminders before a mandatory site meeting | Extends D16/D17, which count only from `closingDeadline`. | `pipeline/reminders.ts`: thresholds 72 h and 24 h before `Requirement.at`, deduped per meeting instant in `alert_deliveries`; `tests/meeting-reminders.test.ts`. |
+| FLAG-3 (**approved** 2026-11-23) | Make the PRC-3 rows (insurance shortfall, bond above `bondingLimit`, missing or expired WorkSafeBC letter) **required** items | Adds holds beyond forms, site meeting, bond and price. | `draft.ts` sets `required:true` for these keys when `met:false`; a test asserts auto mode refuses. 3.3 fix pass. |
+| FLAG-4 (**approved** 2026-11-23) | Push or e-mail reminders before a mandatory site meeting | Extends D16/D17, which count only from `closingDeadline`. | `pipeline/reminders.ts`: thresholds 72 h and 24 h before `Requirement.at`, deduped per meeting instant in `alert_deliveries`; `tests/meeting-reminders.test.ts`. 3.3 fix pass (approved FLAG batch). |
 | FLAG-5 | Encrypt stored secrets, or encrypt off-box backups | Changes D24 (plain text, 0600, env overlays). | `src/server/util/secretBox.ts` (node:crypto AES-256-GCM, key from `LGBIDS_SECRET_KEY`); settings read and write through it; one-time migration with a fallback when the key is missing; backup docs. A separate task in 3.3, or v4. |
 | FLAG-6 | Add a `CALDAV_PASS` env overlay | Extends the D24 overlay list. | `settings.ts` overlay with the same rule as `ALERT_IMAP_PASS`; a test in `tests/calendar-settings.test.ts`. Without it, CAL-4 uses the stored password only. |
 | FLAG-7 | Move the beta company's live install to a VPS or Fly.io | Changes D25 (the beta runs on the owner's computer). | HST-3 builds the kit either way; the move is yours (§5.3). |
-| FLAG-9 | Owner approval before an auto-send of a bid an estimator prepared | Adds a condition to the auto-send rule list. | `pipeline/run.ts`: auto mode refuses when the last tick or price edit came from an estimator (`applications.updated_by`); `tests/roles-autosend.test.ts`. 3.3 fix pass. |
+| FLAG-9 (**approved** 2026-11-23) | Owner approval before an auto-send of a bid an estimator prepared | Adds a condition to the auto-send rule list. | `pipeline/run.ts`: auto mode refuses when the last tick or price edit came from an estimator (`applications.updated_by`); `tests/roles-autosend.test.ts`. 3.3 fix pass. |
 | FLAG-8 | `LOG_FILE` with rotation | Revisits the lean cut "dropped: OPS-10 log rotation". | `logging.ts` size-based rotation (5 × 5 MB); `tests/logging.test.ts`. |
 | — Not planned | Scorecard tones as an auto-send condition, or folded into `analyse()` | Changes the auto-send rule list and the D32 baseline. | None. |
 | — Not planned | An estimate fills the price, or ticks `pricing`, by itself | Contradicts the roadmap ("never auto-filled") and the waiver of `documents` only. | None; W3-0F guards against it. |
@@ -180,9 +182,9 @@ Every binding Decision in CLAUDE.md still holds: no AI/LLM, no portal logins, ro
 | — Planned, wording only | CLAUDE.md gains: owner and estimator accounts (`APP_PASSWORD` still enables login and signs in the owner), the route-role rules and the Send rule (D55-D57); D7's parenthetical and the COV-14 lean-cut line once CP-2 lands; D15 and D23 marked done | They add to Decisions; none reverses one. UX-15 asked for this. | Docs agent in 3.3, using the answers you gave. |
 
 ### 5.3 What you must do or provide
-- [ ] **Answer §5.1 in one message**, or say "use the defaults". At minimum: D55-D57 (roles), D65 (calendar), D73 (`undici`) and D82 (pushing).
-- [ ] **Say yes or no to each FLAG** (§5.2). Silence means no.
-- [ ] **Before 3.0:** say OK to tag `v0.2.0-beta` (or tell us that 2.2 has landed, so we branch from `v0.2.1-beta`).
+- [x] **Answer §5.1 in one message**, or say "use the defaults". At minimum: D55-D57 (roles), D65 (calendar), D73 (`undici`) and D82 (pushing).
+- [x] **Say yes or no to each FLAG** (§5.2). Silence means no.
+- [x] **Before 3.0:** say OK to tag `v0.2.0-beta` (or tell us that 2.2 has landed, so we branch from `v0.2.1-beta`).
 - [ ] **Business inputs** (tests use invented values; real values are never invented): your rates and units (crew hour with truck, mowing per acre per cut, mulch per cubic yard, hedge per linear metre), and which are internal; your yard place (or rough coordinates), number of crews, comfort radius (30 km is proposed) and target margin %.
 - [ ] **2-3 real bid PDFs** (anonymised if needed) with site lists or schedules of quantities. Put them in `~/lgbids-bid-pdfs/` and run `npm run pdf-text -- ~/lgbids-bid-pdfs` (PRC-1). It writes scrubbed, text-only `.txt` files. Read them, then send those, not the PDFs. This needs the lane D build; until then, keep the files.
 - [ ] **Calendar check** (after 3.3, on your computer): make a throwaway calendar "Lgbids test" and an app password (Apple app-specific, Fastmail with CalDAV, or Nextcloud). Then run `CALDAV_URL=… CALDAV_USER=… npm run calendar-check` (it asks for the password) and send the pass/fail lines.
@@ -948,7 +950,7 @@ Playwright stays at 1.63.0 with `PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers`. Nev
 | Google Calendar (CAL-9: OAuth with a loopback redirect) | v3.x, if you create an OAuth Desktop client; otherwise v4 | It needs a Google Cloud project; refresh tokens expire after 7 days in Testing mode (D65) |
 | Subscribable calendar feed with a token | Not planned (revisit with hosted v4) | It bypasses the login; hosted calendars cannot reach 127.0.0.1 (D72) |
 | OCR of scanned PDFs; AcroForm price fields; Excel/CSV schedules; drawings | v4 (with the optional assistant) or later | Text-only reading, no AI; the sandbox cannot test real files |
-| Addendum re-read and uploads changing required items; required insurance, bond and WorkSafeBC items; site-meeting reminders; encrypted secrets or backups; owner approval before an estimator's auto-send | FLAG-2, FLAG-3, FLAG-4, FLAG-5 (or v4), FLAG-9 | Each changes a Decision (D14, holds, D16/D17, D24, the auto-send rule) |
+| Addendum re-read and uploads changing required items; encrypted secrets or backups | FLAG-2, FLAG-5 (or v4) | Each changes a Decision (D14, D24) and was not approved. FLAG-3, FLAG-4 and FLAG-9 were approved and are built in 3.3 |
 | Viewer role, multi-tenant, Postgres | v4 (ROADMAP) | Two roles on SQLite in v3 |
 | An "Estimators may send" switch; a per-bid assignee | v3.x | Not needed for the beta (D56, D61) |
 | Per-recipient digest | v3.x | D60 keeps the summary simple |
